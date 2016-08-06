@@ -6,11 +6,14 @@ SRCS=	opt_acpi.h opt_ddb.h device_if.h bus_if.h pci_if.h
 SRCS+=	vmx_assym.h svm_assym.h
 DPSRCS=	vmx_genassym.c svm_genassym.c
 
-CFLAGS+= -DVMM_KEEP_STATS -DSMP
+CFLAGS+= -DVMM_KEEP_STATS -DSMP -D_KERNEL -DKDTRACE_HOOKS
 CFLAGS+= -I${.CURDIR}/../../amd64/vmm
 CFLAGS+= -I${.CURDIR}/../../amd64/vmm/io
 CFLAGS+= -I${.CURDIR}/../../amd64/vmm/intel
 CFLAGS+= -I${.CURDIR}/../../amd64/vmm/amd
+
+CFLAGS_INCLUDE_SOLARIS= -I${.CURDIR}/../../cddl/contrib/opensolaris/uts/common
+CFLAGS_INCLUDE_SOLARIS+= -I${.CURDIR}/../../cddl/compat/opensolaris
 
 # generic vmm support
 .PATH: ${.CURDIR}/../../amd64/vmm
@@ -75,5 +78,9 @@ vmx_genassym.o:
 
 svm_genassym.o:
 	${CC} -c ${CFLAGS:N-fno-common} ${.IMPSRC}
+
+#vmm_dtrace.o:
+#	${CC} -c ${CFLAGS_INCLUDE_SOLARIS} ${CFLAGS} \
+#	    ${.IMPSRC} -o ${.TARGET}
 
 .include <bsd.kmod.mk>
