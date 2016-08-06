@@ -236,19 +236,12 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, dtrace_probes, CTLFLAG_RW,
     &dtrace_probes_enabled, 0,
     "Enable the use of DTrace with probes defined inside VMM.");
 
-/* Temporarily to test things out, ideally this is implemented using
- * <sys/dtrace.h> and <sys/dtrace_bsd.h>, however there are compilation
- * issues. This needs to be solved, but until then this seems like a good
- * way to experiment with DTrace probes inside vmm.
- *
- * XXX: The sysctl for dtrace_probes_enabled is still not being used anywhere
- */
-
-SDT_PROVIDER_DEFINE(vmm);
-SDT_PROBE_DEFINE2(vmm, host, vm_create, vm_create, "const char *", "struct vm *");
-SDT_PROBE_DEFINE2(vmm, host, vm_suspend, vm_suspend, "struct vm *", "enum vm_suspend_how");
-SDT_PROBE_DEFINE2(vmm, host, vm_run, vm_run, "struct vm *", "struct vm_run *");
-SDT_PROBE_DEFINE3(vmm, host, nested_fault, nested_fault, "struct vm *", "int", "uint64_t");
+int	(*dtvmm_hook_create)(const char *name, struct vm *vm);
+int	(*dtvmm_hook_suspend)(struct vm *vm,
+	                      enum vm_suspend_how how);
+int	(*dtvmm_hook_run)(struct vm *vm, struct vm_run *vmrun);
+int	(*dtvmm_hook_nested_fault)(struct vm *vm, int vcpuid,
+	                           uint64_t info);
 #endif
 
 static void vm_free_memmap(struct vm *vm, int ident);
@@ -479,7 +472,9 @@ vm_create(const char *name, struct vm **retvm)
 	vm_init(vm, true);
 
 	*retvm = vm;
-	SDT_PROBE2(vmm, host, vm_create, vm_create, name, *retvm);
+	if (dtvmm_hook_create != NULL) {
+		dtvmm_hook_create(name, *retvm);
+	}
 	return (0);
 }
 
@@ -1554,7 +1549,9 @@ vm_suspend(struct vm *vm, enum vm_suspend_how how)
 
 	VM_CTR1(vm, "virtual machine successfully suspended %d", how);
 
-	SDT_PROBE2(vmm, host, vm_suspend, vm_suspend, vm, how);
+	if (dtvmm_hook_suspend != NULL) {
+		dtvmm_hook_suspend(vm, how);
+	}
 
 	/*
 	 * Notify all active vcpus that they are now suspended.
@@ -1870,7 +1867,9 @@ nested_fault(struct vm *vm, int vcpuid, uint64_t info1, uint64_t info2,
 		    info1, info2);
 		vm_suspend(vm, VM_SUSPEND_TRIPLEFAULT);
 		*retinfo = 0;
-		SDT_PROBE3(vmm, host, nested_fault, nested_fault, vm, vcpuid, *retinfo);
+		if (dtvmm_hook_nested_fault != NULL) {
+			dtvmm_hook_nested_fault(vm, vcpuid, *retinfo);
+		}
 		return (0);
 	}
 
@@ -1889,7 +1888,10 @@ nested_fault(struct vm *vm, int vcpuid, uint64_t info1, uint64_t info2,
 		/* Handle exceptions serially */
 		*retinfo = info2;
 	}
-	SDT_PROBE3(vmm, host, nested_fault, nested_fault, vm, vcpuid, *retinfo);
+	if (dtvmm_hook_nested_fault != NULL) {
+		dtvmm_hook_nested_fault(vm, vcpuid, *retinfo);
+	}
+
 	return (1);
 }
 

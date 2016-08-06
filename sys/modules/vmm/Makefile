@@ -19,6 +19,7 @@ CFLAGS_INCLUDE_SOLARIS+= -I${.CURDIR}/../../cddl/compat/opensolaris
 .PATH: ${.CURDIR}/../../amd64/vmm
 SRCS+=	vmm.c		\
 	vmm_dev.c	\
+	vmm_dtrace_sdt.c	\
 	vmm_host.c	\
 	vmm_instruction_emul.c	\
 	vmm_ioport.c	\
@@ -79,8 +80,8 @@ vmx_genassym.o:
 svm_genassym.o:
 	${CC} -c ${CFLAGS:N-fno-common} ${.IMPSRC}
 
-#vmm_dtrace.o:
-#	${CC} -c ${CFLAGS_INCLUDE_SOLARIS} ${CFLAGS} \
-#	    ${.IMPSRC} -o ${.TARGET}
+vmm_dtrace.o:
+	${CC} -c ${CFLAGS_INCLUDE_SOLARIS} ${CFLAGS} \
+	    ${.IMPSRC} -o ${.TARGET}
 
 .include <bsd.kmod.mk>
