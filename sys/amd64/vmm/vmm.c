@@ -76,7 +76,7 @@ __FBSDID("$FreeBSD$");
 #include "vrtc.h"
 #include "vmm_stat.h"
 #include "vmm_lapic.h"
-#include "vmm_dtrace_sdt.h"
+#include "vmm_dtrace.h"
 
 #include "io/ppt.h"
 #include "io/iommu.h"

@@ -17,3 +17,5 @@ extern int	(*dtvmm_hook_run)(struct vm *vm, struct vm_run *vmrun);
 extern int	(*dtvmm_hook_nested_fault)(struct vm *vm, int vcpuid,
 		                           uint64_t info);
 #endif
+
+#endif

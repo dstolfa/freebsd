@@ -6,7 +6,24 @@
 #include <sys/dtrace.h>
 #include <sys/dtrace_bsd.h>
 
+
 #include "vmm_dtrace.h"
+
+enum {
+	CREATE_ID,
+	SUSPEND_ID,
+	RUN_ID,
+	NESTED_FAULT_ID,
+	NUM_PROBES
+};
+
+uint32_t	pb[NUM_PROBES];
+char		*pb_name_str[NUM_PROBES] = {
+	[CREATE_ID]		= "vm_create",
+	[SUSPEND_ID]		= "vm_suspend",
+	[RUN_ID]		= "vm_run",
+	[NESTED_FAULT_ID]	= "nested_fault",
+};
 
 static int	dtvmm_unload(void);
 static void	dtvmm_load(void *);
@@ -44,28 +61,77 @@ static dtrace_pops_t dtvmm_pops = {
 
 static dtrace_provider_id_t	dtvmm_id;
 
+/* This provider should be well thought of
+ * in terms of argument descriptions. Lots of
+ * different arguments may be passed in, there
+ * should be a generalization of them so that
+ * the if ladder can be avoided
+ */
+
+static void
+dtvmm_getargdesc(void *arg, dtrace_id_t id, void *parg,
+    dtrace_argdesc_t *desc)
+{
+	const char *p;
+	p = NULL;
+	
+	switch(desc->dtargd_ndx) {
+	case 0:
+		p = "struct vm *";
+		break;
+	case 1:
+		break;
+	case 2:
+		break;
+	case 3:
+		break;
+	default:
+		desc->dtargd_ndx = DTRACE_ARGNONE;
+		break;
+	}
+	
+	if (p != NULL)
+		strlcpy(desc->dtargd_native, p, sizeof(desc->dtargd_native));
+}
+
 static int
 dtvmm_create(const char *name, struct vm *vm)
 {
-	return 0;
+	if (dtrace_probes_enabled) {
+		dtrace_probe(pb[CREATE_ID],
+		    (uintptr_t)name, (uintptr_t)vm, 0, 0, 0);
+	}
+	return dtrace_probes_enabled;
 }
 
 static int
 dtvmm_suspend(struct vm *vm, enum vm_suspend_how how)
 {
-	return 0;
+	if (dtrace_probes_enabled) {
+		dtrace_probe(pb[SUSPEND_ID],
+		    (uintptr_t)vm, (uintptr_t)how, 0, 0, 0);
+	}
+	return dtrace_probes_enabled;
 }
 
 static int
 dtvmm_run(struct vm *vm, struct vm_run *vmrun)
 {
-	return 0;
+	if (dtrace_probes_enabled) {
+		dtrace_probe(pb[RUN_ID],
+		    (uintptr_t)vm, (uintptr_t)vmrun, 0, 0, 0);
+	}
+	return dtrace_probes_enabled;
 }
 
 static int
 dtvmm_nested_fault(struct vm *vm, int vcpuid, uint64_t info)
 {
-	return 0;
+	if (dtrace_probes_enabled) {
+		dtrace_probe(pb[NESTED_FAULT_ID],
+		    (uintptr_t)vm, (uintptr_t)vcpuid, (uintptr_t)info, 0, 0);
+	}
+	return dtrace_probes_enabled;
 }
 
 static void
@@ -88,6 +154,33 @@ dtvmm_unload(void)
 	dtvmm_hook_suspend	= NULL;
 	dtvmm_hook_run		= NULL;
 	dtvmm_hook_nested_fault	= NULL;
+}
+
+static void
+dtvmm_provide(void *arg, dtrace_probedesc_t *desc)
+{
+	/* XXX: This probably doesn't work */
+	uint32_t i;
+	for (i = 0; i < NUM_PROBES; i++) {
+		if (dtrace_probe_lookup(dtvmm_id,
+		        dtvmm_module_str, NULL,
+		        pb_name_str[i]) == 0) {
+		pb[i] = dtrace_probe_create(dtvmm_id, dtvmm_module_str,
+		            NULL, pb[i], 0, NULL);
+		}
+	}
+}
+
+static void
+dtvmm_enable(void *arg, dtrace_id_t id, void *parg)
+{
+	/* TODO: Implement host-side and host-guest cooperation probes */
+}
+
+static void
+dtvmm_disable(void *arg, dtrace_id_t id, void *parg)
+{
+	/* TODO: Implement host-side and host-guest cooperation probes */
 }
 
 static int
