@@ -236,12 +236,14 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, dtrace_probes, CTLFLAG_RW,
     &dtrace_probes_enabled, 0,
     "Enable the use of DTrace with probes defined inside VMM.");
 
-int	(*dtvmm_hook_create)(const char *name, struct vm *vm);
+int	(*dtvmm_hook_create)(const char *name);
 int	(*dtvmm_hook_suspend)(struct vm *vm,
-	                      enum vm_suspend_how how);
+	    enum vm_suspend_how how);
 int	(*dtvmm_hook_run)(struct vm *vm, struct vm_run *vmrun);
 int	(*dtvmm_hook_nested_fault)(struct vm *vm, int vcpuid,
-	                           uint64_t info);
+	    uint64_t info);
+int	(*dtvmm_hook_map_mmio)(const char *name, vm_paddr_t gpa,
+	    size_t len, vm_paddr_t hpa);
 #endif
 
 static void vm_free_memmap(struct vm *vm, int ident);
@@ -473,7 +475,7 @@ vm_create(const char *name, struct vm **retvm)
 
 	*retvm = vm;
 	if (dtvmm_hook_create != NULL) {
-		dtvmm_hook_create(name, *retvm);
+		dtvmm_hook_create((*retvm)->name);
 	}
 	return (0);
 }
@@ -566,8 +568,12 @@ vm_map_mmio(struct vm *vm, vm_paddr_t gpa, size_t len, vm_paddr_t hpa)
 
 	if ((obj = vmm_mmio_alloc(vm->vmspace, gpa, len, hpa)) == NULL)
 		return (ENOMEM);
-	else
+	else {
+		if (dtvmm_hook_map_mmio != NULL) {
+			dtvmm_hook_map_mmio(vm->name, gpa, len, hpa);
+		}
 		return (0);
+	}
 }
 
 int

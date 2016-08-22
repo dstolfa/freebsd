@@ -14,6 +14,7 @@ enum {
 	SUSPEND_ID,
 	RUN_ID,
 	NESTED_FAULT_ID,
+	MAP_MMIO_ID,
 	NUM_PROBES
 };
 
@@ -23,6 +24,7 @@ char		*pb_name_str[NUM_PROBES] = {
 	[SUSPEND_ID]		= "vm_suspend",
 	[RUN_ID]		= "vm_run",
 	[NESTED_FAULT_ID]	= "nested_fault",
+	[MAP_MMIO_ID]		= "map_mmio",
 };
 
 static int	dtvmm_unload(void);
@@ -64,7 +66,6 @@ static dtrace_provider_id_t	dtvmm_id;
  * should be a generalization of them so that
  * the if ladder can be avoided
  */
-
 static void
 dtvmm_getargdesc(void *arg, dtrace_id_t id, void *parg,
     dtrace_argdesc_t *desc)
@@ -72,15 +73,41 @@ dtvmm_getargdesc(void *arg, dtrace_id_t id, void *parg,
 	const char *p;
 	p = NULL;
 	
-	switch(desc->dtargd_ndx) {
+	switch (desc->dtargd_ndx) {
 	case 0:
-		p = "struct vm *";
+		/* Name of the VM */
+		p = "char *";
 		break;
 	case 1:
+		switch (id) {
+		case NESTED_FAULT_ID: /* fall through */
+		case MAP_MMIO_ID:
+			p = "int";
+			break;
+		default:
+			desc->dtargd_ndx = DTRACE_ARGNONE;
+		}
 		break;
 	case 2:
+		switch (id) {
+		case NESTED_FAULT_ID:
+			p = "uint64_t";
+			break;
+		case MAP_MMIO_ID:
+			p = "size_t";
+			break;
+		default:
+			desc->dtargd_ndx = DTRACE_ARGNONE;
+		}
 		break;
 	case 3:
+		switch (id) {
+		case MAP_MMIO_ID:
+			p = "int";
+			break;
+		default:
+			desc->dtargd_ndx = DTRACE_ARGNONE;
+		}
 		break;
 	default:
 		desc->dtargd_ndx = DTRACE_ARGNONE;
@@ -92,11 +119,12 @@ dtvmm_getargdesc(void *arg, dtrace_id_t id, void *parg,
 }
 
 static int
-dtvmm_create(const char *name, struct vm *vm)
+dtvmm_create(const char *name)
 {
 	if (dtrace_probes_enabled) {
 		dtrace_probe(pb[CREATE_ID],
-		    (uintptr_t)name, (uintptr_t)vm, 0, 0, 0);
+		    (uintptr_t)name,
+		    0, 0, 0, 0);
 	}
 	return (dtrace_probes_enabled);
 }
@@ -129,6 +157,17 @@ dtvmm_nested_fault(struct vm *vm, int vcpuid, uint64_t info)
 		    (uintptr_t)vm, (uintptr_t)vcpuid, (uintptr_t)info, 0, 0);
 	}
 	return (dtrace_probes_enabled);
+}
+
+static int
+dtvmm_map_mmio(const char *name, vm_paddr_t gpa, size_t len, vm_paddr_t hpa)
+{
+	if (dtrace_probes_enabled) {
+		dtrace_probe(pb[MAP_MMIO_ID],
+		    (uintptr_t)name, (uintptr_t)gpa,
+		    (uintptr_t)len, (uintptr_t)hpa, 0);
+	}
+	return (dtrace_probes_enabled);	
 }
 
 static void
