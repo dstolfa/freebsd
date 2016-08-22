@@ -28,9 +28,10 @@ char		*pb_name_str[NUM_PROBES] = {
 static int	dtvmm_unload(void);
 static void	dtvmm_load(void *);
 static void	dtvmm_provide(void *, dtrace_probedesc_t *);
+static void	dtvmm_destroy(void *, dtrace_id_t, void *);
 static void	dtvmm_enable(void *, dtrace_id_t, void *);
 static void	dtvmm_disable(void *, dtrace_id_t, void *);
-static void	dtvmm_getargdesc(void *, dtrace_id_t *, void *, dtrace_argdesc_t *);
+static void	dtvmm_getargdesc(void *, dtrace_id_t, void *, dtrace_argdesc_t *);
 
 static dtrace_pattr_t dtvmm_attr = {
 { DTRACE_STABILITY_STABLE, DTRACE_STABILITY_STABLE, DTRACE_CLASS_COMMON },
@@ -41,10 +42,6 @@ static dtrace_pattr_t dtvmm_attr = {
 };
 
 static char	*dtvmm_module_str		= "host";
-static char	*dtvmm_name_create_str		= "vm_create";
-static char	*dtvmm_name_suspend_str		= "vm_suspend";
-static char	*dtvmm_name_run_str		= "vm_run";
-static char	*dtvmm_name_nested_fault_str	= "nested_fault";
 
 static dtrace_pops_t dtvmm_pops = {
 	/* dtps_provide */		dtvmm_provide,
@@ -101,7 +98,7 @@ dtvmm_create(const char *name, struct vm *vm)
 		dtrace_probe(pb[CREATE_ID],
 		    (uintptr_t)name, (uintptr_t)vm, 0, 0, 0);
 	}
-	return dtrace_probes_enabled;
+	return (dtrace_probes_enabled);
 }
 
 static int
@@ -111,7 +108,7 @@ dtvmm_suspend(struct vm *vm, enum vm_suspend_how how)
 		dtrace_probe(pb[SUSPEND_ID],
 		    (uintptr_t)vm, (uintptr_t)how, 0, 0, 0);
 	}
-	return dtrace_probes_enabled;
+	return (dtrace_probes_enabled);
 }
 
 static int
@@ -121,7 +118,7 @@ dtvmm_run(struct vm *vm, struct vm_run *vmrun)
 		dtrace_probe(pb[RUN_ID],
 		    (uintptr_t)vm, (uintptr_t)vmrun, 0, 0, 0);
 	}
-	return dtrace_probes_enabled;
+	return (dtrace_probes_enabled);
 }
 
 static int
@@ -131,7 +128,7 @@ dtvmm_nested_fault(struct vm *vm, int vcpuid, uint64_t info)
 		dtrace_probe(pb[NESTED_FAULT_ID],
 		    (uintptr_t)vm, (uintptr_t)vcpuid, (uintptr_t)info, 0, 0);
 	}
-	return dtrace_probes_enabled;
+	return (dtrace_probes_enabled);
 }
 
 static void
@@ -154,6 +151,7 @@ dtvmm_unload(void)
 	dtvmm_hook_suspend	= NULL;
 	dtvmm_hook_run		= NULL;
 	dtvmm_hook_nested_fault	= NULL;
+	return (0);
 }
 
 static void
@@ -166,9 +164,15 @@ dtvmm_provide(void *arg, dtrace_probedesc_t *desc)
 		        dtvmm_module_str, NULL,
 		        pb_name_str[i]) == 0) {
 		pb[i] = dtrace_probe_create(dtvmm_id, dtvmm_module_str,
-		            NULL, pb[i], 0, NULL);
+		            NULL, pb_name_str[i], 0, NULL);
 		}
 	}
+}
+
+static void
+dtvmm_destroy(void *arg, dtrace_id_t id, void *parg)
+{
+
 }
 
 static void
