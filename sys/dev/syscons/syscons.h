@@ -34,8 +34,9 @@
 #ifndef _DEV_SYSCONS_SYSCONS_H_
 #define	_DEV_SYSCONS_SYSCONS_H_
 
-#include <sys/lock.h>
-#include <sys/mutex.h>
+#include <sys/kdb.h>		/* XXX */
+#include <sys/_lock.h>
+#include <sys/_mutex.h>
 
 /* machine-dependent part of the header */
 
@@ -189,6 +190,7 @@ struct scr_stat;
 struct tty;
 
 struct sc_cnstate {
+	u_char		kbd_locked;
 	u_char		kbd_opened;
 	u_char		scr_opened;
 };
@@ -239,7 +241,6 @@ typedef struct sc_softc {
 	/* 2 is just enough for kdb to grab for stepping normal grabbing: */
 	struct sc_cnstate grab_state[2];
 	int		kbd_open_level;
-	struct mtx	scr_lock;		/* mutex for sc_puts() */
 	struct mtx	video_mtx;
 
 	long		scrn_time_stamp;
@@ -547,12 +548,12 @@ typedef struct {
 		    MTX_SPIN | MTX_RECURSE);
 #define SC_VIDEO_LOCK(sc)						\
 		do {							\
-			if (!cold)					\
+			if (!kdb_active)				\
 				mtx_lock_spin(&(sc)->video_mtx);	\
 		} while(0)
 #define SC_VIDEO_UNLOCK(sc)						\
 		do {							\
-			if (!cold)					\
+			if (!kdb_active)				\
 				mtx_unlock_spin(&(sc)->video_mtx);	\
 		} while(0)
 

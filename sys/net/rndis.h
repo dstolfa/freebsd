@@ -62,6 +62,8 @@
 #define	OID_GEN_SUPPORTED_GUIDS		0x00010117
 #define	OID_GEN_NETWORK_LAYER_ADDRESSES	0x00010118
 #define	OID_GEN_TRANSPORT_HEADER_OFFSET	0x00010119
+#define	OID_GEN_RECEIVE_SCALE_CAPABILITIES	0x00010203
+#define	OID_GEN_RECEIVE_SCALE_PARAMETERS	0x00010204
 #define	OID_GEN_MACHINE_NAME		0x0001021A
 #define	OID_GEN_RNDIS_CONFIG_PARAMETER	0x0001021B
 #define	OID_GEN_VLAN_ID			0x0001021C
@@ -81,6 +83,8 @@
 #define	OID_802_3_XMIT_HEARTBEAT_FAILURE	0x01020205
 #define	OID_802_3_XMIT_TIMES_CRS_LOST	0x01020206
 #define	OID_802_3_XMIT_LATE_COLLISIONS	0x01020207
+
+#define	OID_TCP_OFFLOAD_PARAMETERS	0xFC01020C
 
 #define	RNDIS_MEDIUM_802_3		0x00000000
 
@@ -172,6 +176,10 @@ struct rndis_query_req {
 	uint32_t rm_devicevchdl;
 };
 
+#define	RNDIS_QUERY_REQ_INFOBUFOFFSET		\
+	(sizeof(struct rndis_query_req) -	\
+	 __offsetof(struct rndis_query_req, rm_rid))
+
 struct rndis_query_comp {
 	uint32_t rm_type;
 	uint32_t rm_len;
@@ -180,6 +188,9 @@ struct rndis_query_comp {
 	uint32_t rm_infobuflen;
 	uint32_t rm_infobufoffset;
 };
+
+#define	RNDIS_QUERY_COMP_INFOBUFABS(ofs)	\
+	((ofs) + __offsetof(struct rndis_query_req, rm_rid))
 
 /* Send a set object request. */
 #define	REMOTE_NDIS_SET_MSG		0x00000005
@@ -194,6 +205,10 @@ struct rndis_set_req {
 	uint32_t rm_infobufoffset;
 	uint32_t rm_devicevchdl;
 };
+
+#define	RNDIS_SET_REQ_INFOBUFOFFSET		\
+	(sizeof(struct rndis_set_req) -		\
+	 __offsetof(struct rndis_set_req, rm_rid))
 
 struct rndis_set_comp {
 	uint32_t rm_type;
@@ -251,18 +266,18 @@ struct rndis_keepalive_comp {
 };
 
 /* packet filter bits used by OID_GEN_CURRENT_PACKET_FILTER */
-#define	RNDIS_PACKET_TYPE_DIRECTED		0x00000001
-#define	RNDIS_PACKET_TYPE_MULTICAST		0x00000002
-#define	RNDIS_PACKET_TYPE_ALL_MULTICAST		0x00000004
-#define	RNDIS_PACKET_TYPE_BROADCAST		0x00000008
-#define	RNDIS_PACKET_TYPE_SOURCE_ROUTING	0x00000010
-#define	RNDIS_PACKET_TYPE_PROMISCUOUS		0x00000020
-#define	RNDIS_PACKET_TYPE_SMT			0x00000040
-#define	RNDIS_PACKET_TYPE_ALL_LOCAL		0x00000080
-#define	RNDIS_PACKET_TYPE_GROUP			0x00001000
-#define	RNDIS_PACKET_TYPE_ALL_FUNCTIONAL	0x00002000
-#define	RNDIS_PACKET_TYPE_FUNCTIONAL		0x00004000
-#define	RNDIS_PACKET_TYPE_MAC_FRAME		0x00008000
+#define	NDIS_PACKET_TYPE_DIRECTED		0x00000001
+#define	NDIS_PACKET_TYPE_MULTICAST		0x00000002
+#define	NDIS_PACKET_TYPE_ALL_MULTICAST		0x00000004
+#define	NDIS_PACKET_TYPE_BROADCAST		0x00000008
+#define	NDIS_PACKET_TYPE_SOURCE_ROUTING		0x00000010
+#define	NDIS_PACKET_TYPE_PROMISCUOUS		0x00000020
+#define	NDIS_PACKET_TYPE_SMT			0x00000040
+#define	NDIS_PACKET_TYPE_ALL_LOCAL		0x00000080
+#define	NDIS_PACKET_TYPE_GROUP			0x00001000
+#define	NDIS_PACKET_TYPE_ALL_FUNCTIONAL		0x00002000
+#define	NDIS_PACKET_TYPE_FUNCTIONAL		0x00004000
+#define	NDIS_PACKET_TYPE_MAC_FRAME		0x00008000
 
 /* RNDIS offsets */
 #define	RNDIS_HEADER_OFFSET	8	/* bytes */
