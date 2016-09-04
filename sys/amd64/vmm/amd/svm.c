@@ -158,7 +158,6 @@ svm_disable(void *arg __unused)
 static int
 svm_cleanup(void)
 {
-
 	smp_rendezvous(NULL, svm_disable, NULL, NULL);
 	return (0);
 }
@@ -1243,6 +1242,12 @@ exit_reason_to_str(uint64_t reason)
 		return ("monitor");
 	case VMCB_EXIT_MWAIT:
 		return ("mwait");
+	case VMCB_EXIT_VMMCALL:
+		return ("vmmcall");
+	case VMCB_EXIT_VMLOAD:
+		return ("vmload");
+	case VMCB_EXIT_VMSAVE:
+		return ("vmsave");
 	default:
 		snprintf(reasonbuf, sizeof(reasonbuf), "%#lx", reason);
 		return (reasonbuf);
@@ -1324,6 +1329,8 @@ svm_vmexit(struct svm_softc *svm_sc, int vcpu, struct vm_exit *vmexit)
 	svm_update_virqinfo(svm_sc, vcpu);
 	svm_save_intinfo(svm_sc, vcpu);
 
+	printf("Exit reason is: 0x%lx\n", code);
+
 	switch (code) {
 	case VMCB_EXIT_IRET:
 		/*
@@ -1342,6 +1349,10 @@ svm_vmexit(struct svm_softc *svm_sc, int vcpu, struct vm_exit *vmexit)
 		handled = 1;
 		break;
 	case VMCB_EXIT_NMI:	/* external NMI */
+		handled = 1;
+		break;
+	case VMCB_EXIT_VMMCALL:
+		printf("VMMCALL induced VMExit\n");
 		handled = 1;
 		break;
 	case 0x40 ... 0x5F:
