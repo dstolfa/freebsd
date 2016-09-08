@@ -397,6 +397,7 @@ void vm_copyout(struct vm *vm, int vcpuid, const void *kaddr,
     struct vm_copyinfo *copyinfo, size_t len);
 
 int vcpu_trace_exceptions(struct vm *vm, int vcpuid);
+int vm_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit);
 #endif	/* KERNEL */
 
 #define	VM_MAXCPU	16			/* maximum virtual cpus */
@@ -575,8 +576,8 @@ struct vm_task_switch {
 };
 
 struct vm_hypercall {
-	uint64_t rsp;
-	uint64_t ss_base;
+	uint64_t	rsp;
+	uint64_t	ss_base;
 	struct vm_guest_paging	paging;
 };
 
@@ -679,6 +680,5 @@ vm_inject_ss(void *vm, int vcpuid, int errcode)
 void vm_inject_pf(void *vm, int vcpuid, int error_code, uint64_t cr2);
 
 int vm_restart_instruction(void *vm, int vcpuid);
-int vm_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit);
 
 #endif	/* _VMM_H_ */
