@@ -2476,6 +2476,8 @@ vmx_exit_process(struct vmx *vmx, int vcpu, struct vm_exit *vmexit)
 		break;
 	case EXIT_REASON_VMCALL:
 		vmexit->exitcode = VM_EXITCODE_HYPERCALL;
+		vmexit->u.hypercall.rsp = vmcs_read(VMCS_GUEST_RSP);
+		vmexit->u.hypercall.ss_base = vmcs_read(VMCS_GUEST_SS_BASE);
 		vmx_paging_info(&vmexit->u.hypercall.paging);
 		handled = vm_hypercall(vmx->vm, vcpu, vmexit);
 		break;

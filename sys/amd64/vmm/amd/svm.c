@@ -851,6 +851,33 @@ svm_handle_inst_emul(struct vmcb *vmcb, uint64_t gpa, struct vm_exit *vmexit)
 	vie_init(&vmexit->u.inst_emul.vie, inst_bytes, inst_len);
 }
 
+static int 
+svm_handle_hypercall(struct svm_softc *svm_sc, int vcpu, struct vmcb *vmcb, struct vm_exit *vmexit)
+{
+	struct vm_guest_paging *paging;
+	struct vmcb_segment seg;
+	uint64_t rsp;
+	int error;
+
+	paging = &vmexit->u.hypercall.paging;
+	vmexit->exitcode = VM_EXITCODE_HYPERCALL;
+
+	error = vmcb_read(svm_sc, vcpu, VM_REG_GUEST_RSP,
+	    &rsp);
+	KASSERT(error == 0, ("%s: error %d getting RSP",
+	    __func__, error));
+
+	error = vmcb_seg(vmcb, VM_REG_GUEST_SS, &seg);
+	KASSERT(error == 0, ("%s: error %d getting segment SS",
+	    __func__, error));
+
+	vmexit->u.hypercall.rsp = rsp;
+	vmexit->u.hypercall.ss_base = seg.base;
+	svm_paging_info(vmcb, paging);
+
+	return vm_hypercall(svm_sc->vm, vcpu, vmexit);
+}
+
 #ifdef KTR
 static const char *
 intrtype_to_str(int intr_type)
@@ -1353,9 +1380,7 @@ svm_vmexit(struct svm_softc *svm_sc, int vcpu, struct vm_exit *vmexit)
 		handled = 1;
 		break;
 	case VMCB_EXIT_VMMCALL:
-		vmexit->exitcode = VM_EXITCODE_HYPERCALL;
-		svm_paging_info(vmcb, &vmexit->u.hypercall.paging);
-		handled = vm_hypercall(svm_sc->vm, vcpu, vmexit);
+		handled = svm_handle_hypercall(svm_sc, vcpu, vmcb, vmexit);
 		break;
 	case 0x40 ... 0x5F:
 		vmm_stat_incr(svm_sc->vm, vcpu, VMEXIT_EXCEPTION, 1);

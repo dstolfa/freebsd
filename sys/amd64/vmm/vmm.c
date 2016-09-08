@@ -1544,14 +1544,18 @@ vm_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit)
 	struct iovec copyinfo[2]
 #endif
 	struct vm_guest_paging *paging;
-	struct seg_desc ss_desc;
-	uint64_t hcid, nargs, args[HYPERCALL_MAX_ARGS], rsp, stack_gla, rflags, cr0;
+	uint64_t hcid, nargs, rsp, stack_gla, ss_base;
+	uint8_t args[HYPERCALL_MAX_ARGS * 8];
 	int error, fault, stackaddrsize, size, handled;
 
 	handled = 0;
+	rsp = vmexit->u.hypercall.rsp;
+	ss_base = vmexit->u.hypercall.ss_base;
 	paging = &vmexit->u.hypercall.paging;
 	stackaddrsize = 8;
 	size = 8;
+
+	stack_gla = rsp + ss_base;
 
 	error = vm_get_register(vm, vcpu, VM_REG_GUEST_RAX, &hcid);
 	KASSERT(error == 0, ("%s: error %d getting RAX",
@@ -1564,49 +1568,16 @@ vm_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit)
 
 	switch (hcid) {
 	case HYPERCALL_DTRACE_PROBE_CREATE:
-		error = vm_get_register(vm, vcpu, VM_REG_GUEST_CR0, &cr0);
-		KASSERT(error == 0, ("%s: error %d getting CR0",
-		    __func__, error));
-		error = vm_get_register(vm, vcpu, VM_REG_GUEST_RFLAGS, &rflags);
-		KASSERT(error == 0, ("%s: error %d getting RFLAGS",
-		    __func__, error));
-		error = vm_get_register(vm, vcpu, VM_REG_GUEST_RSP, &rsp);
-		KASSERT(error == 0, ("%s: error %d getting RBX",
-		    __func__, error));
-
-/*		if (vie_calculate_gla(paging->cpu_mode, VM_REG_GUEST_SS, &ss_desc,
-		    rsp, size, stackaddrsize, PROT_READ, &stack_gla)) {
-			vm_inject_ss(vm, vcpu, 0);
-			return (0);
-		}
-
-		if (vie_canonical_check(paging->cpu_mode, stack_gla)) {
-			vm_inject_ss(vm, vcpu, 0);
-			return (0);
-		}
-
-		if (vie_alignment_check(paging->cpl, size, cr0, rflags, stack_gla)) {
-			vm_inject_ac(vm, vcpu, 0);
-			return (0);
-		} */
-
-		error = vm_get_seg_desc(vm, vcpu, VM_REG_GUEST_SS, &ss_desc);
-		KASSERT(error == 0, ("%s: error %d getting SS descriptor",
-		    __func__, error));
-
-		stack_gla = rsp + ss_desc.base;
-
-		error = vm_copy_setup(vm, vcpu, paging, stack_gla, size,
+		error = vm_copy_setup(vm, vcpu, paging, stack_gla, nargs * size,
 		    PROT_READ, copyinfo, nitems(copyinfo), &fault);
 		if (error || fault) {
 			printf("Hypercall (error, fault) = (%d, %d)\n", error, fault);
 			return (0);
 		}
 
-		/* XXX: memwrite/memread needed?? */
-		vm_copyin(vm, vcpu, copyinfo, &args[0], size);
+		vm_copyin(vm, vcpu, copyinfo, args, nargs * size);
 		vm_copy_teardown(vm, vcpu, copyinfo, nitems(copyinfo));
-		printf("arg0: %lu\n", args[0]);
+
 		handled = 1;
 		break;
 	case HYPERCALL_DTRACE_PROBE:
