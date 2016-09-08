@@ -1332,8 +1332,6 @@ svm_vmexit(struct svm_softc *svm_sc, int vcpu, struct vm_exit *vmexit)
 	svm_update_virqinfo(svm_sc, vcpu);
 	svm_save_intinfo(svm_sc, vcpu);
 
-	printf("Exit reason is: 0x%lx\n", code);
-
 	switch (code) {
 	case VMCB_EXIT_IRET:
 		/*
@@ -1355,8 +1353,9 @@ svm_vmexit(struct svm_softc *svm_sc, int vcpu, struct vm_exit *vmexit)
 		handled = 1;
 		break;
 	case VMCB_EXIT_VMMCALL:
-		printf("VMMCALL induced VMExit\n");
-		handled = 1;
+		vmexit->exitcode = VM_EXITCODE_HYPERCALL;
+		svm_paging_info(vmcb, &vmexit->u.hypercall.paging);
+		handled = vm_hypercall(svm_sc->vm, vcpu, vmexit);
 		break;
 	case 0x40 ... 0x5F:
 		vmm_stat_incr(svm_sc->vm, vcpu, VMEXIT_EXCEPTION, 1);

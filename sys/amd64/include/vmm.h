@@ -533,7 +533,7 @@ enum vm_exitcode {
 	VM_EXITCODE_MWAIT,
 	VM_EXITCODE_SVM,
 	VM_EXITCODE_REQIDLE,
-	VM_EXITCODE_DT_PROBE,
+	VM_EXITCODE_HYPERCALL,
 	VM_EXITCODE_MAX
 };
 
@@ -572,6 +572,10 @@ struct vm_task_switch {
 	int		errcode_valid;	/* push 'errcode' on the new stack */
 	enum task_switch_reason reason;
 	struct vm_guest_paging paging;
+};
+
+struct vm_hypercall {
+	struct vm_guest_paging	paging;
 };
 
 struct vm_exit {
@@ -637,7 +641,8 @@ struct vm_exit {
 		struct {
 			enum vm_suspend_how how;
 		} suspended;
-		struct vm_task_switch task_switch;
+		struct vm_task_switch	task_switch;
+		struct vm_hypercall	hypercall;
 	} u;
 };
 
@@ -672,5 +677,6 @@ vm_inject_ss(void *vm, int vcpuid, int errcode)
 void vm_inject_pf(void *vm, int vcpuid, int error_code, uint64_t cr2);
 
 int vm_restart_instruction(void *vm, int vcpuid);
+int vm_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit);
 
 #endif	/* _VMM_H_ */

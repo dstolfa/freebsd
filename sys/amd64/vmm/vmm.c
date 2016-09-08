@@ -225,6 +225,10 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, trace_guest_exceptions, CTLFLAG_RDTUN,
     &trace_guest_exceptions, 0,
     "Trap into hypervisor on all guest exceptions and reflect them back");
 
+#define HYPERCALL_MAX_ARGS		6
+#define HYPERCALL_DTRACE_PROBE_CREATE	0
+#define HYPERCALL_DTRACE_PROBE		1
+
 #ifdef KDTRACE_HOOKS
 int dtrace_probes_enabled = 0;
 SYSCTL_INT(_hw_vmm, OID_AUTO, dtrace_probes, CTLFLAG_RW, 
@@ -1529,6 +1533,90 @@ vm_handle_reqidle(struct vm *vm, int vcpuid, bool *retu)
 	vcpu_unlock(vcpu);
 	*retu = true;
 	return (0);
+}
+
+int
+vm_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit)
+{
+#ifdef _KERNEL
+	struct vm_copyinfo copyinfo[2];
+#else
+	struct iovec copyinfo[2]
+#endif
+	struct vm_guest_paging *paging;
+	struct seg_desc ss_desc;
+	uint64_t hcid, nargs, args[HYPERCALL_MAX_ARGS], rsp, stack_gla, rflags, cr0;
+	int error, fault, stackaddrsize, size, handled;
+
+	handled = 0;
+	paging = &vmexit->u.hypercall.paging;
+	stackaddrsize = 8;
+	size = 8;
+
+	error = vm_get_register(vm, vcpu, VM_REG_GUEST_RAX, &hcid);
+	KASSERT(error == 0, ("%s: error %d getting RAX",
+	    __func__, error));
+	error = vm_get_register(vm, vcpu, VM_REG_GUEST_RBX, &nargs);
+	KASSERT(error == 0, ("%s: error %d getting RBX",
+	    __func__, error));
+	KASSERT((nargs < 7 && nargs >= 0), ("%s: error nargs == %lu",
+	    __func__, nargs));
+
+	switch (hcid) {
+	case HYPERCALL_DTRACE_PROBE_CREATE:
+		error = vm_get_register(vm, vcpu, VM_REG_GUEST_CR0, &cr0);
+		KASSERT(error == 0, ("%s: error %d getting CR0",
+		    __func__, error));
+		error = vm_get_register(vm, vcpu, VM_REG_GUEST_RFLAGS, &rflags);
+		KASSERT(error == 0, ("%s: error %d getting RFLAGS",
+		    __func__, error));
+		error = vm_get_register(vm, vcpu, VM_REG_GUEST_RSP, &rsp);
+		KASSERT(error == 0, ("%s: error %d getting RBX",
+		    __func__, error));
+
+/*		if (vie_calculate_gla(paging->cpu_mode, VM_REG_GUEST_SS, &ss_desc,
+		    rsp, size, stackaddrsize, PROT_READ, &stack_gla)) {
+			vm_inject_ss(vm, vcpu, 0);
+			return (0);
+		}
+
+		if (vie_canonical_check(paging->cpu_mode, stack_gla)) {
+			vm_inject_ss(vm, vcpu, 0);
+			return (0);
+		}
+
+		if (vie_alignment_check(paging->cpl, size, cr0, rflags, stack_gla)) {
+			vm_inject_ac(vm, vcpu, 0);
+			return (0);
+		} */
+
+		error = vm_get_seg_desc(vm, vcpu, VM_REG_GUEST_SS, &ss_desc);
+		KASSERT(error == 0, ("%s: error %d getting SS descriptor",
+		    __func__, error));
+
+		stack_gla = rsp + ss_desc.base;
+
+		error = vm_copy_setup(vm, vcpu, paging, stack_gla, size,
+		    PROT_READ, copyinfo, nitems(copyinfo), &fault);
+		if (error || fault) {
+			printf("Hypercall (error, fault) = (%d, %d)\n", error, fault);
+			return (0);
+		}
+
+		/* XXX: memwrite/memread needed?? */
+		vm_copyin(vm, vcpu, copyinfo, &args[0], size);
+		vm_copy_teardown(vm, vcpu, copyinfo, nitems(copyinfo));
+		printf("arg0: %lu\n", args[0]);
+		handled = 1;
+		break;
+	case HYPERCALL_DTRACE_PROBE:
+		handled = 1;
+		break;
+	default:
+		break;	
+	}
+
+	return (handled);
 }
 
 int

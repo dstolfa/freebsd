@@ -38,7 +38,7 @@ hypercall0(unsigned long c)
 		    : "a"(c), "b"(nargs)
 		    : "memory", "rsp");
 	}
-	return ret;
+	return (ret);
 }
 
 static __inline long 
@@ -63,7 +63,7 @@ hypercall1(unsigned long c, unsigned long arg0)
 		    : "a"(c), "g"(arg0), "b"(nargs)
 		    : "memory", "rsp");
 	}
-	return ret;
+	return (ret);
 }
 
 static __inline long
@@ -91,7 +91,7 @@ hypercall2(unsigned long c, unsigned long arg0,
 		    : "a"(c), "g"(arg0), "g"(arg1), "b"(nargs)
 		    : "memory", "rsp");
 	}
-	return ret;
+	return (ret);
 } 
 
 static __inline long
@@ -121,7 +121,7 @@ hypercall3(unsigned long c, unsigned long arg0,
 		    : "a"(c), "g"(arg0), "g"(arg1), "g"(arg2), "b"(nargs)
 		    : "memory", "rsp");
 	}
-	return ret;
+	return (ret);
 } 
 
 static __inline long
@@ -154,7 +154,7 @@ hypercall4(unsigned long c, unsigned long arg0,
 		    : "a"(c), "g"(arg0), "g"(arg1), "g"(arg2), "g"(arg3), "b"(nargs)
 		    : "memory", "rsp");
 	}
-	return ret;
+	return (ret);
 } 
 
 static __inline long
@@ -189,7 +189,7 @@ hypercall5(unsigned long c, unsigned long arg0,
 		    : "a"(c), "g"(arg0), "g"(arg1), "g"(arg2), "g"(arg3), "g"(arg4), "b"(nargs)
 		    : "memory", "rsp");
 	}
-	return ret;
+	return (ret);
 } 
 
 static __inline long
@@ -227,7 +227,7 @@ hypercall6(unsigned long c, unsigned long arg0,
 		    : "a"(c), "g"(arg0), "g"(arg1), "g"(arg2), "g"(arg3), "g"(arg4), "g"(arg5), "b"(nargs)
 		    : "memory", "rsp");
 	}
-	return ret;
+	return (ret);
 }
 
 #endif /* __amd64__ */
