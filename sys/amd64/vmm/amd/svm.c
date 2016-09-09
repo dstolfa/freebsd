@@ -851,7 +851,7 @@ svm_handle_inst_emul(struct vmcb *vmcb, uint64_t gpa, struct vm_exit *vmexit)
 	vie_init(&vmexit->u.inst_emul.vie, inst_bytes, inst_len);
 }
 
-static int 
+static void
 svm_handle_hypercall(struct svm_softc *svm_sc, int vcpu, struct vmcb *vmcb, struct vm_exit *vmexit)
 {
 	struct vm_guest_paging *paging;
@@ -874,8 +874,6 @@ svm_handle_hypercall(struct svm_softc *svm_sc, int vcpu, struct vmcb *vmcb, stru
 	vmexit->u.hypercall.rsp = rsp;
 	vmexit->u.hypercall.ss_base = seg.base;
 	svm_paging_info(vmcb, paging);
-
-	return vm_hypercall(svm_sc->vm, vcpu, vmexit);
 }
 
 #ifdef KTR
@@ -1380,7 +1378,7 @@ svm_vmexit(struct svm_softc *svm_sc, int vcpu, struct vm_exit *vmexit)
 		handled = 1;
 		break;
 	case VMCB_EXIT_VMMCALL:
-		handled = svm_handle_hypercall(svm_sc, vcpu, vmcb, vmexit);
+		svm_handle_hypercall(svm_sc, vcpu, vmcb, vmexit);
 		break;
 	case 0x40 ... 0x5F:
 		vmm_stat_incr(svm_sc->vm, vcpu, VMEXIT_EXCEPTION, 1);

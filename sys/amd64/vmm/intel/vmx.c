@@ -2479,7 +2479,6 @@ vmx_exit_process(struct vmx *vmx, int vcpu, struct vm_exit *vmexit)
 		vmexit->u.hypercall.rsp = vmcs_read(VMCS_GUEST_RSP);
 		vmexit->u.hypercall.ss_base = vmcs_read(VMCS_GUEST_SS_BASE);
 		vmx_paging_info(&vmexit->u.hypercall.paging);
-		handled = vm_hypercall(vmx->vm, vcpu, vmexit);
 		break;
 	default:
 		vmm_stat_incr(vmx->vm, vcpu, VMEXIT_UNKNOWN, 1);

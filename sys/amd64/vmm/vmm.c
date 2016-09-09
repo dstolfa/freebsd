@@ -1535,8 +1535,8 @@ vm_handle_reqidle(struct vm *vm, int vcpuid, bool *retu)
 	return (0);
 }
 
-int
-vm_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit)
+static int
+vm_handle_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit, bool *retu)
 {
 #ifdef _KERNEL
 	struct vm_copyinfo copyinfo[2];
@@ -1544,19 +1544,30 @@ vm_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit)
 	struct iovec copyinfo[2]
 #endif
 	struct vm_guest_paging *paging;
-	uint64_t hcid, nargs, rsp, stack_gla, ss_base;
+	struct seg_desc ss_desc;
+	uint64_t hcid, nargs, rsp, stack_gla, ss_base, cr0, rflags;
 	uint8_t args[HYPERCALL_MAX_ARGS * 8];
 	int error, fault, stackaddrsize, size, handled;
 
 	handled = 0;
-	rsp = vmexit->u.hypercall.rsp;
-	ss_base = vmexit->u.hypercall.ss_base;
+	//rsp = vmexit->u.hypercall.rsp;
+	//ss_base = vmexit->u.hypercall.ss_base;
 	paging = &vmexit->u.hypercall.paging;
 	stackaddrsize = 8;
 	size = 8;
 
-	stack_gla = rsp + ss_base;
-
+	error = vm_get_register(vm, vcpu, VM_REG_GUEST_CR0, &cr0);
+	KASSERT(error == 0, ("%s: error %d getting CR0",
+	    __func__, error));
+	error = vm_get_register(vm, vcpu, VM_REG_GUEST_RFLAGS, &rflags);
+	KASSERT(error == 0, ("%s: error %d getting RFLAGS",
+	    __func__, error));
+	error = vm_get_register(vm, vcpu, VM_REG_GUEST_RSP, &rsp);
+	KASSERT(error == 0, ("%s: error %d getting RSP",
+	    __func__, error));
+	error = vm_get_seg_desc(vm, vcpu, VM_REG_GUEST_SS, &ss_desc);
+	KASSERT(error == 0, ("%s: error %d getting SS descriptor",
+	    __func__, error));
 	error = vm_get_register(vm, vcpu, VM_REG_GUEST_RAX, &hcid);
 	KASSERT(error == 0, ("%s: error %d getting RAX",
 	    __func__, error));
@@ -1566,28 +1577,46 @@ vm_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit)
 	KASSERT((nargs < 7 && nargs >= 0), ("%s: error nargs == %lu",
 	    __func__, nargs));
 
+	if (vie_calculate_gla(paging->cpu_mode, VM_REG_GUEST_SS, &ss_desc,
+	    rsp, size, stackaddrsize, PROT_READ, &stack_gla)) {
+		vm_inject_ss(vm, vcpu, 0);
+		return (0);
+	}
+
+	if (vie_canonical_check(paging->cpu_mode, stack_gla)) {
+		vm_inject_ss(vm, vcpu, 0);
+		return (0);
+	}
+
+	if (vie_alignment_check(paging->cpl, size, cr0, rflags, stack_gla)) {
+		vm_inject_ac(vm, vcpu, 0);
+		return (0);
+	}
+	ss_base = ss_desc.base;
+	printf("stack_gla: %lx\n", stack_gla);
+	printf("rsp: %lx\n", rsp);
+	printf("ss_base: %lx\n", ss_base);
+	error = vm_copy_setup(vm, vcpu, paging, stack_gla, nargs * size,
+	    PROT_READ, copyinfo, nitems(copyinfo), &fault);
+	if (error || fault) {
+		printf("Fault %d\n", fault);
+		return (error);
+	}
+
+	vm_copyin(vm, vcpu, copyinfo, args, nargs * size);
+	vm_copy_teardown(vm, vcpu, copyinfo, nitems(copyinfo));
+
 	switch (hcid) {
 	case HYPERCALL_DTRACE_PROBE_CREATE:
-		error = vm_copy_setup(vm, vcpu, paging, stack_gla, nargs * size,
-		    PROT_READ, copyinfo, nitems(copyinfo), &fault);
-		if (error || fault) {
-			printf("Hypercall (error, fault) = (%d, %d)\n", error, fault);
-			return (0);
-		}
-
-		vm_copyin(vm, vcpu, copyinfo, args, nargs * size);
-		vm_copy_teardown(vm, vcpu, copyinfo, nitems(copyinfo));
-
-		handled = 1;
 		break;
 	case HYPERCALL_DTRACE_PROBE:
-		handled = 1;
 		break;
 	default:
 		break;	
 	}
 
-	return (handled);
+	*retu = true;
+	return (0);
 }
 
 int
@@ -1761,6 +1790,9 @@ restart:
 		case VM_EXITCODE_MONITOR:
 		case VM_EXITCODE_MWAIT:
 			vm_inject_ud(vm, vcpuid);
+			break;
+		case VM_EXITCODE_HYPERCALL:
+			error = vm_handle_hypercall(vm, vcpuid, vme, &retu);
 			break;
 		default:
 			retu = true;	/* handled in userland */
