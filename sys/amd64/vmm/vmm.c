@@ -1545,13 +1545,11 @@ vm_handle_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit, bool *retu)
 #endif
 	struct vm_guest_paging *paging;
 	struct seg_desc ss_desc;
-	uint64_t hcid, nargs, rsp, stack_gla, ss_base, cr0, rflags;
-	uint8_t args[HYPERCALL_MAX_ARGS * 8];
-	int error, fault, stackaddrsize, size, handled;
+	uint64_t hcid, nargs, rsp, stack_gla, cr0, rflags;
+	uint64_t args[HYPERCALL_MAX_ARGS];
+	int error, fault, stackaddrsize, size, handled, i;
 
 	handled = 0;
-	//rsp = vmexit->u.hypercall.rsp;
-	//ss_base = vmexit->u.hypercall.ss_base;
 	paging = &vmexit->u.hypercall.paging;
 	stackaddrsize = 8;
 	size = 8;
@@ -1565,9 +1563,6 @@ vm_handle_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit, bool *retu)
 	error = vm_get_register(vm, vcpu, VM_REG_GUEST_RSP, &rsp);
 	KASSERT(error == 0, ("%s: error %d getting RSP",
 	    __func__, error));
-	error = vm_get_seg_desc(vm, vcpu, VM_REG_GUEST_SS, &ss_desc);
-	KASSERT(error == 0, ("%s: error %d getting SS descriptor",
-	    __func__, error));
 	error = vm_get_register(vm, vcpu, VM_REG_GUEST_RAX, &hcid);
 	KASSERT(error == 0, ("%s: error %d getting RAX",
 	    __func__, error));
@@ -1576,6 +1571,10 @@ vm_handle_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit, bool *retu)
 	    __func__, error));
 	KASSERT((nargs < 7 && nargs >= 0), ("%s: error nargs == %lu",
 	    __func__, nargs));
+
+	error = vm_get_seg_desc(vm, vcpu, VM_REG_GUEST_SS, &ss_desc);
+	KASSERT(error == 0, ("%s: error %d getting SS descriptor",
+	    __func__, error));
 
 	if (vie_calculate_gla(paging->cpu_mode, VM_REG_GUEST_SS, &ss_desc,
 	    rsp, size, stackaddrsize, PROT_READ, &stack_gla)) {
@@ -1592,10 +1591,6 @@ vm_handle_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit, bool *retu)
 		vm_inject_ac(vm, vcpu, 0);
 		return (0);
 	}
-	ss_base = ss_desc.base;
-	printf("stack_gla: %lx\n", stack_gla);
-	printf("rsp: %lx\n", rsp);
-	printf("ss_base: %lx\n", ss_base);
 	error = vm_copy_setup(vm, vcpu, paging, stack_gla, nargs * size,
 	    PROT_READ, copyinfo, nitems(copyinfo), &fault);
 	if (error || fault) {
@@ -1608,14 +1603,19 @@ vm_handle_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit, bool *retu)
 
 	switch (hcid) {
 	case HYPERCALL_DTRACE_PROBE_CREATE:
+		error = vm_set_register(vm, vcpu, VM_REG_GUEST_RAX, 0);
+		KASSERT(error == 0, ("%s: error %d setting RAX",
+		    __func__, error));
 		break;
 	case HYPERCALL_DTRACE_PROBE:
+		error = vm_set_register(vm, vcpu, VM_REG_GUEST_RAX, 0);
+		KASSERT(error == 0, ("%s: error %d setting RAX",
+		    __func__, error));
 		break;
 	default:
 		break;	
 	}
 
-	*retu = true;
 	return (0);
 }
 

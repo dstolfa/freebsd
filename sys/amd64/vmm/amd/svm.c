@@ -871,8 +871,6 @@ svm_handle_hypercall(struct svm_softc *svm_sc, int vcpu, struct vmcb *vmcb, stru
 	KASSERT(error == 0, ("%s: error %d getting segment SS",
 	    __func__, error));
 
-	vmexit->u.hypercall.rsp = rsp;
-	vmexit->u.hypercall.ss_base = seg.base;
 	svm_paging_info(vmcb, paging);
 }
 

@@ -575,8 +575,6 @@ struct vm_task_switch {
 };
 
 struct vm_hypercall {
-	uint64_t	rsp;
-	uint64_t	ss_base;
 	struct vm_guest_paging	paging;
 };
 
