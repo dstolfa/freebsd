@@ -43,6 +43,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sched.h>
 #include <sys/smp.h>
 #include <sys/systm.h>
+#include <sys/dtrace.h>
 
 #include <vm/vm.h>
 #include <vm/vm_object.h>
@@ -55,9 +56,9 @@ __FBSDID("$FreeBSD$");
 #include <machine/cpu.h>
 #include <machine/pcb.h>
 #include <machine/smp.h>
+#include <machine/hypercall.h>
 #include <x86/psl.h>
 #include <x86/apicreg.h>
-#include <x86/hypercall.h>
 
 #include <machine/vmm.h>
 #include <machine/vmm_dev.h>
@@ -225,6 +226,8 @@ static int trace_guest_exceptions;
 SYSCTL_INT(_hw_vmm, OID_AUTO, trace_guest_exceptions, CTLFLAG_RDTUN,
     &trace_guest_exceptions, 0,
     "Trap into hypervisor on all guest exceptions and reflect them back");
+
+static MALLOC_DEFINE(M_DTVMM, "dtvmm", "dtvmm");
 
 #define HYPERCALL_MAX_ARGS		6
 #define HYPERCALL_DTRACE_PROBE_CREATE	0
@@ -1537,7 +1540,91 @@ vm_handle_reqidle(struct vm *vm, int vcpuid, bool *retu)
 }
 
 static int
-vm_handle_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit, bool *retu)
+hypercall_copy_arg(struct vm *vm, int vcpuid, uint64_t ds_base,
+    struct hypercall_arg *arg, struct vm_guest_paging *paging, void *dst)
+{
+#ifdef _KERNEL
+	struct vm_copyinfo copyinfo[2];
+#else
+	struct iovec copyinfo[2];
+#endif
+	uint64_t gla;
+	int error, fault;
+
+	gla = ds_base + arg->val;
+	error = vm_copy_setup(vm, vcpuid, paging, gla, arg->len,
+ 	   PROT_READ, copyinfo, nitems(copyinfo), &fault);
+	if (error || fault) {
+		printf("Fault %d\n", fault);
+		return (error);
+	}
+
+	vm_copyin(vm, vcpuid, copyinfo, dst, arg->len);
+	vm_copy_teardown(vm, vcpuid, copyinfo, nitems(copyinfo));
+
+	return (0);
+}
+
+static int64_t
+hypercall_dtrace_probe_create(struct vm *vm, int vcpuid,
+    struct hypercall_arg *args, struct vm_guest_paging *paging)
+{
+	struct seg_desc ds_desc;
+	dtrace_provider_id_t prov;
+	char *mod, *func, *name;
+	int error, aframes;
+	void *arg;
+	enum { PROV, MOD, FUNC, NAME, AFRAMES, ARG };
+
+	mod = malloc(args[MOD].len, M_DTVMM, M_WAITOK | M_NODUMP | M_ZERO);
+	func = malloc(args[FUNC].len, M_DTVMM, M_WAITOK | M_NODUMP | M_ZERO);
+	name = malloc(args[NAME].len, M_DTVMM, M_WAITOK | M_NODUMP | M_ZERO);
+	arg = malloc(args[ARG].len, M_DTVMM, M_WAITOK | M_NODUMP | M_ZERO);
+
+	error = vm_get_seg_desc(vm, vcpuid, VM_REG_GUEST_DS, &ds_desc);
+	KASSERT(error == 0, ("%s: error %d getting DS descriptor",
+	    __func__, error));
+
+	error = hypercall_copy_arg(vm, vcpuid, ds_desc.base, &args[PROV], paging, &prov);
+	KASSERT(error == 0, ("%s: error %d copying memory",
+	    __func__, error));
+	error = hypercall_copy_arg(vm, vcpuid, ds_desc.base, &args[MOD], paging, (void *)mod);
+	KASSERT(error == 0, ("%s: error %d copying memory",
+	    __func__, error));
+	error = hypercall_copy_arg(vm, vcpuid, ds_desc.base, &args[FUNC], paging, (void *)func);
+	KASSERT(error == 0, ("%s: error %d copying memory",
+	    __func__, error));
+	error = hypercall_copy_arg(vm, vcpuid, ds_desc.base, &args[NAME], paging, (void *)name);
+	KASSERT(error == 0, ("%s: error %d copying memory",
+	    __func__, error));
+	error = hypercall_copy_arg(vm, vcpuid, ds_desc.base, &args[AFRAMES], paging, &aframes);
+	KASSERT(error == 0, ("%s: error %d copying memory",
+	    __func__, error));
+	error = hypercall_copy_arg(vm, vcpuid, ds_desc.base, &args[ARG], paging, arg);
+	KASSERT(error == 0, ("%s: error %d copying memory",
+	    __func__, error));
+
+	printf("(prov, mod, func, name, aframes) = (%lu, %s, %s, %s, %d)\n",
+	    prov, mod, func, name, aframes);
+
+	free(mod, M_DTVMM);
+	free(func, M_DTVMM);
+	free(name, M_DTVMM);
+	free(arg, M_DTVMM);
+	return (0);
+}
+
+static int64_t
+hypercall_dtrace_probe(struct vm *vm, int vcpuid,
+    struct hypercall_arg *args, struct vm_guest_paging *paging)
+{
+/*	dtrace_id_t id;
+	uintptr_t arg0, arg1, arg2, arg3, arg4; */
+	return (0);
+}
+
+static int
+vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *retu)
 {
 #ifdef _KERNEL
 	struct vm_copyinfo copyinfo[2];
@@ -1548,72 +1635,82 @@ vm_handle_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit, bool *retu)
 	struct hypercall_arg args[HYPERCALL_MAX_ARGS];
 	struct seg_desc ss_desc;
 	uint64_t hcid, nargs, rsp, stack_gla, cr0, rflags;
-	int error, fault, stackaddrsize, size, handled, i;
+	int64_t val;
+	int error, fault, stackaddrsize, size, handled, addrsize, i;
 
 	handled = 0;
 	paging = &vmexit->u.hypercall.paging;
 	stackaddrsize = 8;
+	addrsize = 8;
 	size = sizeof(struct hypercall_arg);
 
-	error = vm_get_register(vm, vcpu, VM_REG_GUEST_CR0, &cr0);
+	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_CR0, &cr0);
 	KASSERT(error == 0, ("%s: error %d getting CR0",
 	    __func__, error));
-	error = vm_get_register(vm, vcpu, VM_REG_GUEST_RFLAGS, &rflags);
+	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RFLAGS, &rflags);
 	KASSERT(error == 0, ("%s: error %d getting RFLAGS",
 	    __func__, error));
-	error = vm_get_register(vm, vcpu, VM_REG_GUEST_RSP, &rsp);
+	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RSP, &rsp);
 	KASSERT(error == 0, ("%s: error %d getting RSP",
 	    __func__, error));
-	error = vm_get_register(vm, vcpu, VM_REG_GUEST_RAX, &hcid);
+	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RAX, &hcid);
 	KASSERT(error == 0, ("%s: error %d getting RAX",
 	    __func__, error));
-	error = vm_get_register(vm, vcpu, VM_REG_GUEST_RBX, &nargs);
+	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RBX, &nargs);
 	KASSERT(error == 0, ("%s: error %d getting RBX",
 	    __func__, error));
 	KASSERT((nargs < 7 && nargs >= 0), ("%s: error nargs == %lu",
 	    __func__, nargs));
 
-	error = vm_get_seg_desc(vm, vcpu, VM_REG_GUEST_SS, &ss_desc);
+	error = vm_get_seg_desc(vm, vcpuid, VM_REG_GUEST_SS, &ss_desc);
 	KASSERT(error == 0, ("%s: error %d getting SS descriptor",
 	    __func__, error));
 
 	if (vie_calculate_gla(paging->cpu_mode, VM_REG_GUEST_SS, &ss_desc,
-	    rsp, size, stackaddrsize, PROT_READ, &stack_gla)) {
-		vm_inject_ss(vm, vcpu, 0);
+	    rsp, addrsize, stackaddrsize, PROT_READ, &stack_gla)) {
+		vm_inject_ss(vm, vcpuid, 0);
 		return (0);
 	}
 
 	if (vie_canonical_check(paging->cpu_mode, stack_gla)) {
-		vm_inject_ss(vm, vcpu, 0);
+		vm_inject_ss(vm, vcpuid, 0);
 		return (0);
 	}
 
-	if (vie_alignment_check(paging->cpl, size, cr0, rflags, stack_gla)) {
-		vm_inject_ac(vm, vcpu, 0);
+	if (vie_alignment_check(paging->cpl, addrsize, cr0, rflags, stack_gla)) {
+		vm_inject_ac(vm, vcpuid, 0);
 		return (0);
 	}
-	error = vm_copy_setup(vm, vcpu, paging, stack_gla, nargs * size,
+	printf("hcid: %lu\n", hcid);
+	printf("bytes: %lu\n", nargs*size);
+	error = vm_copy_setup(vm, vcpuid, paging, stack_gla, nargs * size,
 	    PROT_READ, copyinfo, nitems(copyinfo), &fault);
 	if (error || fault) {
 		printf("Fault %d\n", fault);
 		return (error);
 	}
 
-	vm_copyin(vm, vcpu, copyinfo, args, nargs * size);
-	vm_copy_teardown(vm, vcpu, copyinfo, nitems(copyinfo));
+	vm_copyin(vm, vcpuid, copyinfo, args, nargs * size);
+	vm_copy_teardown(vm, vcpuid, copyinfo, nitems(copyinfo));
 
 	for (i = 0; i < nargs; i++) {
-		printf("(len, val): (%lu, %lu)", args[i].len, args[i].val);
+		printf("(len, val): (%lu, %lu)\n", args[i].len, args[i].val);
 	}
 
 	switch (hcid) {
 	case HYPERCALL_DTRACE_PROBE_CREATE:
-		error = vm_set_register(vm, vcpu, VM_REG_GUEST_RAX, 0);
+		KASSERT(nargs == 6, ("%s: nargs != 6 with hcid %lu",
+		    __func__, hcid));
+		val = hypercall_dtrace_probe_create(vm, vcpuid, args, paging);
+		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, 0);
 		KASSERT(error == 0, ("%s: error %d setting RAX",
 		    __func__, error));
 		break;
 	case HYPERCALL_DTRACE_PROBE:
-		error = vm_set_register(vm, vcpu, VM_REG_GUEST_RAX, 0);
+		KASSERT(nargs == 6, ("%s: nargs != 6 with hcid %lu",
+		    __func__, hcid));
+		val = hypercall_dtrace_probe(vm, vcpuid, args, paging);
+		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, 0);
 		KASSERT(error == 0, ("%s: error %d setting RAX",
 		    __func__, error));
 		break;

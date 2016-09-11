@@ -7,6 +7,8 @@ SRCS+=	vmx_assym.h svm_assym.h
 DPSRCS=	vmx_genassym.c svm_genassym.c
 
 CFLAGS+= -DVMM_KEEP_STATS -DSMP -D_KERNEL -DKDTRACE_HOOKS
+CFLAGS+= -I${.CURDIR}/../../cddl/compat/opensolaris
+CFLAGS+= -I${.CURDIR}/../../cddl/contrib/opensolaris/uts/common
 CFLAGS+= -I${.CURDIR}/../../amd64/vmm
 CFLAGS+= -I${.CURDIR}/../../amd64/vmm/io
 CFLAGS+= -I${.CURDIR}/../../amd64/vmm/intel
