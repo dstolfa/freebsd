@@ -13,16 +13,21 @@
 
 #ifdef __amd64__
 
+typedef struct hypercall_arg {
+	__uint64_t len;
+	__uint64_t val;
+} hc_arg_t;
+
 /* XXX: Each of these hypercalls can
  * be rewritten in a better way with
  * less redundancy
  */
 
-static __inline long
-hypercall0(unsigned long c)
+static __inline __int64_t
+hypercall0(__uint64_t c)
 {
-	const long nargs = 0;
-	long ret;
+	const __uint64_t nargs = 0;
+	__int64_t ret;
 	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
 		__asm __volatile(
 		    VMCALL
@@ -39,96 +44,43 @@ hypercall0(unsigned long c)
 	return (ret);
 }
 
-static __inline long 
-hypercall1(unsigned long c, unsigned long arg0)
+static __inline __int64_t 
+hypercall1(__uint64_t c, hc_arg_t *arg0)
 {
-	const long nargs = 1;
-	long ret;
+	const __uint64_t nargs = 1;
+	__int64_t ret;
 	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
 		__asm __volatile(
+		    "push %3\n"
 		    "push %2\n"
 		    VMCALL
-		    "add $8, %%rsp\n"
+		    "add $16, %%rsp\n"
 		    : "=a"(ret)
-		    : "a"(c), "g"(arg0), "b"(nargs)
+		    : "a"(c),
+		      "g"(arg0->val), "g"(arg0->len),
+		      "b"(nargs)
 		    : "memory", "rsp");
 	} else {
 		__asm __volatile(
+		    "push %3\n"
 		    "push %2\n"
 		    VMMCALL
-		    "add $8, %%rsp\n"
+		    "add $16, %%rsp\n"
 		    : "=a"(ret)
-		    : "a"(c), "g"(arg0), "b"(nargs)
+		    : "a"(c), 
+		      "g"(arg0->val), "g"(arg0->len),
+		      "b"(nargs)
 		    : "memory", "rsp");
 	}
 	return (ret);
 }
 
-static __inline long
-hypercall2(unsigned long c, unsigned long arg0,
-    unsigned long arg1)
+static __inline __int64_t
+hypercall2(__uint64_t c, hc_arg_t *arg0,
+    hc_arg_t *arg1)
 {
-	const long nargs = 2;
-	long ret;
-	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
-		__asm __volatile(
-		    "push %3\n"
-		    "push %2\n"
-		    VMCALL
-		    "add $16, %%rsp\n"
-		    : "=a"(ret)
-		    : "a"(c), "g"(arg0), "g"(arg1), "b"(nargs)
-		    : "memory", "rsp");
-	} else {
-		__asm __volatile(
-		    "push %3\n"
-		    "push %2\n"
-		    VMMCALL
-		    "add $16, %%rsp\n"
-		    : "=a"(ret)
-		    : "a"(c), "g"(arg0), "g"(arg1), "b"(nargs)
-		    : "memory", "rsp");
-	}
-	return (ret);
-} 
-
-static __inline long
-hypercall3(unsigned long c, unsigned long arg0,
-    unsigned long arg1, unsigned long arg2)
-{
-	const long nargs = 3;
-	long ret;
-	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
-		__asm __volatile(
-		    "push %4\n"
-		    "push %3\n"
-		    "push %2\n"
-		    VMCALL
-		    "add $24, %%rsp\n"
-		    : "=a"(ret)
-		    : "a"(c), "g"(arg0), "g"(arg1), "g"(arg2), "b"(nargs)
-		    : "memory", "rsp");
-	} else {
-		__asm __volatile(
-		    "push %4\n"
-		    "push %3\n"
-		    "push %2\n"
-		    VMMCALL
-		    "add $24, %%rsp\n"
-		    : "=a"(ret)
-		    : "a"(c), "g"(arg0), "g"(arg1), "g"(arg2), "b"(nargs)
-		    : "memory", "rsp");
-	}
-	return (ret);
-} 
-
-static __inline long
-hypercall4(unsigned long c, unsigned long arg0,
-    unsigned long arg1, unsigned long arg2,
-    unsigned long arg3)
-{
-	const long nargs = 4;
-	long ret;
+	const __uint64_t nargs = 2;
+	__int64_t ret;
 	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
 		__asm __volatile(
 		    "push %5\n"
@@ -138,66 +90,33 @@ hypercall4(unsigned long c, unsigned long arg0,
 		    VMCALL
 		    "add $32, %%rsp\n"
 		    : "=a"(ret)
-		    : "a"(c), "g"(arg0), "g"(arg1), "g"(arg2), "g"(arg3), "b"(nargs)
+		    : "a"(c), 
+		      "g"(arg0->val), "g"(arg0->len),
+		      "g"(arg1->val), "g"(arg1->len), 
+		      "b"(nargs)
 		    : "memory", "rsp");
 	} else {
 		__asm __volatile(
-		    "push %5\n"
-		    "push %4\n"
 		    "push %3\n"
 		    "push %2\n"
 		    VMMCALL
 		    "add $32, %%rsp\n"
 		    : "=a"(ret)
-		    : "a"(c), "g"(arg0), "g"(arg1), "g"(arg2), "g"(arg3), "b"(nargs)
+		    : "a"(c), 
+		      "g"(arg0->val), "g"(arg0->len),
+		      "g"(arg1->val), "g"(arg1->len), 
+		      "b"(nargs)
 		    : "memory", "rsp");
 	}
 	return (ret);
 } 
 
-static __inline long
-hypercall5(unsigned long c, unsigned long arg0,
-    unsigned long arg1, unsigned long arg2,
-    unsigned long arg3, unsigned long arg4)
+static __inline __int64_t
+hypercall3(__uint64_t c, hc_arg_t *arg0,
+    hc_arg_t *arg1, hc_arg_t *arg2)
 {
-	const long nargs = 5;
-	long ret;
-	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
-		__asm __volatile(
-		    "push %6\n"
-		    "push %5\n"
-		    "push %4\n"
-		    "push %3\n"
-		    "push %2\n"
-		    VMCALL
-		    "add $40, %%rsp\n"
-		    : "=a"(ret)
-		    : "a"(c), "g"(arg0), "g"(arg1), "g"(arg2), "g"(arg3), "g"(arg4), "b"(nargs)
-		    : "memory", "rsp");
-	} else {
-		__asm __volatile(
-		    "push %6\n"
-		    "push %5\n"
-		    "push %4\n"
-		    "push %3\n"
-		    "push %2\n"
-		    VMMCALL
-		    "add $40, %%rsp\n"
-		    : "=a"(ret)
-		    : "a"(c), "g"(arg0), "g"(arg1), "g"(arg2), "g"(arg3), "g"(arg4), "b"(nargs)
-		    : "memory", "rsp");
-	}
-	return (ret);
-} 
-
-static __inline long
-hypercall6(unsigned long c, unsigned long arg0,
-    unsigned long arg1, unsigned long arg2,
-    unsigned long arg3, unsigned long arg4,
-    unsigned long arg5)
-{
-	const long nargs = 6;
-	long ret;
+	const __uint64_t nargs = 3;
+	__int64_t ret;
 	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
 		__asm __volatile(
 		    "push %7\n"
@@ -209,7 +128,11 @@ hypercall6(unsigned long c, unsigned long arg0,
 		    VMCALL
 		    "add $48, %%rsp\n"
 		    : "=a"(ret)
-		    : "a"(c), "g"(arg0), "g"(arg1), "g"(arg2), "g"(arg3), "g"(arg4), "g"(arg5), "b"(nargs)
+		    : "a"(c),
+		      "g"(arg0->val), "g"(arg0->len),
+		      "g"(arg1->val), "g"(arg1->len),
+		      "g"(arg2->val), "g"(arg2->len),
+		      "b"(nargs)
 		    : "memory", "rsp");
 	} else {
 		__asm __volatile(
@@ -222,7 +145,183 @@ hypercall6(unsigned long c, unsigned long arg0,
 		    VMMCALL
 		    "add $48, %%rsp\n"
 		    : "=a"(ret)
-		    : "a"(c), "g"(arg0), "g"(arg1), "g"(arg2), "g"(arg3), "g"(arg4), "g"(arg5), "b"(nargs)
+		    : "a"(c),
+		      "g"(arg0->val), "g"(arg0->len),
+		      "g"(arg1->val), "g"(arg1->len),
+		      "g"(arg2->val), "g"(arg2->len),
+		      "b"(nargs)
+		    : "memory", "rsp");
+	}
+	return (ret);
+} 
+
+static __inline __int64_t
+hypercall4(__uint64_t c, hc_arg_t *arg0,
+    hc_arg_t *arg1, hc_arg_t *arg2,
+    hc_arg_t *arg3)
+{
+	const __uint64_t nargs = 4;
+	__int64_t ret;
+	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
+		__asm __volatile(
+		    "push %9\n"
+		    "push %8\n"
+		    "push %7\n"
+		    "push %6\n"
+		    "push %5\n"
+		    "push %4\n"
+		    "push %3\n"
+		    "push %2\n"
+		    VMCALL
+		    "add $64, %%rsp\n"
+		    : "=a"(ret)
+		    : "a"(c),
+		      "g"(arg0->val), "g"(arg0->len),
+		      "g"(arg1->val), "g"(arg1->len),
+		      "g"(arg2->val), "g"(arg2->len),
+		      "g"(arg3->val), "g"(arg3->len),
+		      "b"(nargs)
+		    : "memory", "rsp");
+	} else {
+		__asm __volatile(
+		    "push %9\n"
+		    "push %8\n"
+		    "push %7\n"
+		    "push %6\n"
+		    "push %5\n"
+		    "push %4\n"
+		    "push %3\n"
+		    "push %2\n"
+		    VMMCALL
+		    "add $64, %%rsp\n"
+		    : "=a"(ret)
+		    : "a"(c),
+		      "g"(arg0->val), "g"(arg0->len),
+		      "g"(arg1->val), "g"(arg1->len),
+		      "g"(arg2->val), "g"(arg2->len),
+		      "g"(arg3->val), "g"(arg3->len),
+		      "b"(nargs)
+		    : "memory", "rsp");
+	}
+	return (ret);
+} 
+
+static __inline __int64_t
+hypercall5(__uint64_t c, hc_arg_t *arg0,
+    hc_arg_t *arg1, hc_arg_t *arg2,
+    hc_arg_t *arg3, hc_arg_t *arg4)
+{
+	const __uint64_t nargs = 5;
+	__int64_t ret;
+	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
+		__asm __volatile(
+		    "push %11\n"
+		    "push %10\n"
+		    "push %9\n"
+		    "push %8\n"
+		    "push %7\n"
+		    "push %6\n"
+		    "push %5\n"
+		    "push %4\n"
+		    "push %3\n"
+		    "push %2\n"
+		    VMCALL
+		    "add $80, %%rsp\n"
+		    : "=a"(ret)
+		    : "a"(c),
+		      "g"(arg0->val), "g"(arg0->len),
+		      "g"(arg1->val), "g"(arg1->len),
+		      "g"(arg2->val), "g"(arg2->len),
+		      "g"(arg3->val), "g"(arg3->len),
+		      "g"(arg4->val), "g"(arg4->len),
+		      "b"(nargs)
+		    : "memory", "rsp");
+	} else {
+		__asm __volatile(
+		    "push %11\n"
+		    "push %10\n"
+		    "push %9\n"
+		    "push %8\n"
+		    "push %7\n"
+		    "push %6\n"
+		    "push %5\n"
+		    "push %4\n"
+		    "push %3\n"
+		    "push %2\n"
+		    VMMCALL
+		    "add $40, %%rsp\n"
+		    : "=a"(ret)
+		    : "a"(c),
+		      "g"(arg0->val), "g"(arg0->len),
+		      "g"(arg1->val), "g"(arg1->len),
+		      "g"(arg2->val), "g"(arg2->len),
+		      "g"(arg3->val), "g"(arg3->len),
+		      "g"(arg4->val), "g"(arg4->len),
+		      "b"(nargs)
+		    : "memory", "rsp");
+	}
+	return (ret);
+} 
+
+static __inline __int64_t
+hypercall6(__uint64_t c, hc_arg_t *arg0,
+    hc_arg_t *arg1, hc_arg_t *arg2,
+    hc_arg_t *arg3, hc_arg_t *arg4,
+    hc_arg_t *arg5)
+{
+	const __uint64_t nargs = 6;
+	__int64_t ret;
+	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
+		__asm __volatile(
+		    "push %13\n"
+		    "push %12\n"
+		    "push %11\n"
+		    "push %10\n"
+		    "push %9\n"
+		    "push %8\n"
+		    "push %7\n"
+		    "push %6\n"
+		    "push %5\n"
+		    "push %4\n"
+		    "push %3\n"
+		    "push %2\n"
+		    VMCALL
+		    "add $96, %%rsp\n"
+		    : "=a"(ret)
+		    : "a"(c),
+		      "g"(arg0->val), "g"(arg0->len),
+		      "g"(arg1->val), "g"(arg1->len),
+		      "g"(arg2->val), "g"(arg2->len),
+		      "g"(arg3->val), "g"(arg3->len),
+		      "g"(arg4->val), "g"(arg4->len),
+		      "g"(arg5->val), "g"(arg5->len),
+		      "b"(nargs)
+		    : "memory", "rsp");
+	} else {
+		__asm __volatile(
+		    "push %13\n"
+		    "push %12\n"
+		    "push %11\n"
+		    "push %10\n"
+		    "push %9\n"
+		    "push %8\n"
+		    "push %7\n"
+		    "push %6\n"
+		    "push %5\n"
+		    "push %4\n"
+		    "push %3\n"
+		    "push %2\n"
+		    VMMCALL
+		    "add $96, %%rsp\n"
+		    : "=a"(ret)
+		    : "a"(c),
+		      "g"(arg0->val), "g"(arg0->len),
+		      "g"(arg1->val), "g"(arg1->len),
+		      "g"(arg2->val), "g"(arg2->len),
+		      "g"(arg3->val), "g"(arg3->len),
+		      "g"(arg4->val), "g"(arg4->len),
+		      "g"(arg5->val), "g"(arg5->len),
+		      "b"(nargs)
 		    : "memory", "rsp");
 	}
 	return (ret);

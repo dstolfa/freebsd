@@ -57,6 +57,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/smp.h>
 #include <x86/psl.h>
 #include <x86/apicreg.h>
+#include <x86/hypercall.h>
 
 #include <machine/vmm.h>
 #include <machine/vmm_dev.h>
@@ -1544,15 +1545,15 @@ vm_handle_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit, bool *retu)
 	struct iovec copyinfo[2]
 #endif
 	struct vm_guest_paging *paging;
+	struct hypercall_arg args[HYPERCALL_MAX_ARGS];
 	struct seg_desc ss_desc;
 	uint64_t hcid, nargs, rsp, stack_gla, cr0, rflags;
-	uint64_t args[HYPERCALL_MAX_ARGS];
 	int error, fault, stackaddrsize, size, handled, i;
 
 	handled = 0;
 	paging = &vmexit->u.hypercall.paging;
 	stackaddrsize = 8;
-	size = 8;
+	size = sizeof(struct hypercall_arg);
 
 	error = vm_get_register(vm, vcpu, VM_REG_GUEST_CR0, &cr0);
 	KASSERT(error == 0, ("%s: error %d getting CR0",
@@ -1600,6 +1601,10 @@ vm_handle_hypercall(struct vm *vm, int vcpu, struct vm_exit *vmexit, bool *retu)
 
 	vm_copyin(vm, vcpu, copyinfo, args, nargs * size);
 	vm_copy_teardown(vm, vcpu, copyinfo, nitems(copyinfo));
+
+	for (i = 0; i < nargs; i++) {
+		printf("(len, val): (%lu, %lu)", args[i].len, args[i].val);
+	}
 
 	switch (hcid) {
 	case HYPERCALL_DTRACE_PROBE_CREATE:
