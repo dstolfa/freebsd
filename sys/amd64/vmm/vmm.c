@@ -43,7 +43,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/sched.h>
 #include <sys/smp.h>
 #include <sys/systm.h>
-#include <sys/dtrace.h>
 
 #include <vm/vm.h>
 #include <vm/vm_object.h>
@@ -1570,13 +1569,13 @@ hypercall_dtrace_probe_create(struct vm *vm, int vcpuid,
     struct hypercall_arg *args, struct vm_guest_paging *paging)
 {
 	struct seg_desc ds_desc;
-	dtrace_provider_id_t prov;
+	uintptr_t prov;
 	char *mod, *func, *name;
 	int error, aframes;
 	void *arg;
 	enum { PROV, MOD, FUNC, NAME, AFRAMES, ARG };
 
-	if (args[PROV].len > sizeof(dtrace_provider_id_t) ||
+	if (args[PROV].len > sizeof(uintptr_t) ||
 	    args[AFRAMES].len > sizeof(int)) {
 		return (1);
 	}
