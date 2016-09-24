@@ -1,5 +1,5 @@
 #-
-# Copyright (c) 2015 Landon Fuller <landon@landonf.org>
+# Copyright (c) 2015-2016 Landon Fuller <landonf@FreeBSD.org>
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,6 +29,7 @@
 #include <sys/rman.h>
 
 #include <dev/bhnd/bhnd_types.h>
+#include <dev/bhnd/bhnd_erom_types.h>
 
 INTERFACE bhnd_bus;
 
@@ -49,7 +50,13 @@ CODE {
 	#include <sys/systm.h>
 
 	#include <dev/bhnd/bhndvar.h>
-	
+
+	static bhnd_erom_class_t *
+	bhnd_bus_null_get_erom_class(driver_t *driver)
+	{
+		return (NULL);
+	}
+
 	static struct bhnd_chipid *
 	bhnd_bus_null_get_chipid(device_t dev, device_t child)
 	{
@@ -57,10 +64,43 @@ CODE {
 	}
 
 	static int
-	bhnd_bus_null_get_core_table(device_t dev, device_t child,
-	    struct bhnd_core_info **cores, u_int *num_cores)
+	bhnd_bus_null_read_ioctl(device_t dev, device_t child, uint16_t *ioctl)
 	{
-		panic("bhnd_bus_get_core_table unimplemented");
+		panic("bhnd_bus_read_ioctl unimplemented");
+	}
+
+
+	static int
+	bhnd_bus_null_write_ioctl(device_t dev, device_t child, uint16_t value,
+	    uint16_t mask)
+	{
+		panic("bhnd_bus_write_ioctl unimplemented");
+	}
+
+
+	static int
+	bhnd_bus_null_read_iost(device_t dev, device_t child, uint16_t *iost)
+	{
+		panic("bhnd_bus_read_iost unimplemented");
+	}
+
+	static bool
+	bhnd_bus_null_is_hw_suspended(device_t dev, device_t child)
+	{
+		panic("bhnd_bus_is_hw_suspended unimplemented");
+	}
+
+	static int
+	bhnd_bus_null_reset_hw(device_t dev, device_t child, uint16_t ioctl)
+	{
+		panic("bhnd_bus_reset_hw unimplemented");
+	}
+
+
+	static int
+	bhnd_bus_null_suspend_hw(device_t dev, device_t child)
+	{
+		panic("bhnd_bus_suspend_hw unimplemented");
 	}
 
 	static bhnd_attach_type
@@ -96,7 +136,26 @@ CODE {
 	{
 		panic("bhnd_bus_read_boardinfo unimplemented");
 	}
-	
+
+	static int
+	bhnd_bus_null_get_intr_count(device_t dev, device_t child)
+	{
+		panic("bhnd_bus_get_intr_count unimplemented");
+	}
+
+	static int
+	bhnd_bus_null_assign_intr(device_t dev, device_t child, int rid)
+	{
+		panic("bhnd_bus_assign_intr unimplemented");
+	}
+
+	static int
+	bhnd_bus_null_get_core_ivec(device_t dev, device_t child, u_int intr,
+	    uint32_t *ivec)
+	{
+		panic("bhnd_bus_get_core_ivec unimplemented");
+	}
+
 	static void
 	bhnd_bus_null_child_added(device_t dev, device_t child)
 	{
@@ -142,16 +201,16 @@ CODE {
 		panic("bhnd_bus_release_ext_rsrc unimplemented");
 	}
 
-	static uint32_t
+	static int
 	bhnd_bus_null_read_config(device_t dev, device_t child,
-	    bus_size_t offset, u_int width)
+	    bus_size_t offset, void *value, u_int width)
 	{
 		panic("bhnd_bus_null_read_config unimplemented");
 	}
 
 	static void
 	bhnd_bus_null_write_config(device_t dev, device_t child,
-	    bus_size_t offset, uint32_t val, u_int width)
+	    bus_size_t offset, void *value, u_int width)
 	{
 		panic("bhnd_bus_null_write_config unimplemented");
 	}
@@ -159,7 +218,7 @@ CODE {
 	static device_t
 	bhnd_bus_null_find_hostb_device(device_t dev)
 	{
-		panic("bhnd_bus_find_hostb_device unimplemented");
+		return (NULL);
 	}
 
 	static bool
@@ -204,6 +263,15 @@ CODE {
 	}
 
 }
+
+/**
+ * Return the bhnd(4) bus driver's device enumeration parser class.
+ *
+ * @param driver	The bhnd bus driver instance.
+ */
+STATICMETHOD bhnd_erom_class_t * get_erom_class {
+	driver_t			*driver;
+} DEFAULT bhnd_bus_null_get_erom_class;
 
 /**
  * Return the active host bridge core for the bhnd bus, if any.
@@ -278,32 +346,6 @@ METHOD const struct bhnd_chipid * get_chipid {
 } DEFAULT bhnd_bus_null_get_chipid;
 
 /**
- * Get a list of all cores discoverable on @p dev.
- *
- * Enumerates all cores discoverable on @p dev, returning the list in
- * @p cores and the count in @p num_cores.
- * 
- * The memory allocated for the list should be freed using
- * `free(*cores, M_BHND)`. @p cores and @p num_cores are not changed
- * when an error is returned.
- * 
- * @param	dev		The bhnd bus device.
- * @param	child		The requesting bhnd bus child.
- * @param[out]	cores		The table of core descriptors.
- * @param[out]	num_cores	The number of core descriptors in @p cores.
- * 
- * @retval 0		success
- * @retval non-zero	if an error occurs enumerating @p dev, a regular UNIX
- *			error code should be returned.
- */
-METHOD int get_core_table {
-	device_t			 dev;
-	device_t			 child;
-	struct bhnd_core_info		**cores;
-	u_int				*num_cores;
-} DEFAULT bhnd_bus_null_get_core_table;
-
-/**
  * Return the BHND attachment type of the parent bus.
  *
  * @param dev The device whose child is being examined.
@@ -342,29 +384,75 @@ METHOD int read_board_info {
 } DEFAULT bhnd_bus_null_read_board_info;
 
 /**
- * Allocate and zero-initialize a buffer suitably sized and aligned for a
- * bhnd_devinfo structure.
+ * Return the number of interrupts to be assigned to @p child via
+ * BHND_BUS_ASSIGN_INTR().
+ * 
+ * @param dev The bhnd bus parent of @p child.
+ * @param child The bhnd device for which a count should be returned.
  *
- * @param dev The bhnd bus device.
- *
- * @retval non-NULL	success
- * @retval NULL		allocation failed
+ * @retval 0		If no interrupts should be assigned.
+ * @retval non-zero	The count of interrupt resource IDs to be
+ *			assigned, starting at rid 0.
  */
-METHOD struct bhnd_devinfo * alloc_devinfo {
+METHOD int get_intr_count {
 	device_t dev;
-};
+	device_t child;
+} DEFAULT bhnd_bus_null_get_intr_count;
 
 /**
- * Release memory previously allocated for @p devinfo.
+ * Assign an interrupt to @p child via bus_set_resource().
  *
- * @param dev The bhnd bus device.
- * @param dinfo A devinfo buffer previously allocated via
- * BHND_BUS_ALLOC_DEVINFO().
+ * The default bus implementation of this method should assign backplane
+ * interrupt values to @p child.
+ *
+ * Bridge-attached bus implementations may instead override standard
+ * interconnect IRQ assignment, providing IRQs inherited from the parent bus.
+ *
+ * TODO: Once we can depend on INTRNG, investigate replacing this with a
+ * bridge-level interrupt controller.
+ * 
+ * @param dev The bhnd bus parent of @p child.
+ * @param child The bhnd device to which an interrupt should be assigned.
+ * @param rid The interrupt resource ID to be assigned.
+ *
+ * @retval 0		If an interrupt was assigned.
+ * @retval non-zero	If assigning an interrupt otherwise fails, a regular
+ *			unix error code will be returned.
  */
-METHOD void free_devinfo {
+METHOD int assign_intr {
 	device_t dev;
-	struct bhnd_devinfo *dinfo;
-};
+	device_t child;
+	int rid;
+} DEFAULT bhnd_bus_null_assign_intr;
+
+/**
+ * Return the backplane interrupt vector corresponding to @p child's given
+ * @p intr number.
+ * 
+ * @param dev The bhnd bus parent of @p child.
+ * @param child The bhnd device for which the assigned interrupt vector should
+ * be queried.
+ * @param intr The interrupt number being queried. This is equivalent to the
+ * bus resource ID for the interrupt.
+ * @param[out] ivec On success, the assigned hardware interrupt vector be
+ * written to this pointer.
+ *
+ * On bcma(4) devices, this returns the OOB bus line assigned to the
+ * interrupt.
+ *
+ * On siba(4) devices, this returns the target OCP slave flag number assigned
+ * to the interrupt.
+ *
+ * @retval 0		success
+ * @retval ENXIO	If @p intr exceeds the number of interrupts available
+ *			to @p child.
+ */
+METHOD int get_core_ivec {
+	device_t dev;
+	device_t child;
+	u_int intr;
+	uint32_t *ivec;
+} DEFAULT bhnd_bus_null_get_core_ivec;
 
 /**
  * Notify a bhnd bus that a child was added.
@@ -381,34 +469,123 @@ METHOD void child_added {
 } DEFAULT bhnd_bus_null_child_added;
 
 /**
- * Reset the device's hardware core.
+ * Read the current value of @p child's I/O control register.
  *
- * @param dev The parent of @p child.
- * @param child The device to be reset.
- * @param flags Device-specific core flags to be supplied on reset.
+ * @param dev The bhnd bus parent of @p child.
+ * @param child The bhnd device for which the I/O control register should be
+ * read.
+ * @param[out] ioctl On success, the I/O control register value.
  *
  * @retval 0 success
- * @retval non-zero error
+ * @retval EINVAL If @p child is not a direct child of @p dev.
+ * @retval ENODEV If agent/config space for @p child is unavailable.
+ * @retval non-zero If reading the IOCTL register otherwise fails, a regular
+ * unix error code will be returned.
  */
-METHOD int reset_core {
+METHOD int read_ioctl {
 	device_t dev;
 	device_t child;
-	uint16_t flags;
-}
+	uint16_t *ioctl;
+} DEFAULT bhnd_bus_null_read_ioctl;
 
 /**
- * Suspend a device hardware core.
+ * Write @p value with @p mask to @p child's I/O control register.
+ * 
+ * @param dev The bhnd bus parent of @p child.
+ * @param child The bhnd device for which the I/O control register should
+ * be updated.
+ * @param value The value to be written (see also BHND_IOCTL_*).
+ * @param mask Only the bits defined by @p mask will be updated from @p value.
+ * 
+ * @retval 0 success
+ * @retval EINVAL If @p child is not a direct child of @p dev.
+ * @retval ENODEV If agent/config space for @p child is unavailable.
+ * @retval non-zero If writing the IOCTL register otherwise fails, a regular
+ * unix error code will be returned.
+ */
+METHOD int write_ioctl {
+	device_t dev;
+	device_t child;
+	uint16_t value;
+	uint16_t mask;
+} DEFAULT bhnd_bus_null_write_ioctl;
+
+/**
+ * Read the current value of @p child's I/O status register.
  *
- * @param dev The parent of @p child.
+ * @param dev The bhnd bus parent of @p child.
+ * @param child The bhnd device for which the I/O status register should be
+ * read.
+ * @param[out] iost On success, the I/O status register value.
+ * 
+ * @retval 0 success
+ * @retval EINVAL If @p child is not a direct child of @p dev.
+ * @retval ENODEV If agent/config space for @p child is unavailable.
+ * @retval non-zero If reading the IOST register otherwise fails, a regular
+ * unix error code will be returned.
+ */
+METHOD int read_iost {
+	device_t dev;
+	device_t child;
+	uint16_t *iost;
+} DEFAULT bhnd_bus_null_read_iost;
+
+
+/**
+ * Return true if the given bhnd device's hardware is currently held
+ * in a RESET state or otherwise not clocked (BHND_IOCTL_CLK_EN).
+ * 
+ * @param dev The bhnd bus parent of @p child.
+ * @param child The device to query.
+ *
+ * @retval true If @p child is held in RESET or not clocked (BHND_IOCTL_CLK_EN),
+ * or an error occured determining @p child's hardware state.
+ * @retval false If @p child is clocked and is not held in RESET.
+ */
+METHOD bool is_hw_suspended {
+	device_t dev;
+	device_t child;
+} DEFAULT bhnd_bus_null_is_hw_suspended;
+
+/**
+ * Place the bhnd(4) device's hardware into a reset state, and then bring the
+ * hardware out of reset with BHND_IOCTL_CLK_EN and @p ioctl flags set.
+ * 
+ * Any clock or resource PMU requests previously made by @p child will be
+ * invalidated.
+ *
+ * @param dev The bhnd bus parent of @p child.
  * @param child The device to be reset.
+ * @param ioctl Device-specific core ioctl flags to be supplied on reset
+ * (see BHND_IOCTL_*).
  *
  * @retval 0 success
  * @retval non-zero error
  */
-METHOD int suspend_core {
+METHOD int reset_hw {
 	device_t dev;
 	device_t child;
-}
+	uint16_t ioctl;
+} DEFAULT bhnd_bus_null_reset_hw;
+
+/**
+ * Suspend @p child's hardware in a low-power reset state.
+ *
+ * Any clock or resource PMU requests previously made by @p dev will be
+ * invalidated.
+ *
+ * The hardware may be brought out of reset via bhnd_reset_hw().
+ *
+ * @param dev The bhnd bus parent of @P child.
+ * @param dev The device to be suspended.
+ *
+ * @retval 0 success
+ * @retval non-zero error
+ */
+METHOD int suspend_hw {
+	device_t dev;
+	device_t child;
+} DEFAULT bhnd_bus_null_suspend_hw;
 
 /**
  * If supported by the chipset, return the clock source for the given clock.
@@ -504,10 +681,11 @@ METHOD int release_pmu {
 /** 
  * Request that @p clock (or faster) be routed to @p child.
  * 
- * A driver must ask the bhnd bus to allocate PMU request state
+ * @note A driver must ask the bhnd bus to allocate PMU request state
  * via BHND_BUS_ALLOC_PMU() before it can request clock resources.
- * 
- * Request multiplexing is managed by the bus.
+ *
+ * @note Any outstanding PMU clock requests will be discarded upon calling
+ * BHND_BUS_RESET_HW() or BHND_BUS_SUSPEND_HW().
  *
  * @param dev The parent of @p child.
  * @param child The bhnd device requesting @p clock.
@@ -530,10 +708,11 @@ METHOD int request_clock {
  * @p clocks and wait until they are ready, discarding any previous
  * requests by @p child.
  *
- * Request multiplexing is managed by the bus.
- * 
- * A driver must ask the bhnd bus to allocate PMU request state
+ * @note A driver must ask the bhnd bus to allocate PMU request state
  * via BHND_BUS_ALLOC_PMU() before it can request clock resources.
+ *
+ * @note Any outstanding PMU clock requests will be discarded upon calling
+ * BHND_BUS_RESET_HW() or BHND_BUS_SUSPEND_HW().
  *
  * @param dev The parent of @p child.
  * @param child The bhnd device requesting @p clock.
@@ -552,8 +731,11 @@ METHOD int enable_clocks {
 /**
  * Power up an external PMU-managed resource assigned to @p child.
  * 
- * A driver must ask the bhnd bus to allocate PMU request state
+ * @note A driver must ask the bhnd bus to allocate PMU request state
  * via BHND_BUS_ALLOC_PMU() before it can request PMU resources.
+ *
+ * @note Any outstanding PMU resource requests will be released upon calling
+ * BHND_BUS_RESET_HW() or BHND_BUS_SUSPEND_HW().
  *
  * @param dev The parent of @p child.
  * @param child The bhnd device requesting @p rsrc.
@@ -572,7 +754,7 @@ METHOD int request_ext_rsrc {
 /**
  * Power down an external PMU-managed resource assigned to @p child.
  * 
- * A driver must ask the bhnd bus to allocate PMU request state
+ * @note A driver must ask the bhnd bus to allocate PMU request state
  * via BHND_BUS_ALLOC_PMU() before it can request PMU resources.
  *
  * @param dev The parent of @p child.
@@ -596,6 +778,7 @@ METHOD int release_ext_rsrc {
  * @param dev The parent of @p child.
  * @param child The bhnd device for which @p offset should be read.
  * @param offset The offset to be read.
+ * @param[out] value On success, the bytes read at @p offset.
  * @param width The size of the access. Must be 1, 2 or 4 bytes.
  *
  * The exact behavior of this method is bus-specific. On a bcma(4) bus, this
@@ -604,11 +787,19 @@ METHOD int release_ext_rsrc {
  *
  * @note Device drivers should only use this API for functionality
  * that is not available via another bhnd(4) function.
+ *
+ * @retval 0 success
+ * @retval EINVAL If @p child is not a direct child of @p dev.
+ * @retval EINVAL If @p width is not one of 1, 2, or 4 bytes.
+ * @retval ENODEV If accessing agent/config space for @p child is unsupported.
+ * @retval EFAULT If reading @p width at @p offset exceeds the bounds of
+ * the mapped agent/config space  for @p child.
  */
-METHOD uint32_t read_config {
+METHOD int read_config {
 	device_t dev;
 	device_t child;
 	bus_size_t offset;
+	void *value;
 	u_int width;
 } DEFAULT bhnd_bus_null_read_config;
 
@@ -619,19 +810,27 @@ METHOD uint32_t read_config {
  * @param dev The parent of @p child.
  * @param child The bhnd device for which @p offset should be read.
  * @param offset The offset to be written.
- * @param width The size of the access. Must be 1, 2 or 4 bytes.
+ * @param value A pointer to the value to be written.
+ * @param width The size of @p value. Must be 1, 2 or 4 bytes.
  *
  * The exact behavior of this method is bus-specific. In the case of
  * bcma(4), this method provides access to the first agent port of @p child.
  *
  * @note Device drivers should only use this API for functionality
  * that is not available via another bhnd(4) function.
+ *
+ * @retval 0 success
+ * @retval EINVAL If @p child is not a direct child of @p dev.
+ * @retval EINVAL If @p width is not one of 1, 2, or 4 bytes.
+ * @retval ENODEV If accessing agent/config space for @p child is unsupported.
+ * @retval EFAULT If reading @p width at @p offset exceeds the bounds of
+ * the mapped agent/config space  for @p child.
  */
-METHOD void write_config {
+METHOD int write_config {
 	device_t dev;
 	device_t child;
 	bus_size_t offset;
-	uint32_t val;
+	const void *value;
 	u_int width;
 } DEFAULT bhnd_bus_null_write_config;
 
