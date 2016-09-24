@@ -1576,6 +1576,11 @@ hypercall_dtrace_probe_create(struct vm *vm, int vcpuid,
 	void *arg;
 	enum { PROV, MOD, FUNC, NAME, AFRAMES, ARG };
 
+	if (args[PROV].len > sizeof(dtrace_provider_id_t) ||
+	    args[AFRAMES].len > sizeof(int)) {
+		return (1);
+	}
+
 	mod = malloc(args[MOD].len, M_DTVMM, M_WAITOK | M_NODUMP | M_ZERO);
 	func = malloc(args[FUNC].len, M_DTVMM, M_WAITOK | M_NODUMP | M_ZERO);
 	name = malloc(args[NAME].len, M_DTVMM, M_WAITOK | M_NODUMP | M_ZERO);
@@ -1702,7 +1707,8 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 		KASSERT(nargs == 6, ("%s: nargs != 6 with hcid %lu",
 		    __func__, hcid));
 		val = hypercall_dtrace_probe_create(vm, vcpuid, args, paging);
-		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, 0);
+		printf("val = %ld\n", val);
+		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, val);
 		KASSERT(error == 0, ("%s: error %d setting RAX",
 		    __func__, error));
 		break;
@@ -1710,7 +1716,8 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 		KASSERT(nargs == 6, ("%s: nargs != 6 with hcid %lu",
 		    __func__, hcid));
 		val = hypercall_dtrace_probe(vm, vcpuid, args, paging);
-		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, 0);
+		printf("val = %ld\n", val);
+		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, val);
 		KASSERT(error == 0, ("%s: error %d setting RAX",
 		    __func__, error));
 		break;
