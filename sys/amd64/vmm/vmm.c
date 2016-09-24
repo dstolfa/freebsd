@@ -1638,10 +1638,23 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 #endif
 	struct vm_guest_paging *paging;
 	struct hypercall_arg args[HYPERCALL_MAX_ARGS];
-	struct seg_desc ss_desc;
+	struct seg_desc ss_desc, cs_desc;
 	uint64_t hcid, nargs, rsp, stack_gla, cr0, rflags;
 	int64_t val;
 	int error, fault, stackaddrsize, size, handled, addrsize, i;
+
+	error = vm_get_seg_desc(vm, vcpuid, VM_REG_GUEST_CS, &cs_desc);
+	KASSERT(error == 0, ("%s: error %d getting CS descriptor",
+	    __func__, error));
+
+	/* Ensure that the hypercall cannot be called from any
+	 * ring other than ring 0. This addresses some security
+	 * concerns regarding spoofing DTrace probes and firing
+	 * them arbitrarily in userland.
+	 */
+	if (SEG_DESC_DPL(cs_desc.access) != 0) {
+		return (0);
+	}
 
 	handled = 0;
 	paging = &vmexit->u.hypercall.paging;
