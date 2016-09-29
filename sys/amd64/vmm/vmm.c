@@ -228,9 +228,30 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, trace_guest_exceptions, CTLFLAG_RDTUN,
 
 static MALLOC_DEFINE(M_DTVMM, "dtvmm", "dtvmm");
 
+/* 
+ * The maximum amount of arguments currently supproted
+ * through the hypercall functionality in the VMM.
+ * Everything higher than 6 will be discarded.
+ */
 #define HYPERCALL_MAX_ARGS		6
-#define HYPERCALL_DTRACE_PROBE_CREATE	0
-#define HYPERCALL_DTRACE_PROBE		1
+
+/*
+ * Used to create additional known hypercalls. The name
+ * of each of the enums should correspond to the function
+ * being called once the hypercall is initiated.
+ *
+ * Keep in sync with ring_plevel.
+ */
+enum hypercall_index {
+	HYPERCALL_DTRACE_PROBE_CREATE = 0,
+	HYPERCALL_DTRACE_PROBE,
+	HYPERCALL_INDEX_MAX
+};
+
+static int8_t ring_plevel[HYPERCALL_INDEX_MAX] = {
+	[HYPERCALL_DTRACE_PROBE_CREATE] = 0,
+	[HYPERCALL_DTRACE_PROBE] = 0
+};
 
 #ifdef KDTRACE_HOOKS
 int dtrace_probes_enabled = 0;
@@ -1542,11 +1563,7 @@ static int
 hypercall_copy_arg(struct vm *vm, int vcpuid, uint64_t ds_base,
     struct hypercall_arg *arg, struct vm_guest_paging *paging, void *dst)
 {
-#ifdef _KERNEL
 	struct vm_copyinfo copyinfo[2];
-#else
-	struct iovec copyinfo[2];
-#endif
 	uint64_t gla;
 	int error, fault;
 
@@ -1630,11 +1647,7 @@ hypercall_dtrace_probe(struct vm *vm, int vcpuid,
 static int
 vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *retu)
 {
-#ifdef _KERNEL
 	struct vm_copyinfo copyinfo[2];
-#else
-	struct iovec copyinfo[2]
-#endif
 	struct vm_guest_paging *paging;
 	struct hypercall_arg args[HYPERCALL_MAX_ARGS];
 	struct seg_desc ss_desc, cs_desc;
@@ -1642,16 +1655,43 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	int64_t val;
 	int error, fault, stackaddrsize, size, handled, addrsize, i;
 
+	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RAX, &hcid);
+	KASSERT(error == 0, ("%s: error %d getting RAX",
+	    __func__, error));
+	/*
+	 * Ensure that the hypercall called by the guest never exceed
+	 * the maximum number of hypercalls defined.
+	 */
+	if (hcid >= HYPERCALL_INDEX_MAX) {
+		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, -1);
+		KASSERT(error == 0, ("%s: error %d setting RAX",
+		    __func__, error));
+		return (0);
+	}
+
 	error = vm_get_seg_desc(vm, vcpuid, VM_REG_GUEST_CS, &cs_desc);
 	KASSERT(error == 0, ("%s: error %d getting CS descriptor",
 	    __func__, error));
 
-	/* Ensure that the hypercall cannot be called from any
-	 * ring other than ring 0. This addresses some security
-	 * concerns regarding spoofing DTrace probes and firing
-	 * them arbitrarily in userland.
+	/*
+	 * The check ensures that each of the hypercalls that is called
+	 * from the guest is called from the correct protection ring.
 	 */
-	if (SEG_DESC_DPL(cs_desc.access) != 0) {
+	if (SEG_DESC_DPL(cs_desc.access) != ring_plevel[hcid]) {
+		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, -1);
+		KASSERT(error == 0, ("%s: error %d setting RAX",
+		    __func__, error));
+		return (0);
+	}
+
+	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RBX, &nargs);
+	KASSERT(error == 0, ("%s: error %d getting RBX",
+	    __func__, error));
+
+	if (nargs > HYPERCALL_MAX_ARGS) {
+		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, -1);
+		KASSERT(error == 0, ("%s: error %d setting RAX",
+		    __func__, error));
 		return (0);
 	}
 
@@ -1670,14 +1710,7 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RSP, &rsp);
 	KASSERT(error == 0, ("%s: error %d getting RSP",
 	    __func__, error));
-	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RAX, &hcid);
-	KASSERT(error == 0, ("%s: error %d getting RAX",
-	    __func__, error));
-	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RBX, &nargs);
-	KASSERT(error == 0, ("%s: error %d getting RBX",
-	    __func__, error));
-	KASSERT((nargs < 7 && nargs >= 0), ("%s: error nargs == %lu",
-	    __func__, nargs));
+
 
 	error = vm_get_seg_desc(vm, vcpuid, VM_REG_GUEST_SS, &ss_desc);
 	KASSERT(error == 0, ("%s: error %d getting SS descriptor",
@@ -1698,8 +1731,7 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 		vm_inject_ac(vm, vcpuid, 0);
 		return (0);
 	}
-	printf("hcid: %lu\n", hcid);
-	printf("bytes: %lu\n", nargs*size);
+
 	error = vm_copy_setup(vm, vcpuid, paging, stack_gla, nargs * size,
 	    PROT_READ, copyinfo, nitems(copyinfo), &fault);
 	if (error || fault) {
