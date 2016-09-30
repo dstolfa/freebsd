@@ -231,26 +231,18 @@ static MALLOC_DEFINE(M_DTVMM, "dtvmm", "dtvmm");
 /* 
  * The maximum amount of arguments currently supproted
  * through the hypercall functionality in the VMM.
- * Everything higher than 6 will be discarded.
+ * Everything higher than HYPERCALL_MAX_ARGS will be 
+ * discarded.
  */
-#define HYPERCALL_MAX_ARGS		6
-
-/*
- * Used to create additional known hypercalls. The name
- * of each of the enums should correspond to the function
- * being called once the hypercall is initiated.
- *
- * Keep in sync with ring_plevel.
- */
-enum hypercall_index {
-	HYPERCALL_DTRACE_PROBE_CREATE = 0,
-	HYPERCALL_DTRACE_PROBE,
-	HYPERCALL_INDEX_MAX
-};
+#define HYPERCALL_MAX_ARGS	6
 
 static int8_t ring_plevel[HYPERCALL_INDEX_MAX] = {
-	[HYPERCALL_DTRACE_PROBE_CREATE] = 0,
-	[HYPERCALL_DTRACE_PROBE] = 0
+	[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
+	[HYPERCALL_DTRACE_PROBE]	= 0,
+	[HYPERCALL_DTRACE_RESERVED1]	= 0, /* Reserved for DTrace */
+	[HYPERCALL_DTRACE_RESERVED2]	= 0, /* Reserved for DTrace */
+	[HYPERCALL_DTRACE_RESERVED3]	= 0, /* Reserved for DTrace */
+	[HYPERCALL_DTRACE_RESERVED4]	= 0, /* Reserved for DTrace */
 };
 
 #ifdef KDTRACE_HOOKS
@@ -1764,6 +1756,11 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, val);
 		KASSERT(error == 0, ("%s: error %d setting RAX",
 		    __func__, error));
+		break;
+	case HYPERCALL_DTRACE_RESERVED1:
+	case HYPERCALL_DTRACE_RESERVED2:
+	case HYPERCALL_DTRACE_RESERVED3:
+	case HYPERCALL_DTRACE_RESERVED4:
 		break;
 	default:
 		break;	

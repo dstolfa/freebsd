@@ -11,14 +11,29 @@
 #define VMMCALL		".byte 0x0f,0x01,0xd9\n"
 
 typedef struct hypercall_arg {
-	__uint64_t len;
-	__uint64_t val;
+	__uint64_t	len;
+	__uint64_t	val;
 } hc_arg_t;
 
-/* XXX: Each of these hypercalls can
- * be rewritten in a better way with
- * less redundancy
+/*
+ * Used to create additional known hypercalls. The name
+ * of each of the enums should correspond to the function
+ * being called once the hypercall is initiated.
+ * Each enum should have it's corresponding number next
+ * to it and should be in order, as the ring_plevel
+ * array expects it to be that way.
+ *
+ * Keep in sync with ring_plevel.
  */
+enum hypercall_index {
+	HYPERCALL_DTRACE_PROBE_CREATE	= 0,
+	HYPERCALL_DTRACE_PROBE		= 1,
+	HYPERCALL_DTRACE_RESERVED1	= 2, /* Reserved for DTrace */
+	HYPERCALL_DTRACE_RESERVED2	= 3, /* Reserved for DTrace */
+	HYPERCALL_DTRACE_RESERVED3	= 4, /* Reserved for DTrace */
+	HYPERCALL_DTRACE_RESERVED4	= 5, /* Reserved for DTrace */
+	HYPERCALL_INDEX_MAX
+};
 
 static __inline __int64_t
 hypercall0(__uint64_t c)
