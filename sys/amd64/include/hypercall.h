@@ -35,6 +35,10 @@
 #include <x86/x86_var.h>
 #include <x86/cputypes.h>
 
+#define HYPERCALL_RET_NOT_IMPL	-2
+#define HYPERCALL_RET_ERROR	-1
+#define HYPERCALL_RET_SUCCESS	0
+
 #define VMCALL		".byte 0x0f,0x01,0xc1\n"
 #define VMMCALL		".byte 0x0f,0x01,0xd9\n"
 
