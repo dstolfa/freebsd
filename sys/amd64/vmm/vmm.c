@@ -225,8 +225,6 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, trace_guest_exceptions, CTLFLAG_RDTUN,
     &trace_guest_exceptions, 0,
     "Trap into hypervisor on all guest exceptions and reflect them back");
 
-static MALLOC_DEFINE(M_DTVMM, "dtvmm", "dtvmm");
-
 /* 
  * The maximum amount of arguments currently supproted
  * through the hypercall functionality in the VMM.
@@ -468,9 +466,6 @@ vm_create(const char *name, struct vm **retvm)
 	vm_init(vm, true);
 
 	*retvm = vm;
-	if (dtvmm_hook_create != NULL) {
-		dtvmm_hook_create((*retvm)->name);
-	}
 	return (0);
 }
 
@@ -563,9 +558,6 @@ vm_map_mmio(struct vm *vm, vm_paddr_t gpa, size_t len, vm_paddr_t hpa)
 	if ((obj = vmm_mmio_alloc(vm->vmspace, gpa, len, hpa)) == NULL)
 		return (ENOMEM);
 	else {
-		if (dtvmm_hook_map_mmio != NULL) {
-			dtvmm_hook_map_mmio(vm->name, gpa, len, hpa);
-		}
 		return (0);
 	}
 }
@@ -1564,8 +1556,7 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	struct hypercall_arg args[HYPERCALL_MAX_ARGS];
 	struct seg_desc ss_desc, cs_desc;
 	uint64_t hcid, nargs, rsp, stack_gla, cr0, rflags;
-	int64_t val;
-	int error, fault, stackaddrsize, size, handled, addrsize, i;
+	int error, fault, stackaddrsize, size, handled, addrsize;
 
 	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RAX, &hcid);
 	KASSERT(error == 0, ("%s: error %d getting RAX",
@@ -1694,10 +1685,6 @@ vm_suspend(struct vm *vm, enum vm_suspend_how how)
 	}
 
 	VM_CTR1(vm, "virtual machine successfully suspended %d", how);
-
-	if (dtvmm_hook_suspend != NULL) {
-		dtvmm_hook_suspend(vm, how);
-	}
 
 	/*
 	 * Notify all active vcpus that they are now suspended.
@@ -2016,9 +2003,6 @@ nested_fault(struct vm *vm, int vcpuid, uint64_t info1, uint64_t info2,
 		    info1, info2);
 		vm_suspend(vm, VM_SUSPEND_TRIPLEFAULT);
 		*retinfo = 0;
-		if (dtvmm_hook_nested_fault != NULL) {
-			dtvmm_hook_nested_fault(vm, vcpuid, *retinfo);
-		}
 		return (0);
 	}
 
@@ -2036,9 +2020,6 @@ nested_fault(struct vm *vm, int vcpuid, uint64_t info1, uint64_t info2,
 	} else {
 		/* Handle exceptions serially */
 		*retinfo = info2;
-	}
-	if (dtvmm_hook_nested_fault != NULL) {
-		dtvmm_hook_nested_fault(vm, vcpuid, *retinfo);
 	}
 
 	return (1);
