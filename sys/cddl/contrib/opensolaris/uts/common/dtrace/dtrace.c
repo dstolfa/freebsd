@@ -132,8 +132,6 @@
 
 #include <netinet/in.h>
 
-#include <machine/hypercall.h>
-
 #include "dtrace_cddl.h"
 #include "dtrace_debug.c"
 #endif
