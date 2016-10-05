@@ -256,7 +256,7 @@ hc_dispatcher_t hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 static int8_t ring_plevel[HYPERCALL_INDEX_MAX] = {
 	[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
 	[HYPERCALL_DTRACE_PROBE]	= 0,
-	[HYPERCALL_DTRACE_RESERVED1]	= 0, /* Reserved for DTrace */
+	[HYPERCALL_DTRACE_RESERVED1]	= 3, /* Reserved for DTrace */
 	[HYPERCALL_DTRACE_RESERVED2]	= 0, /* Reserved for DTrace */
 	[HYPERCALL_DTRACE_RESERVED3]	= 0, /* Reserved for DTrace */
 	[HYPERCALL_DTRACE_RESERVED4]	= 0, /* Reserved for DTrace */
@@ -1578,7 +1578,7 @@ static int64_t
 hypercall_dispatch(uint64_t hcid, struct vm *vm, int vcpuid,
     struct hypercall_arg *args, struct vm_guest_paging *paging)
 {
-	return (hc_dispatcher[hcid][hypercall_mode](vm, vcpuid, args, paging));
+	return (hc_dispatcher[hypercall_mode][hcid](vm, vcpuid, args, paging));
 }
 
 static int
