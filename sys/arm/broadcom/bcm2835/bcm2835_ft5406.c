@@ -288,12 +288,12 @@ ft5406ts_attach(device_t dev)
 	sc->sc_init_hook.ich_func = ft5406ts_init;
 	sc->sc_init_hook.ich_arg = sc;
 
+	FT5406_LOCK_INIT(sc);
+
 	if (config_intrhook_establish(&sc->sc_init_hook) != 0) {
 		device_printf(dev, "config_intrhook_establish failed\n");
 		return (ENOMEM);
 	}
-
-	FT5406_LOCK_INIT(sc);
 
 	return (0);
 }
@@ -308,10 +308,11 @@ ft5406ts_detach(device_t dev)
 	FT5406_LOCK(sc);
 	if (sc->sc_worker)
 		sc->sc_detaching = 1;
+	wakeup(sc);
+	FT5406_UNLOCK(sc);
 
 	if (sc->sc_evdev)
 		evdev_free(sc->sc_evdev);
-	FT5406_UNLOCK(sc);
 
 	FT5406_LOCK_DESTROY(sc);
 
@@ -335,3 +336,4 @@ static driver_t ft5406ts_driver = {
 };
 
 DRIVER_MODULE(ft5406ts, ofwbus, ft5406ts_driver, ft5406ts_devclass, 0, 0);
+MODULE_DEPEND(ft5406ts, evdev, 1, 1, 1);
