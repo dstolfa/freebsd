@@ -55,7 +55,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/cpu.h>
 #include <machine/pcb.h>
 #include <machine/smp.h>
-#include <machine/hypercall.h>
+#include <machine/bhyve_hypercall.h>
 #include <x86/psl.h>
 #include <x86/apicreg.h>
 
