@@ -232,6 +232,26 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, trace_guest_exceptions, CTLFLAG_RDTUN,
  * discarded.
  */
 #define HYPERCALL_MAX_ARGS	6
+#define BHYVE_MODE		0
+#define VMM_MAX_MODES		1
+
+typedef int64_t (*hc_dispatcher_t)(struct vm *, int,
+    struct hypercall_arg *, struct vm_guest_paging *);
+
+static int hypercall_mode = BHYVE_MODE;
+
+static int64_t not_impl();
+
+hc_dispatcher_t hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
+	[BHYVE_MODE] = {
+		[HYPERCALL_DTRACE_PROBE_CREATE]	= not_impl,
+		[HYPERCALL_DTRACE_PROBE]	= not_impl,
+		[HYPERCALL_DTRACE_RESERVED1]	= not_impl,
+		[HYPERCALL_DTRACE_RESERVED2]	= not_impl,
+		[HYPERCALL_DTRACE_RESERVED3]	= not_impl,
+		[HYPERCALL_DTRACE_RESERVED4]	= not_impl
+	}
+};
 
 static int8_t ring_plevel[HYPERCALL_INDEX_MAX] = {
 	[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
@@ -241,7 +261,6 @@ static int8_t ring_plevel[HYPERCALL_INDEX_MAX] = {
 	[HYPERCALL_DTRACE_RESERVED3]	= 0, /* Reserved for DTrace */
 	[HYPERCALL_DTRACE_RESERVED4]	= 0, /* Reserved for DTrace */
 };
-
 
 static void vm_free_memmap(struct vm *vm, int ident);
 static bool sysmem_mapping(struct vm *vm, struct mem_map *mm);
@@ -1548,6 +1567,20 @@ hypercall_copy_arg(struct vm *vm, int vcpuid, uint64_t ds_base,
 	return (0);
 }
 
+static int64_t
+not_impl(struct vm *vm, int vcpuid,
+    struct hypercall_arg *args, struct vm_guest_paging *paging)
+{
+	return (HYPERCALL_RET_NOT_IMPL);
+}
+
+static int64_t
+hypercall_dispatch(uint64_t hcid, struct vm *vm, int vcpuid,
+    struct hypercall_arg *args, struct vm_guest_paging *paging)
+{
+	return (hc_dispatcher[hcid][hypercall_mode](vm, vcpuid, args, paging));
+}
+
 static int
 vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *retu)
 {
@@ -1556,6 +1589,7 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	struct hypercall_arg args[HYPERCALL_MAX_ARGS];
 	struct seg_desc ss_desc, cs_desc;
 	uint64_t hcid, nargs, rsp, stack_gla, cr0, rflags;
+	int64_t retval;
 	int error, fault, stackaddrsize, size, handled, addrsize;
 
 	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RAX, &hcid);
@@ -1648,7 +1682,11 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	 * From this point on, all the arguments passed in from the
 	 * guest are contained in the args array.
 	 */
-
+	retval = hypercall_dispatch(hcid, vm, vcpuid, args, paging);
+	error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, retval);
+	KASSERT(error == 0, ("%s: error %d setting RAX",
+	    __func__, error));
+	/*
 	switch (hcid) {
 	case HYPERCALL_DTRACE_PROBE_CREATE:
 	case HYPERCALL_DTRACE_PROBE:
@@ -1666,7 +1704,7 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 		    __func__, error));
 		break;	
 	}
-
+*/
 	return (0);
 }
 
