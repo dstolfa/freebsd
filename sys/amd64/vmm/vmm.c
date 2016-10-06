@@ -242,7 +242,6 @@ typedef int64_t	(*hc_dispatcher_t)(struct vm *, int,
 
 static int hypercall_mode = BHYVE_MODE;
 
-static int64_t	not_impl();
 static int	bhyve_handle_hypercall(uint64_t hcid, struct vm *vm,
     int vcpuid, struct vm_exit *vmexit, bool *retu);
 
@@ -252,12 +251,12 @@ hc_handler_t	hc_handler[VMM_MAX_MODES] = {
 
 hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
-		[HYPERCALL_DTRACE_PROBE_CREATE]	= not_impl,
-		[HYPERCALL_DTRACE_PROBE]	= not_impl,
-		[HYPERCALL_DTRACE_RESERVED1]	= not_impl,
-		[HYPERCALL_DTRACE_RESERVED2]	= not_impl,
-		[HYPERCALL_DTRACE_RESERVED3]	= not_impl,
-		[HYPERCALL_DTRACE_RESERVED4]	= not_impl
+		[HYPERCALL_DTRACE_PROBE_CREATE]	= NULL,
+		[HYPERCALL_DTRACE_PROBE]	= NULL,
+		[HYPERCALL_DTRACE_RESERVED1]	= NULL,
+		[HYPERCALL_DTRACE_RESERVED2]	= NULL,
+		[HYPERCALL_DTRACE_RESERVED3]	= NULL,
+		[HYPERCALL_DTRACE_RESERVED4]	= NULL
 	}
 };
 
@@ -1567,6 +1566,10 @@ static __inline int64_t
 hypercall_dispatch(uint64_t hcid, struct vm *vm, int vcpuid,
     struct hypercall_arg *args, struct vm_guest_paging *paging)
 {
+	if (hc_dispatcher[hypercall_mode][hcid] == NULL) {
+		vm_inject_ud(vm, vcpuid);
+		return (0);
+	}
 	return (hc_dispatcher[hypercall_mode][hcid](vm, vcpuid, args, paging));
 }
 
