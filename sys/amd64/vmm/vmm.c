@@ -235,14 +235,22 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, trace_guest_exceptions, CTLFLAG_RDTUN,
 #define BHYVE_MODE		0
 #define VMM_MAX_MODES		1
 
-typedef int64_t (*hc_dispatcher_t)(struct vm *, int,
+typedef int	(*hc_handler_t)(uint64_t, struct vm *, int,
+    struct vm_exit *, bool *);
+typedef int64_t	(*hc_dispatcher_t)(struct vm *, int,
     struct hypercall_arg *, struct vm_guest_paging *);
 
 static int hypercall_mode = BHYVE_MODE;
 
-static int64_t not_impl();
+static int64_t	not_impl();
+static int	bhyve_handle_hypercall(uint64_t hcid, struct vm *vm,
+    int vcpuid, struct vm_exit *vmexit, bool *retu);
 
-hc_dispatcher_t hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
+hc_handler_t	hc_handler[VMM_MAX_MODES] = {
+	[BHYVE_MODE]	= bhyve_handle_hypercall
+};
+
+hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
 		[HYPERCALL_DTRACE_PROBE_CREATE]	= not_impl,
 		[HYPERCALL_DTRACE_PROBE]	= not_impl,
@@ -253,7 +261,7 @@ hc_dispatcher_t hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	}
 };
 
-static int8_t ring_plevel[HYPERCALL_INDEX_MAX] = {
+static int8_t	ring_plevel[HYPERCALL_INDEX_MAX] = {
 	[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
 	[HYPERCALL_DTRACE_PROBE]	= 0,
 	[HYPERCALL_DTRACE_RESERVED1]	= 3, /* Reserved for DTrace */
@@ -1546,6 +1554,26 @@ vm_handle_reqidle(struct vm *vm, int vcpuid, bool *retu)
 	return (0);
 }
 
+static __inline int64_t
+not_impl(struct vm *vm, int vcpuid,
+    struct hypercall_arg *args, struct vm_guest_paging *paging)
+{ 
+	return (HYPERCALL_RET_NOT_IMPL);
+}
+
+static __inline int64_t
+hypercall_dispatch(uint64_t hcid, struct vm *vm, int vcpuid,
+    struct hypercall_arg *args, struct vm_guest_paging *paging)
+{
+	return (hc_dispatcher[hypercall_mode][hcid](vm, vcpuid, args, paging));
+}
+
+static __inline int
+hypercall_handle(uint64_t hcid, struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *retu)
+{
+	return (hc_handler[hypercall_mode](hcid, vm, vcpuid, vmexit, retu));
+}
+
 static int
 hypercall_copy_arg(struct vm *vm, int vcpuid, uint64_t ds_base,
     struct hypercall_arg *arg, struct vm_guest_paging *paging, void *dst)
@@ -1567,59 +1595,17 @@ hypercall_copy_arg(struct vm *vm, int vcpuid, uint64_t ds_base,
 	return (0);
 }
 
-static int64_t
-not_impl(struct vm *vm, int vcpuid,
-    struct hypercall_arg *args, struct vm_guest_paging *paging)
-{
-	return (HYPERCALL_RET_NOT_IMPL);
-}
-
-static int64_t
-hypercall_dispatch(uint64_t hcid, struct vm *vm, int vcpuid,
-    struct hypercall_arg *args, struct vm_guest_paging *paging)
-{
-	return (hc_dispatcher[hypercall_mode][hcid](vm, vcpuid, args, paging));
-}
-
 static int
-vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *retu)
+bhyve_handle_hypercall(uint64_t hcid, struct vm *vm, int vcpuid,
+    struct vm_exit *vmexit, bool *retu)
 {
 	struct vm_copyinfo copyinfo[2];
 	struct vm_guest_paging *paging;
 	struct hypercall_arg args[HYPERCALL_MAX_ARGS];
-	struct seg_desc ss_desc, cs_desc;
-	uint64_t hcid, nargs, rsp, stack_gla, cr0, rflags;
+	struct seg_desc ss_desc;
+	uint64_t nargs, rsp, stack_gla, cr0, rflags;
 	int64_t retval;
 	int error, fault, stackaddrsize, size, handled, addrsize;
-
-	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RAX, &hcid);
-	KASSERT(error == 0, ("%s: error %d getting RAX",
-	    __func__, error));
-	/*
-	 * Ensure that the hypercall called by the guest never exceed
-	 * the maximum number of hypercalls defined.
-	 */
-	if (hcid >= HYPERCALL_INDEX_MAX) {
-		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, HYPERCALL_RET_ERROR);
-		KASSERT(error == 0, ("%s: error %d setting RAX",
-		    __func__, error));
-		return (0);
-	}
-
-	error = vm_get_seg_desc(vm, vcpuid, VM_REG_GUEST_CS, &cs_desc);
-	KASSERT(error == 0, ("%s: error %d getting CS descriptor",
-	    __func__, error));
-
-	/*
-	 * The check ensures that each of the hypercalls that is called
-	 * from the guest is called from the correct protection ring.
-	 */
-	if (SEG_DESC_DPL(cs_desc.access) != ring_plevel[hcid]) {
-		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, HYPERCALL_RET_ERROR);
-		KASSERT(error == 0, ("%s: error %d setting RAX",
-		    __func__, error));
-		return (0);
-	}
 
 	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RBX, &nargs);
 	KASSERT(error == 0, ("%s: error %d getting RBX",
@@ -1686,26 +1672,46 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, retval);
 	KASSERT(error == 0, ("%s: error %d setting RAX",
 	    __func__, error));
-	/*
-	switch (hcid) {
-	case HYPERCALL_DTRACE_PROBE_CREATE:
-	case HYPERCALL_DTRACE_PROBE:
-	case HYPERCALL_DTRACE_RESERVED1:
-	case HYPERCALL_DTRACE_RESERVED2:
-	case HYPERCALL_DTRACE_RESERVED3:
-	case HYPERCALL_DTRACE_RESERVED4:
-		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, HYPERCALL_RET_NOT_IMPL);
-		KASSERT(error == 0, ("%s: error %d setting RAX",
-		    __func__, error));
-		break;
-	default:
-		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, HYPERCALL_RET_NOT_IMPL);
-		KASSERT(error == 0, ("%s: error %d setting RAX",
-		    __func__, error));
-		break;	
-	}
-*/
 	return (0);
+}
+
+static int
+vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *retu)
+{
+	struct seg_desc cs_desc;
+	uint64_t hcid;
+	int error;
+
+	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RAX, &hcid);
+	KASSERT(error == 0, ("%s: error %d getting RAX",
+	    __func__, error));
+	/*
+	 * Ensure that the hypercall called by the guest never exceed
+	 * the maximum number of hypercalls defined.
+	 */
+	if (hcid >= HYPERCALL_INDEX_MAX) {
+		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, HYPERCALL_RET_ERROR);
+		KASSERT(error == 0, ("%s: error %d setting RAX",
+		    __func__, error));
+		return (0);
+	}
+
+	error = vm_get_seg_desc(vm, vcpuid, VM_REG_GUEST_CS, &cs_desc);
+	KASSERT(error == 0, ("%s: error %d getting CS descriptor",
+	    __func__, error));
+
+	/*
+	 * The check ensures that each of the hypercalls that is called
+	 * from the guest is called from the correct protection ring.
+	 */
+	if (SEG_DESC_DPL(cs_desc.access) != ring_plevel[hcid]) {
+		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, HYPERCALL_RET_ERROR);
+		KASSERT(error == 0, ("%s: error %d setting RAX",
+		    __func__, error));
+		return (0);
+	}
+
+	return (hypercall_handle(hcid, vm, vcpuid, vmexit, retu));
 }
 
 int
