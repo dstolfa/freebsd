@@ -261,13 +261,15 @@ hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	}
 };
 
-static int8_t	ring_plevel[HYPERCALL_INDEX_MAX] = {
-	[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
-	[HYPERCALL_DTRACE_PROBE]	= 0,
-	[HYPERCALL_DTRACE_RESERVED1]	= 3, /* Reserved for DTrace */
-	[HYPERCALL_DTRACE_RESERVED2]	= 0, /* Reserved for DTrace */
-	[HYPERCALL_DTRACE_RESERVED3]	= 0, /* Reserved for DTrace */
-	[HYPERCALL_DTRACE_RESERVED4]	= 0, /* Reserved for DTrace */
+static int8_t	ring_plevel[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
+	[BHYVE_MODE] = {
+		[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
+		[HYPERCALL_DTRACE_PROBE]	= 0,
+		[HYPERCALL_DTRACE_RESERVED1]	= 0, /* Reserved for DTrace */
+		[HYPERCALL_DTRACE_RESERVED2]	= 0, /* Reserved for DTrace */
+		[HYPERCALL_DTRACE_RESERVED3]	= 0, /* Reserved for DTrace */
+		[HYPERCALL_DTRACE_RESERVED4]	= 0, /* Reserved for DTrace */
+	}
 };
 
 static void vm_free_memmap(struct vm *vm, int ident);
@@ -1704,7 +1706,7 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	 * The check ensures that each of the hypercalls that is called
 	 * from the guest is called from the correct protection ring.
 	 */
-	if (SEG_DESC_DPL(cs_desc.access) != ring_plevel[hcid]) {
+	if (SEG_DESC_DPL(cs_desc.access) != ring_plevel[hypercall_mode][hcid]) {
 		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, HYPERCALL_RET_ERROR);
 		KASSERT(error == 0, ("%s: error %d setting RAX",
 		    __func__, error));
