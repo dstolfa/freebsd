@@ -465,7 +465,7 @@ x86_emulate_cpuid(struct vm *vm, int vcpu_id,
 			}
 			break;
 
-		case CPUID_4000_4000:
+		case CPUID_4000_0000:
 			regs[0] = CPUID_VM_HIGH;
 			bcopy(hypervisor_id[hypervisor_mode], &regs[1], 4);
 			bcopy(hypervisor_id[hypervisor_mode]+ 4, &regs[2], 4);

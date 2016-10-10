@@ -35,9 +35,29 @@
 #include <x86/x86_var.h>
 #include <x86/cputypes.h>
 
+#define PUSH(a) "push %[" #a "]\n"
+#define PUSH2(a1, a2)							\
+	PUSH(a1)							\
+	PUSH(a2)
+#define PUSH4(a1, a2, a3, a4)						\
+	PUSH2(a1, a2)							\
+	PUSH2(a3, a4)
+#define PUSH6(a1, a2, a3, a4, a5, a6)					\
+	PUSH4(a1, a2, a3, a4)						\
+	PUSH2(a5, a6)
+#define PUSH8(a1, a2, a3, a4, a5, a6, a7, a8)				\
+	PUSH6(a1, a2, a3, a4, a5, a6)					\
+	PUSH2(a7, a8)
+#define PUSH10(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10)			\
+	PUSH8(a1, a2, a3, a4, a5, a6, a7, a8)				\
+	PUSH2(a9, a10)
+#define PUSH12(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12)	\
+	PUSH10(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10)			\
+	PUSH2(a11, a12)
+
 #define HYPERCALL_RET_NOT_IMPL	-2
 #define HYPERCALL_RET_ERROR	-1
-#define HYPERCALL_RET_SUCCESS	0
+#define HYPERCALL_RET_SUCCESS	 0
 
 #define VMCALL		".byte 0x0f,0x01,0xc1\n"
 #define VMMCALL		".byte 0x0f,0x01,0xd9\n"
@@ -95,8 +115,7 @@ hypercall1(__uint64_t c, hc_arg_t *arg0)
 	__int64_t ret;
 	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
 		__asm __volatile(
-		    "push %[val0]\n"
-		    "push %[len0]\n"
+		    PUSH2(val0, len0)
 		    VMCALL
 		    "add $16, %%rsp\n"
 		    : "=a"(ret)
@@ -106,8 +125,7 @@ hypercall1(__uint64_t c, hc_arg_t *arg0)
 		    : "memory", "rsp");
 	} else {
 		__asm __volatile(
-		    "push %[val0]\n"
-		    "push %[len0]\n"
+		    PUSH2(val0, len0)
 		    VMMCALL
 		    "add $16, %%rsp\n"
 		    : "=a"(ret)
@@ -127,10 +145,7 @@ hypercall2(__uint64_t c, hc_arg_t *arg0,
 	__int64_t ret;
 	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
 		__asm __volatile(
-		    "push %[val1]\n"
-		    "push %[len1]\n"
-		    "push %[val0]\n"
-		    "push %[len0]\n"
+		    PUSH4(val1, len1, val0, len0)
 		    VMCALL
 		    "add $32, %%rsp\n"
 		    : "=a"(ret)
@@ -141,10 +156,7 @@ hypercall2(__uint64_t c, hc_arg_t *arg0,
 		    : "memory", "rsp");
 	} else {
 		__asm __volatile(
-		    "push %[val1]\n"
-		    "push %[len1]\n"
-		    "push %[val0]\n"
-		    "push %[len0]\n"
+		    PUSH4(val1, len1, val0, len0)
 		    VMMCALL
 		    "add $32, %%rsp\n"
 		    : "=a"(ret)
@@ -165,12 +177,8 @@ hypercall3(__uint64_t c, hc_arg_t *arg0,
 	__int64_t ret;
 	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
 		__asm __volatile(
-		    "push %[val2]\n"
-		    "push %[len2]\n"
-		    "push %[val1]\n"
-		    "push %[len1]\n"
-		    "push %[val0]\n"
-		    "push %[len0]\n"
+		    PUSH6(val2, len2, val1, len1,
+		        val0, len0)
 		    VMCALL
 		    "add $48, %%rsp\n"
 		    : "=a"(ret)
@@ -182,12 +190,8 @@ hypercall3(__uint64_t c, hc_arg_t *arg0,
 		    : "memory", "rsp");
 	} else {
 		__asm __volatile(
-		    "push %[val2]\n"
-		    "push %[len2]\n"
-		    "push %[val1]\n"
-		    "push %[len1]\n"
-		    "push %[val0]\n"
-		    "push %[len0]\n"
+		    PUSH6(val2, len2, val1, len1,
+		        val0, len0)
 		    VMMCALL
 		    "add $48, %%rsp\n"
 		    : "=a"(ret)
@@ -210,14 +214,8 @@ hypercall4(__uint64_t c, hc_arg_t *arg0,
 	__int64_t ret;
 	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
 		__asm __volatile(
-		    "push %[val3]\n"
-		    "push %[len3]\n"
-		    "push %[val2]\n"
-		    "push %[len2]\n"
-		    "push %[val1]\n"
-		    "push %[len1]\n"
-		    "push %[val0]\n"
-		    "push %[len0]\n"
+		    PUSH8(val3, len3, val2, len2,
+		        val1, len1, val0, len0)
 		    VMCALL
 		    "add $64, %%rsp\n"
 		    : "=a"(ret)
@@ -230,14 +228,8 @@ hypercall4(__uint64_t c, hc_arg_t *arg0,
 		    : "memory", "rsp");
 	} else {
 		__asm __volatile(
-		    "push %[val3]\n"
-		    "push %[len3]\n"
-		    "push %[val2]\n"
-		    "push %[len2]\n"
-		    "push %[val1]\n"
-		    "push %[len1]\n"
-		    "push %[val0]\n"
-		    "push %[len0]\n"
+		    PUSH8(val3, len3, val2, len2,
+		        val1, len1, val0, len0)
 		    VMMCALL
 		    "add $64, %%rsp\n"
 		    : "=a"(ret)
@@ -261,16 +253,9 @@ hypercall5(__uint64_t c, hc_arg_t *arg0,
 	__int64_t ret;
 	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
 		__asm __volatile(
-		    "push %[val4]\n"
-		    "push %[len4]\n"
-		    "push %[val3]\n"
-		    "push %[len3]\n"
-		    "push %[val2]\n"
-		    "push %[len2]\n"
-		    "push %[val1]\n"
-		    "push %[len1]\n"
-		    "push %[val0]\n"
-		    "push %[len0]\n"
+		    PUSH10(val4, len4, val3, len3,
+		        val2, len2, val1, len1,
+		        val0, len0)
 		    VMCALL
 		    "add $80, %%rsp\n"
 		    : "=a"(ret)
@@ -284,16 +269,9 @@ hypercall5(__uint64_t c, hc_arg_t *arg0,
 		    : "memory", "rsp");
 	} else {
 		__asm __volatile(
-		    "push %[val4]\n"
-		    "push %[len4]\n"
-		    "push %[val3]\n"
-		    "push %[len3]\n"
-		    "push %[val2]\n"
-		    "push %[len2]\n"
-		    "push %[val1]\n"
-		    "push %[len1]\n"
-		    "push %[val0]\n"
-		    "push %[len0]\n"
+		    PUSH10(val4, len4, val3, len3,
+		        val2, len2, val1, len1,
+		        val0, len0)
 		    VMMCALL
 		    "add $80, %%rsp\n"
 		    : "=a"(ret)
@@ -319,18 +297,9 @@ hypercall6(__uint64_t c, hc_arg_t *arg0,
 	__int64_t ret;
 	if (cpu_vendor_id == CPU_VENDOR_INTEL) {
 		__asm __volatile(
-		    "push %[val5]\n"
-		    "push %[len5]\n"
-		    "push %[val4]\n"
-		    "push %[len4]\n"
-		    "push %[val3]\n"
-		    "push %[len3]\n"
-		    "push %[val2]\n"
-		    "push %[len2]\n"
-		    "push %[val1]\n"
-		    "push %[len1]\n"
-		    "push %[val0]\n"
-		    "push %[len0]\n"
+		    PUSH12(val5, len5, val4, len4,
+		        val3, len3, val2, len2,
+		        val1, len1, val0, len0)
 		    VMCALL
 		    "add $96, %%rsp\n"
 		    : "=a"(ret)
@@ -345,18 +314,9 @@ hypercall6(__uint64_t c, hc_arg_t *arg0,
 		    : "memory", "rsp");
 	} else {
 		__asm __volatile(
-		    "push %[val5]\n"
-		    "push %[len5]\n"
-		    "push %[val4]\n"
-		    "push %[len4]\n"
-		    "push %[val3]\n"
-		    "push %[len3]\n"
-		    "push %[val2]\n"
-		    "push %[len2]\n"
-		    "push %[val1]\n"
-		    "push %[len1]\n"
-		    "push %[val0]\n"
-		    "push %[len0]\n"
+		    PUSH12(val5, len5, val4, len4,
+		        val3, len3, val2, len2,
+		        val1, len1, val0, len0)
 		    VMMCALL
 		    "add $96, %%rsp\n"
 		    : "=a"(ret)
