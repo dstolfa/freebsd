@@ -1066,16 +1066,16 @@ vnlru_return_batch_locked(struct mount *mp)
 	if (mp->mnt_tmpfreevnodelistsize == 0)
 		return;
 
-	mtx_lock(&vnode_free_list_mtx);
 	TAILQ_FOREACH(vp, &mp->mnt_tmpfreevnodelist, v_actfreelist) {
 		VNASSERT((vp->v_mflag & VMP_TMPMNTFREELIST) != 0, vp,
 		    ("vnode without VMP_TMPMNTFREELIST on mnt_tmpfreevnodelist"));
 		vp->v_mflag &= ~VMP_TMPMNTFREELIST;
 	}
+	mtx_lock(&vnode_free_list_mtx);
 	TAILQ_CONCAT(&vnode_free_list, &mp->mnt_tmpfreevnodelist, v_actfreelist);
 	freevnodes += mp->mnt_tmpfreevnodelistsize;
-	mp->mnt_tmpfreevnodelistsize = 0;
 	mtx_unlock(&vnode_free_list_mtx);
+	mp->mnt_tmpfreevnodelistsize = 0;
 }
 
 static void
@@ -2641,6 +2641,7 @@ void
 vrefl(struct vnode *vp)
 {
 
+	ASSERT_VI_LOCKED(vp, __func__);
 	CTR2(KTR_VFS, "%s: vp %p", __func__, vp);
 	_vhold(vp, true);
 	v_incr_usecount_locked(vp);
@@ -3160,15 +3161,28 @@ vrecycle(struct vnode *vp)
 {
 	int recycled;
 
-	ASSERT_VOP_ELOCKED(vp, "vrecycle");
+	VI_LOCK(vp);
+	recycled = vrecyclel(vp);
+	VI_UNLOCK(vp);
+	return (recycled);
+}
+
+/*
+ * vrecycle, with the vp interlock held.
+ */
+int
+vrecyclel(struct vnode *vp)
+{
+	int recycled;
+
+	ASSERT_VOP_ELOCKED(vp, __func__);
+	ASSERT_VI_LOCKED(vp, __func__);
 	CTR2(KTR_VFS, "%s: vp %p", __func__, vp);
 	recycled = 0;
-	VI_LOCK(vp);
 	if (vp->v_usecount == 0) {
 		recycled = 1;
 		vgonel(vp);
 	}
-	VI_UNLOCK(vp);
 	return (recycled);
 }
 
