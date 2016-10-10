@@ -52,7 +52,9 @@ static SYSCTL_NODE(_hw_vmm, OID_AUTO, topology, CTLFLAG_RD, 0, NULL);
 
 #define	CPUID_VM_HIGH		0x40000000
 
-static const char bhyve_id[12] = "bhyve bhyve ";
+static const char hypervisor_id[VMM_MAX_MODES][12] =  {
+	[BHYVE_MODE]	= "bhyve bhyve "
+};
 
 static uint64_t bhyve_xcpuids;
 SYSCTL_ULONG(_hw_vmm, OID_AUTO, bhyve_xcpuids, CTLFLAG_RW, &bhyve_xcpuids, 0,
@@ -463,11 +465,11 @@ x86_emulate_cpuid(struct vm *vm, int vcpu_id,
 			}
 			break;
 
-		case 0x40000000:
+		case CPUID_4000_4000:
 			regs[0] = CPUID_VM_HIGH;
-			bcopy(bhyve_id, &regs[1], 4);
-			bcopy(bhyve_id + 4, &regs[2], 4);
-			bcopy(bhyve_id + 8, &regs[3], 4);
+			bcopy(hypervisor_id[hypervisor_mode], &regs[1], 4);
+			bcopy(hypervisor_id[hypervisor_mode]+ 4, &regs[2], 4);
+			bcopy(hypervisor_id[hypervisor_mode]+ 8, &regs[3], 4);
 			break;
 
 		default:

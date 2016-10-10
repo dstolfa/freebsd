@@ -170,6 +170,11 @@ struct vmm_ops {
 extern struct vmm_ops vmm_ops_intel;
 extern struct vmm_ops vmm_ops_amd;
 
+#define BHYVE_MODE		0
+#define VMM_MAX_MODES		1
+
+extern int	hypervisor_mode;
+
 int vm_create(const char *name, struct vm **retvm);
 void vm_destroy(struct vm *vm);
 int vm_reinit(struct vm *vm);

@@ -232,15 +232,13 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, trace_guest_exceptions, CTLFLAG_RDTUN,
  * discarded.
  */
 #define HYPERCALL_MAX_ARGS	6
-#define BHYVE_MODE		0
-#define VMM_MAX_MODES		1
 
 typedef int	(*hc_handler_t)(uint64_t, struct vm *, int,
     struct vm_exit *, bool *);
 typedef int64_t	(*hc_dispatcher_t)(struct vm *, int,
     struct hypercall_arg *, struct vm_guest_paging *);
 
-static int hypercall_mode = BHYVE_MODE;
+int hypervisor_mode = BHYVE_MODE;
 
 static int	bhyve_handle_hypercall(uint64_t hcid, struct vm *vm,
     int vcpuid, struct vm_exit *vmexit, bool *retu);
@@ -1566,17 +1564,17 @@ static __inline int64_t
 hypercall_dispatch(uint64_t hcid, struct vm *vm, int vcpuid,
     struct hypercall_arg *args, struct vm_guest_paging *paging)
 {
-	if (hc_dispatcher[hypercall_mode][hcid] == NULL) {
+	if (hc_dispatcher[hypervisor_mode][hcid] == NULL) {
 		vm_inject_ud(vm, vcpuid);
 		return (0);
 	}
-	return (hc_dispatcher[hypercall_mode][hcid](vm, vcpuid, args, paging));
+	return (hc_dispatcher[hypervisor_mode][hcid](vm, vcpuid, args, paging));
 }
 
 static __inline int
 hypercall_handle(uint64_t hcid, struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *retu)
 {
-	return (hc_handler[hypercall_mode](hcid, vm, vcpuid, vmexit, retu));
+	return (hc_handler[hypervisor_mode](hcid, vm, vcpuid, vmexit, retu));
 }
 
 static int
@@ -1709,7 +1707,7 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	 * The check ensures that each of the hypercalls that is called
 	 * from the guest is called from the correct protection ring.
 	 */
-	if (SEG_DESC_DPL(cs_desc.access) != ring_plevel[hypercall_mode][hcid]) {
+	if (SEG_DESC_DPL(cs_desc.access) != ring_plevel[hypervisor_mode][hcid]) {
 		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, HYPERCALL_RET_ERROR);
 		KASSERT(error == 0, ("%s: error %d setting RAX",
 		    __func__, error));

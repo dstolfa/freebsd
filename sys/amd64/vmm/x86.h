@@ -47,7 +47,7 @@
 #define CPUID_8000_0006	(0x80000006)
 #define CPUID_8000_0007	(0x80000007)
 #define CPUID_8000_0008	(0x80000008)
-
+#define CPUID_4000_4000 (0x40000000)
 /*
  * CPUID instruction Fn0000_0001:
  */
