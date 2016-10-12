@@ -121,7 +121,7 @@ cpuid_advertise_hw_vendor(unsigned int regs[4])
 static void
 cpuid_bhyve_hypercall_enabled(unsigned int regs[4])
 {
-	regs[0] = 1;
+	regs[0] = hypercalls_enabled;
 }
 
 int
