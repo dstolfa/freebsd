@@ -225,20 +225,25 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, trace_guest_exceptions, CTLFLAG_RDTUN,
     &trace_guest_exceptions, 0,
     "Trap into hypervisor on all guest exceptions and reflect them back");
 
+int hypercalls_enabled = 0;
+SYSCTL_INT(_hw_vmm, OID_AUTO, hypercalls_enabled, CTLFLAG_RWTUN,
+    &hypercalls_enabled, 0,
+    "Enable hypercalls on all guests");
+
 /* 
  * The maximum amount of arguments currently supproted
  * through the hypercall functionality in the VMM.
  * Everything higher than HYPERCALL_MAX_ARGS will be 
  * discarded.
  */
-#define HYPERCALL_MAX_ARGS	6
+#define	HYPERCALL_MAX_ARGS	6
 
 typedef int	(*hc_handler_t)(uint64_t, struct vm *, int,
     struct vm_exit *, bool *);
 typedef int64_t	(*hc_dispatcher_t)(struct vm *, int,
     struct hypercall_arg *, struct vm_guest_paging *);
 
-int hypervisor_mode = BHYVE_MODE;
+int hypervisor_mode	= BHYVE_MODE;
 
 static int	bhyve_handle_hypercall(uint64_t hcid, struct vm *vm,
     int vcpuid, struct vm_exit *vmexit, bool *retu);

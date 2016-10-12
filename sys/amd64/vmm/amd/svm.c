@@ -1376,7 +1376,13 @@ svm_vmexit(struct svm_softc *svm_sc, int vcpu, struct vm_exit *vmexit)
 		handled = 1;
 		break;
 	case VMCB_EXIT_VMMCALL:
-		svm_handle_hypercall(svm_sc, vcpu, vmcb, vmexit);
+		if (hypercalls_enabled == 0) { 
+			vm_inject_ud(svm_sc->vm, vcpu);
+			handled = 1;
+		}
+		else {
+			svm_handle_hypercall(svm_sc, vcpu, vmcb, vmexit);
+		}
 		break;
 	case 0x40 ... 0x5F:
 		vmm_stat_incr(svm_sc->vm, vcpu, VMEXIT_EXCEPTION, 1);
