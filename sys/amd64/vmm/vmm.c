@@ -1559,13 +1559,6 @@ vm_handle_reqidle(struct vm *vm, int vcpuid, bool *retu)
 }
 
 static __inline int64_t
-not_impl(struct vm *vm, int vcpuid,
-    struct hypercall_arg *args, struct vm_guest_paging *paging)
-{ 
-	return (HYPERCALL_RET_NOT_IMPL);
-}
-
-static __inline int64_t
 hypercall_dispatch(uint64_t hcid, struct vm *vm, int vcpuid,
     struct hypercall_arg *args, struct vm_guest_paging *paging)
 {
