@@ -26,7 +26,6 @@ SUBDIR=	${SUBDIR_BOOTSTRAP} \
 	.WAIT \
 	libalias \
 	libarchive \
-	${_libatm} \
 	libauditd \
 	libbegemot \
 	${_libblacklist} \
@@ -49,6 +48,7 @@ SUBDIR=	${SUBDIR_BOOTSTRAP} \
 	libdevstat \
 	libdwarf \
 	libedit \
+	${_libefivar} \
 	${_libelftc} \
 	libevent \
 	libexecinfo \
@@ -133,7 +133,6 @@ SUBDIR=	${SUBDIR_BOOTSTRAP} \
 # libraries, those libraries should be listed as build order dependencies here.
 
 SUBDIR_DEPEND_libarchive= libz libbz2 libexpat liblzma libmd
-SUBDIR_DEPEND_libatm= libmd
 SUBDIR_DEPEND_libauditdm= libbsm
 SUBDIR_DEPEND_libbsnmp= ${_libnetgraph}
 SUBDIR_DEPEND_libc++:= libcxxrt
@@ -238,6 +237,10 @@ _libclang_rt=	libclang_rt
 .if ${MK_LIBCPLUSPLUS} != "no"
 _libcxxrt=	libcxxrt
 _libcplusplus=	libc++
+.endif
+
+.if ${MK_EFI} != "no"
+_libefivar=	libefivar
 .endif
 
 .if ${MK_LIBTHR} != "no"

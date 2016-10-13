@@ -60,9 +60,13 @@ __FBSDID("$FreeBSD$");
 #include "opt_tcpdebug.h"
 
 #include <sys/param.h>
+#include <sys/lock.h>
 #include <sys/module.h>
+#include <sys/mutex.h>
 #include <sys/kernel.h>
+#ifdef TCP_HHOOK
 #include <sys/hhook.h>
+#endif
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
 #include <sys/proc.h>		/* for proc0 declaration */
@@ -266,8 +270,10 @@ tcp_do_fastack(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	if (winup_only == 0) {
 		acked = BYTES_THIS_ACK(tp, th);
 
+#ifdef TCP_HHOOK
 		/* Run HHOOK_TCP_ESTABLISHED_IN helper hooks. */
 		hhook_run_tcp_est_in(tp, th, to);
+#endif
 
 		TCPSTAT_ADD(tcps_rcvackbyte, acked);
 		sbdrop(&so->so_snd, acked);
@@ -1040,8 +1046,10 @@ tcp_do_slowpath(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			 */
 			tp->sackhint.sacked_bytes = 0;
 
+#ifdef TCP_HHOOK
 		/* Run HHOOK_TCP_ESTABLISHED_IN helper hooks. */
 		hhook_run_tcp_est_in(tp, th, to);
+#endif
 
 		if (SEQ_LEQ(th->th_ack, tp->snd_una)) {
 			if (tlen == 0 && tiwin == tp->snd_wnd) {
@@ -2127,8 +2135,10 @@ tcp_fastack(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	if (winup_only == 0) {
 		acked = BYTES_THIS_ACK(tp, th);
 
+#ifdef TCP_HHOOK
 		/* Run HHOOK_TCP_ESTABLISHED_IN helper hooks. */
 		hhook_run_tcp_est_in(tp, th, to);
+#endif
 
 		TCPSTAT_ADD(tcps_rcvackbyte, acked);
 		sbdrop(&so->so_snd, acked);
