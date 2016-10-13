@@ -60,7 +60,7 @@ static SYSCTL_NODE(_hw_vmm, OID_AUTO, topology, CTLFLAG_RD, 0, NULL);
  * The reserved CPUIDs for a hypervisor as seen in
  * intel and AMD manuals are 0x40000000-0x400000FF.
  */
-#define	HC_CPUID_ID(id)		(id & 0x000000FF)
+#define	HV_CPUID_ID(id)		(id & 0x000000FF)
 
 /*
  * Advertises the appropriate hypervisor identified based
@@ -102,7 +102,7 @@ static void	cpuid_bhyve_hypercall_enabled(unsigned int regs[4]);
 
 /*
  * Dispatches the appropriate CPUID handler based on
- * the computed index using the HC_CPUID_ID macro.
+ * the computed index using the HV_CPUID_ID macro.
  * This should be kept in sync with allowed hypervisor
  * modes. Keep this jumptable as generic as possible
  * and in case of a specific CPUID for each hypervisor
@@ -126,7 +126,7 @@ log2(u_int x)
 static __inline void
 cpuid_dispatch(unsigned int func, unsigned int regs[4])
 {
-	cpuid_dispatcher[hypervisor_mode][HC_CPUID_ID(func)](regs);
+	cpuid_dispatcher[hypervisor_mode][HV_CPUID_ID(func)](regs);
 }
 
 static void
