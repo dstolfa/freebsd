@@ -243,6 +243,9 @@ typedef int	(*hc_handler_t)(uint64_t, struct vm *, int,
 typedef int64_t	(*hc_dispatcher_t)(struct vm *, int,
     struct hypercall_arg *, struct vm_guest_paging *);
 
+/*
+ * The default hypervisor mode used is BHYVE_MODE.
+ */
 int hypervisor_mode	= BHYVE_MODE;
 
 static int	bhyve_handle_hypercall(uint64_t hcid, struct vm *vm,
@@ -288,16 +291,46 @@ static int8_t	ring_plevel[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
 		[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
 		[HYPERCALL_DTRACE_PROBE]	= 0,
-		[HYPERCALL_DTRACE_RESERVED1]	= 0, /* Reserved for DTrace */
-		[HYPERCALL_DTRACE_RESERVED2]	= 0, /* Reserved for DTrace */
-		[HYPERCALL_DTRACE_RESERVED3]	= 0, /* Reserved for DTrace */
-		[HYPERCALL_DTRACE_RESERVED4]	= 0, /* Reserved for DTrace */
+		[HYPERCALL_DTRACE_RESERVED1]	= 0,
+		[HYPERCALL_DTRACE_RESERVED2]	= 0,
+		[HYPERCALL_DTRACE_RESERVED3]	= 0,
+		[HYPERCALL_DTRACE_RESERVED4]	= 0
 	}
 };
 
 static void vm_free_memmap(struct vm *vm, int ident);
 static bool sysmem_mapping(struct vm *vm, struct mem_map *mm);
 static void vcpu_notify_event_locked(struct vcpu *vcpu, bool lapic_intr);
+
+static int
+sysctl_vmm_hypervisor_mode(SYSCTL_HANDLER_ARGS)
+{
+	int error;
+	char buf[HV_MAX_NAMELEN];
+	
+	if (hypervisor_mode == BHYVE_MODE) {
+		strlcpy(buf, "bhyve", sizeof(buf));
+	} else {
+		strlcpy(buf, "undefined", sizeof(buf));
+	}
+
+	error = sysctl_handle_string(oidp, buf, sizeof(buf), req);
+	if (error != 0 || req->newptr == NULL)
+		return (error);
+	
+	if (strcmp(buf, "bhyve") == 0) {
+		hypervisor_mode = BHYVE_MODE;
+	} else {
+		/*
+		 * Disallow undefined data
+		 */
+		hypervisor_mode = BHYVE_MODE;
+	}
+
+	return (0);
+}
+SYSCTL_PROC(_hw_vmm, OID_AUTO, hv_mode, CTLTYPE_STRING | CTLFLAG_RDTUN,
+    NULL, 0, sysctl_vmm_hypervisor_mode, "A", NULL);
 
 #ifdef KTR
 static const char *

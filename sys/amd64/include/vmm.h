@@ -105,6 +105,7 @@ enum x2apic_state {
 #ifdef _KERNEL
 
 #define	VM_MAX_NAMELEN	32
+#define	HV_MAX_NAMELEN	32
 
 struct vm;
 struct vm_exception;
