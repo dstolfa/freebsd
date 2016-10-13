@@ -68,24 +68,39 @@ typedef struct hypercall_arg {
 } hc_arg_t;
 
 /*
- * Used to create additional known hypercalls. The name
- * of each of the enums should correspond to the function
- * being called once the hypercall is initiated.
- * Each enum should have it's corresponding number next
- * to it and should be in order, as the ring_plevel
- * array expects it to be that way.
+ * The hypercalls should be defined using a naming
+ * convention as described here:
+ *   - Each of the bhyve hypercalls does not have
+ *     a prefix attached to it.
+ *   - All of the hypercalls used to emulate other
+ *     hypervisors should be prefixed with a
+ *     corresponding name that identifies the
+ *     hypervisor being emulated appropriately.
+ *   - The name of each hypercall should correspond
+ *     to the name of the function being called by
+ *     that hypercall.
  *
- * Keep in sync with ring_plevel.
+ * The following defines should be kept in sync with
+ * hc_dispatcher(vmm.c) and ring_plevel(vmm.c).
+ *
+ * Ensure that the HYPERCALL_INDEX_MAX define is
+ * always correct after adding hypercalls.
+ *
+ * Should it happen that one hypervisor mode has
+ * more hypercalls than others, the define
+ * HYPERCALL_INDEX_MAX should correspond to the
+ * highest number and the hypercalls defined in
+ * hc_dispatcher should be NULL.
  */
-enum hypercall_index {
-	HYPERCALL_DTRACE_PROBE_CREATE	= 0,
-	HYPERCALL_DTRACE_PROBE		= 1,
-	HYPERCALL_DTRACE_RESERVED1	= 2, /* Reserved for DTrace */
-	HYPERCALL_DTRACE_RESERVED2	= 3, /* Reserved for DTrace */
-	HYPERCALL_DTRACE_RESERVED3	= 4, /* Reserved for DTrace */
-	HYPERCALL_DTRACE_RESERVED4	= 5, /* Reserved for DTrace */
-	HYPERCALL_INDEX_MAX
-};
+
+#define	HYPERCALL_DTRACE_PROBE_CREATE		0
+#define	HYPERCALL_DTRACE_PROBE			1
+#define	HYPERCALL_DTRACE_RESERVED1		2
+#define	HYPERCALL_DTRACE_RESERVED2		3
+#define	HYPERCALL_DTRACE_RESERVED3		4
+#define	HYPERCALL_DTRACE_RESERVED4		5
+
+#define	HYPERCALL_INDEX_MAX			6
 
 static __inline __int64_t
 hypercall0(__uint64_t c)
