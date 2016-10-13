@@ -54,8 +54,19 @@ static SYSCTL_NODE(_hw_vmm, OID_AUTO, topology, CTLFLAG_RD, 0, NULL);
 #define	CPUID_HV_SPECIFIC_HIGH	(CPUID_VM_HIGH & 0x000000FF)
 #define	CPUID_HV_SPECIFIC_NUM	(CPUID_HV_SPECIFIC_HIGH + 1)
 
+/*
+ * Maps the specified hypervisor specific CPUID to an
+ * index used to index the cpuid_dispatcher jumptable.
+ * The reserved CPUIDs for a hypervisor as seen in
+ * intel and AMD manuals are 0x40000000-0x400000FF.
+ */
 #define	HC_CPUID_ID(id)		(id & 0x000000FF)
 
+/*
+ * Advertises the appropriate hypervisor identified based
+ * on the hypervisor operation mode. This should be kept
+ * in sync with the possible hypervisor modes.
+ */
 static const char hypervisor_id[VMM_MAX_MODES][12] =  {
 	[BHYVE_MODE]	= "bhyve bhyve "
 };
@@ -89,6 +100,15 @@ typedef	void (*cpuid_dispatcher_t)(unsigned int regs[4]);
 static void	cpuid_advertise_hw_vendor(unsigned int regs[4]);
 static void	cpuid_bhyve_hypercall_enabled(unsigned int regs[4]);
 
+/*
+ * Dispatches the appropriate CPUID handler based on
+ * the computed index using the HC_CPUID_ID macro.
+ * This should be kept in sync with allowed hypervisor
+ * modes. Keep this jumptable as generic as possible
+ * and in case of a specific CPUID for each hypervisor
+ * mode, the naming convention for the jumptable entry
+ * is cpuid_<hypervisor_mode>_functionality.
+ */
 cpuid_dispatcher_t cpuid_dispatcher[VMM_MAX_MODES][CPUID_HV_SPECIFIC_NUM] = {
 	[BHYVE_MODE] = {
 		[0]	= cpuid_advertise_hw_vendor,
@@ -505,6 +525,10 @@ x86_emulate_cpuid(struct vm *vm, int vcpu_id,
 
 		case CPUID_4000_0000:
 		case CPUID_4000_0001:
+			/*
+			 * Each of the hypervisor specific CPUIDs should
+			 * be handled with the dispatcher. No exceptions.
+			 */
 			cpuid_dispatch(func, regs);
 			break;
 

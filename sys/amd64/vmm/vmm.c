@@ -248,10 +248,25 @@ int hypervisor_mode	= BHYVE_MODE;
 static int	bhyve_handle_hypercall(uint64_t hcid, struct vm *vm,
     int vcpuid, struct vm_exit *vmexit, bool *retu);
 
+/*
+ * Hypercall handlers based on the hypervisor mode.
+ * The naming convention should include a prefix of
+ * the mode that the corresponding handler is bound
+ * to. This should be kept in sync with the global
+ * variable hc_dispatcher(see below).
+ */
 hc_handler_t	hc_handler[VMM_MAX_MODES] = {
 	[BHYVE_MODE]	= bhyve_handle_hypercall
 };
 
+/*
+ * Each hypercall mode implements different hypercalls
+ * with differently mapped hypercall numbers. If the
+ * hypercall is not implemented it should be kept as
+ * NULL. This will generate an #UD fault in the guest
+ * without exception. Keep in sync with
+ * hc_handler(see above) and ring_plevel(see below).
+ */
 hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
 		[HYPERCALL_DTRACE_PROBE_CREATE]	= NULL,
@@ -263,6 +278,12 @@ hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	}
 };
 
+/*
+ * Each of the hypercalls can only be called from well
+ * defined protection rings. The most minimal ring
+ * should be assigned to each of the hypercalls. This
+ * should be kept in sync with hc_dispatcher(see above).
+ */
 static int8_t	ring_plevel[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
 		[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
@@ -1562,6 +1583,11 @@ static __inline int64_t
 hypercall_dispatch(uint64_t hcid, struct vm *vm, int vcpuid,
     struct hypercall_arg *args, struct vm_guest_paging *paging)
 {
+	/*
+	 * Do not allow hypercalls that aren't implemented.
+	 * This unconditionally generates an #UD fault in
+	 * the guest.
+	 */
 	if (hc_dispatcher[hypervisor_mode][hcid] == NULL) {
 		vm_inject_ud(vm, vcpuid);
 		return (0);
