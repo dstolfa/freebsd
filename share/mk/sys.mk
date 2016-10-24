@@ -13,7 +13,7 @@ unix		?=	We run FreeBSD, not UNIX.
 # and/or endian.  This is called MACHINE_CPU in NetBSD, but that's used
 # for something different in FreeBSD.
 #
-MACHINE_CPUARCH=${MACHINE_ARCH:C/mips(n32|64)?(el)?/mips/:C/arm(v6)?(eb|hf)?/arm/:C/powerpc64/powerpc/:C/riscv64/riscv/}
+MACHINE_CPUARCH=${MACHINE_ARCH:C/mips(n32|64)?(el)?/mips/:C/arm(v6)?(eb|hf)?/arm/:C/powerpc(64|spe)/powerpc/:C/riscv64/riscv/}
 .endif
 
 
@@ -121,7 +121,7 @@ META_MODE?= normal
 .if defined(%POSIX)
 .SUFFIXES:	.o .c .y .l .a .sh .f
 .else
-.SUFFIXES:	.out .a .ln .o .c .cc .cpp .cxx .C .m .F .f .e .r .y .l .S .asm .s .cl .p .h .sh
+.SUFFIXES:	.out .a .ln .o .bc .ll .c .cc .cpp .cxx .C .m .F .f .e .r .y .l .S .asm .s .cl .p .h .sh
 .endif
 
 AR		?=	ar
@@ -153,6 +153,7 @@ CFLAGS		?=	-O2 -pipe
 CFLAGS		+=	-fno-strict-aliasing
 .endif
 .endif
+IR_CFLAGS	?=	${STATIC_CFLAGS:N-O*} ${CFLAGS:N-O*}
 PO_CFLAGS	?=	${CFLAGS}
 
 # cp(1) is used to copy source files to ${.OBJDIR}, make sure it can handle
@@ -173,6 +174,7 @@ CTFFLAGS	+=	-g
 
 CXX		?=	c++
 CXXFLAGS	?=	${CFLAGS:N-std=*:N-Wnested-externs:N-W*-prototypes:N-Wno-pointer-sign:N-Wold-style-definition}
+IR_CXXFLAGS	?=	${STATIC_CXXFLAGS:N-O*} ${CXXFLAGS:N-O*}
 PO_CXXFLAGS	?=	${CXXFLAGS}
 
 DTRACE		?=	dtrace
@@ -229,6 +231,8 @@ LINTLIBFLAGS	?=	-cghapbxu -C ${LIB}
 MAKE		?=	make
 
 .if !defined(%POSIX)
+LORDER		?=	lorder
+
 NM		?=	nm
 NMFLAGS		?=
 
@@ -242,6 +246,9 @@ PFLAGS		?=
 
 RC		?=	f77
 RFLAGS		?=
+
+TSORT		?=	tsort
+TSORTFLAGS	?=	-q
 .endif
 
 SHELL		?=	sh

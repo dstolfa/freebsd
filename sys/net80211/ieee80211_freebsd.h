@@ -652,6 +652,12 @@ int	ieee80211_get_xmit_params(struct mbuf *m,
 #define	IEEE80211_RX_F_AMSDU_MORE	0x00000008 /* This is another decap AMSDU frame in the batch */
 #define	IEEE80211_RX_F_AMPDU		0x00000010 /* This is the start of an decap AMPDU list */
 #define	IEEE80211_RX_F_AMPDU_MORE	0x00000020 /* This is another decap AMPDU frame in the batch */
+#define	IEEE80211_RX_F_FAIL_FCSCRC	0x00000040 /* Failed CRC/FCS */
+#define	IEEE80211_RX_F_FAIL_MIC		0x00000080 /* Failed MIC check */
+#define	IEEE80211_RX_F_DECRYPTED	0x00000100 /* Hardware decrypted */
+#define	IEEE80211_RX_F_IV_STRIP		0x00000200 /* Decrypted; IV stripped */
+#define	IEEE80211_RX_F_MMIC_STRIP	0x00000400 /* Decrypted; MMIC stripped */
+#define	IEEE80211_RX_F_SHORTGI		0x00000800 /* This is a short-GI frame */
 
 /* Channel width */
 #define	IEEE80211_RX_FW_20MHZ		1
@@ -707,6 +713,7 @@ int	ieee80211_add_rx_params(struct mbuf *m,
 	    const struct ieee80211_rx_stats *rxs);
 int	ieee80211_get_rx_params(struct mbuf *m,
 	    struct ieee80211_rx_stats *rxs);
+const struct ieee80211_rx_stats * ieee80211_get_rx_params_ptr(struct mbuf *m);
 
 struct ieee80211_toa_params {
 	int request_id;
