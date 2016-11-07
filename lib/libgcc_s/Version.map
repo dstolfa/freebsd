@@ -3,6 +3,7 @@
  */
 
 GCC_3.0 {
+global:
 	__absvdi2;
 	__absvsi2;
 	__addvdi3;
@@ -14,6 +15,7 @@ GCC_3.0 {
 	__deregister_frame;
 	__deregister_frame_info;
 	__deregister_frame_info_bases;
+	__divdi3;
 	__divti3;
 	__ffsdi2;
 	__ffsti2;
@@ -46,6 +48,7 @@ GCC_3.0 {
 	__subvdi3;
 	__subvsi3;
 	__ucmpti2;
+	__udivdi3;
 	__udivmodti4;
 	__udivti3;
 	__umodti3;
@@ -62,6 +65,8 @@ GCC_3.0 {
 	_Unwind_Resume;
 	_Unwind_SetGR;
 	_Unwind_SetIP;
+local:
+	*;
 };
 
 GCC_3.3 {
