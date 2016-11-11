@@ -241,7 +241,7 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, hypercalls_enabled, CTLFLAG_RWTUN,
 typedef int	(*hc_handler_t)(uint64_t, struct vm *, int,
     struct vm_exit *, bool *);
 typedef int64_t	(*hc_dispatcher_t)(struct vm *, int,
-    struct hypercall_arg *, struct vm_guest_paging *);
+    uint64_t *, struct vm_guest_paging *);
 
 /*
  * The default hypervisor mode used is BHYVE_MODE.
@@ -1614,7 +1614,7 @@ vm_handle_reqidle(struct vm *vm, int vcpuid, bool *retu)
 
 static __inline int64_t
 hypercall_dispatch(uint64_t hcid, struct vm *vm, int vcpuid,
-    struct hypercall_arg *args, struct vm_guest_paging *paging)
+    uint64_t *args, struct vm_guest_paging *paging)
 {
 	/*
 	 * Do not allow hypercalls that aren't implemented.
@@ -1622,34 +1622,38 @@ hypercall_dispatch(uint64_t hcid, struct vm *vm, int vcpuid,
 	 * the guest.
 	 */
 	if (hc_dispatcher[hypervisor_mode][hcid] == NULL) {
-		vm_inject_ud(vm, vcpuid);
-		return (0);
+		return (HYPERCALL_RET_NOT_IMPL);
 	}
 	return (hc_dispatcher[hypervisor_mode][hcid](vm, vcpuid, args, paging));
 }
 
 static __inline int
-hypercall_handle(uint64_t hcid, struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *retu)
+hypercall_handle(uint64_t hcid, struct vm *vm, int vcpuid,
+    struct vm_exit *vmexit, bool *retu)
 {
 	return (hc_handler[hypervisor_mode](hcid, vm, vcpuid, vmexit, retu));
 }
 
 static int
 hypercall_copy_arg(struct vm *vm, int vcpuid, uint64_t ds_base,
-    struct hypercall_arg *arg, struct vm_guest_paging *paging, void *dst)
+    uintptr_t arg, uint64_t arg_len, struct vm_guest_paging *paging, void *dst)
 {
 	struct vm_copyinfo copyinfo[2];
 	uint64_t gla;
 	int error, fault;
 
-	gla = ds_base + arg->val;
-	error = vm_copy_setup(vm, vcpuid, paging, gla, arg->len,
+	if (arg == 0) {
+		return (HYPERCALL_RET_ERROR);
+	}
+
+	gla = ds_base + arg;
+	error = vm_copy_setup(vm, vcpuid, paging, gla, arg_len,
  	   PROT_READ, copyinfo, nitems(copyinfo), &fault);
 	if (error || fault) {
 		return (error);
 	}
 
-	vm_copyin(vm, vcpuid, copyinfo, dst, arg->len);
+	vm_copyin(vm, vcpuid, copyinfo, dst, arg_len);
 	vm_copy_teardown(vm, vcpuid, copyinfo, nitems(copyinfo));
 
 	return (0);
@@ -1659,13 +1663,21 @@ static int
 bhyve_handle_hypercall(uint64_t hcid, struct vm *vm, int vcpuid,
     struct vm_exit *vmexit, bool *retu)
 {
-	struct vm_copyinfo copyinfo[2];
 	struct vm_guest_paging *paging;
-	struct hypercall_arg args[HYPERCALL_MAX_ARGS];
-	struct seg_desc ss_desc;
-	uint64_t nargs, rsp, stack_gla, cr0, rflags;
+	uint64_t args[HYPERCALL_MAX_ARGS] = { 0 };
+	uint64_t nargs;
 	int64_t retval;
-	int error, fault, stackaddrsize, size, handled, addrsize;
+	int error, handled, i;
+
+	int arg_regs[HYPERCALL_MAX_ARGS] = {
+		[0] = VM_REG_GUEST_RDI,
+		[1] = VM_REG_GUEST_RSI,
+		[2] = VM_REG_GUEST_RDX,
+		[3] = VM_REG_GUEST_R10,
+		[4] = VM_REG_GUEST_R8,
+		[5] = VM_REG_GUEST_R9	
+	};	
+	
 
 	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RBX, &nargs);
 	KASSERT(error == 0, ("%s: error %d getting RBX",
@@ -1680,49 +1692,12 @@ bhyve_handle_hypercall(uint64_t hcid, struct vm *vm, int vcpuid,
 
 	handled = 0;
 	paging = &vmexit->u.hypercall.paging;
-	stackaddrsize = 8;
-	addrsize = 8;
-	size = sizeof(struct hypercall_arg);
 
-	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_CR0, &cr0);
-	KASSERT(error == 0, ("%s: error %d getting CR0",
-	    __func__, error));
-	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RFLAGS, &rflags);
-	KASSERT(error == 0, ("%s: error %d getting RFLAGS",
-	    __func__, error));
-	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RSP, &rsp);
-	KASSERT(error == 0, ("%s: error %d getting RSP",
-	    __func__, error));
-
-
-	error = vm_get_seg_desc(vm, vcpuid, VM_REG_GUEST_SS, &ss_desc);
-	KASSERT(error == 0, ("%s: error %d getting SS descriptor",
-	    __func__, error));
-
-	if (vie_calculate_gla(paging->cpu_mode, VM_REG_GUEST_SS, &ss_desc,
-	    rsp, addrsize, stackaddrsize, PROT_READ, &stack_gla)) {
-		vm_inject_ss(vm, vcpuid, 0);
-		return (0);
+	for (i = 0; i < nargs; i++) {
+		error = vm_get_register(vm, vcpuid, arg_regs[i], &args[i]);
+		KASSERT(error == 0, ("%s: error %d getting RBX",
+		    __func__, error));
 	}
-
-	if (vie_canonical_check(paging->cpu_mode, stack_gla)) {
-		vm_inject_ss(vm, vcpuid, 0);
-		return (0);
-	}
-
-	if (vie_alignment_check(paging->cpl, addrsize, cr0, rflags, stack_gla)) {
-		vm_inject_ac(vm, vcpuid, 0);
-		return (0);
-	}
-
-	error = vm_copy_setup(vm, vcpuid, paging, stack_gla, nargs * size,
-	    PROT_READ, copyinfo, nitems(copyinfo), &fault);
-	if (error || fault) {
-		return (error);
-	}
-
-	vm_copyin(vm, vcpuid, copyinfo, args, nargs * size);
-	vm_copy_teardown(vm, vcpuid, copyinfo, nitems(copyinfo));
 
 	/*
 	 * From this point on, all the arguments passed in from the

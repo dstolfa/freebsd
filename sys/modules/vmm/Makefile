@@ -23,6 +23,7 @@ SRCS+=	vmm.c		\
 	vmm_mem.c	\
 	vmm_stat.c	\
 	vmm_util.c	\
+	hypercalls.S	\
 	x86.c
 
 .PATH: ${.CURDIR}/../../amd64/vmm/io
@@ -61,6 +62,10 @@ vmx_assym.h:    vmx_genassym.o
 
 svm_assym.h:    svm_genassym.o
 	sh ${SYSDIR}/kern/genassym.sh svm_genassym.o > ${.TARGET}
+
+hypercalls.o:
+	${CC} -c -x assembler-with-cpp ${CFLAGS} \
+	    ${.IMPSRC} -o ${.TARGET}
 
 vmx_support.o:
 	${CC} -c -x assembler-with-cpp -DLOCORE ${CFLAGS} \
