@@ -29,6 +29,8 @@
 #ifndef _MACHINE_HYPERCALL_H_
 #define _MACHINE_HYPERCALL_H_
 
+#include <sys/linker_set.h>
+
 #define	HYPERCALL_DTRACE_PROBE_CREATE	0
 #define	HYPERCALL_DTRACE_PROBE		1
 #define	HYPERCALL_DTRACE_RESERVED1	2
@@ -41,9 +43,11 @@
 #define	HYPERCALL_RET_NOT_IMPL		-2
 #define	HYPERCALL_RET_SUCCESS		 0
 
-int hypercall_dtrace_probe_create(uintptr_t, const char *, const char *,
-    const char *, int, void *);
-int hypercall_dtrace_probe(int, uintptr_t, uintptr_t, uintptr_t,
-    uintptr_t, uintptr_t);
+int hypercall_dtrace_probe_create(uintptr_t id, const char *mod, const char *func,
+    const char *name, int aframes, void *arg);
+int hypercall_dtrace_probe(int probe, uintptr_t arg0, uintptr_t arg1, uintptr_t arg2,
+    uintptr_t arg3, uintptr_t arg4);
+
+SET_DECLARE(hypercall, uint32_t);
 
 #endif
