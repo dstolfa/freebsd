@@ -10,7 +10,7 @@
 ENTRY(hypercall_dtrace_probe_create)
 	VENTER
 #TODO: movq $HYPERCALL_DTRACE_PROBE_CREATE, %rax instead of 0.
-	movq 0, %rax
+	movq $0, %rax
 hc_dt_pb_c:
 	.byte 0x0f,0x01,0xc1
 	VLEAVE
@@ -20,7 +20,7 @@ END(hypercall_dtrace_probe_create)
 ENTRY(hypercall_dtrace_probe)
 	VENTER
 #TODO: movq $HYPERCALL_DTRACE_PROBE, %rax instead of 0.
-	movq 1, %rax
+	movq $1, %rax
 hc_dt_pb:
 	.byte 0x0f,0x01,0xc1
 	VLEAVE

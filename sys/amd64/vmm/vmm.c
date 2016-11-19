@@ -1618,8 +1618,6 @@ hypercall_dispatch(uint64_t hcid, struct vm *vm, int vcpuid,
 {
 	/*
 	 * Do not allow hypercalls that aren't implemented.
-	 * This unconditionally generates an #UD fault in
-	 * the guest.
 	 */
 	if (hc_dispatcher[hypervisor_mode][hcid] == NULL) {
 		return (HYPERCALL_RET_NOT_IMPL);
