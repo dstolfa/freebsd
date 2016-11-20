@@ -289,12 +289,12 @@ hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
  */
 static int8_t	ring_plevel[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
-		[HYPERCALL_DTRACE_PROBE_CREATE]	= 3,
-		[HYPERCALL_DTRACE_PROBE]	= 3,
-		[HYPERCALL_DTRACE_RESERVED1]	= 3,
-		[HYPERCALL_DTRACE_RESERVED2]	= 3,
-		[HYPERCALL_DTRACE_RESERVED3]	= 3,
-		[HYPERCALL_DTRACE_RESERVED4]	= 3
+		[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
+		[HYPERCALL_DTRACE_PROBE]	= 0,
+		[HYPERCALL_DTRACE_RESERVED1]	= 0,
+		[HYPERCALL_DTRACE_RESERVED2]	= 0,
+		[HYPERCALL_DTRACE_RESERVED3]	= 0,
+		[HYPERCALL_DTRACE_RESERVED4]	= 0
 	}
 };
 
@@ -1684,7 +1684,6 @@ bhyve_handle_hypercall(uint64_t hcid, struct vm *vm, int vcpuid,
 		error = vm_get_register(vm, vcpuid, arg_regs[i], &args[i]);
 		KASSERT(error == 0, ("%s: error %d getting RBX",
 		    __func__, error));
-		printf("args[%d] = %lu\n", i, args[i]);
 	}
 
 	/*
@@ -1708,6 +1707,7 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RAX, &hcid);
 	KASSERT(error == 0, ("%s: error %d getting RAX",
 	    __func__, error));
+
 	/*
 	 * Ensure that the hypercall called by the guest never exceed
 	 * the maximum number of hypercalls defined.
