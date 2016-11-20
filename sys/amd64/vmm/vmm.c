@@ -1666,6 +1666,11 @@ bhyve_handle_hypercall(uint64_t hcid, struct vm *vm, int vcpuid,
 	int64_t retval;
 	int error, handled, i;
 
+	/*
+	 * The SystemV ABI specifies a calling convetion that
+	 * uses the registers %rdi, %rsi, %rdx, %rcx, %r8 and %r9
+	 * for INTEGER and POINTER class parameter passing.
+	 */
 	int arg_regs[HYPERCALL_MAX_ARGS] = {
 		[0] = VM_REG_GUEST_RDI,
 		[1] = VM_REG_GUEST_RSI,
