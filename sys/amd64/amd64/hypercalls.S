@@ -1,5 +1,5 @@
 #include <machine/asmacros.h>
-#incldue <machine/bhyve_hypercall.h>
+#include <machine/bhyve_hypercall.h>
 
 #define VENTER push %rbp ; mov %rsp, %rbp
 #define VLEAVE pop %rbp

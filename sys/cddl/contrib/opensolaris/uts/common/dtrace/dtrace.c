@@ -132,6 +132,10 @@
 
 #include <netinet/in.h>
 
+#ifdef __amd64__
+#include <machine/bhyve_hypercall.h>
+#endif
+
 #include "dtrace_cddl.h"
 #include "dtrace_debug.c"
 #endif
@@ -7278,6 +7282,10 @@ dtrace_probe(dtrace_id_t id, uintptr_t arg0, uintptr_t arg1,
 		 */
 		dtrace_interrupt_enable(cookie);
 		return;
+	}
+
+	if (vm_guest == VM_GUEST_BHYVE) {
+		hypercall_dtrace_probe(id, arg0, arg1, arg2, arg3, arg4);
 	}
 
 	now = mstate.dtms_timestamp = dtrace_gethrtime();

@@ -289,12 +289,12 @@ hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
  */
 static int8_t	ring_plevel[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
-		[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
-		[HYPERCALL_DTRACE_PROBE]	= 0,
-		[HYPERCALL_DTRACE_RESERVED1]	= 0,
-		[HYPERCALL_DTRACE_RESERVED2]	= 0,
-		[HYPERCALL_DTRACE_RESERVED3]	= 0,
-		[HYPERCALL_DTRACE_RESERVED4]	= 0
+		[HYPERCALL_DTRACE_PROBE_CREATE]	= 3,
+		[HYPERCALL_DTRACE_PROBE]	= 3,
+		[HYPERCALL_DTRACE_RESERVED1]	= 3,
+		[HYPERCALL_DTRACE_RESERVED2]	= 3,
+		[HYPERCALL_DTRACE_RESERVED3]	= 3,
+		[HYPERCALL_DTRACE_RESERVED4]	= 3
 	}
 };
 
@@ -1663,7 +1663,6 @@ bhyve_handle_hypercall(uint64_t hcid, struct vm *vm, int vcpuid,
 {
 	struct vm_guest_paging *paging;
 	uint64_t args[HYPERCALL_MAX_ARGS] = { 0 };
-	uint64_t nargs;
 	int64_t retval;
 	int error, handled, i;
 
@@ -1671,30 +1670,21 @@ bhyve_handle_hypercall(uint64_t hcid, struct vm *vm, int vcpuid,
 		[0] = VM_REG_GUEST_RDI,
 		[1] = VM_REG_GUEST_RSI,
 		[2] = VM_REG_GUEST_RDX,
-		[3] = VM_REG_GUEST_R10,
+		[3] = VM_REG_GUEST_RCX,
 		[4] = VM_REG_GUEST_R8,
 		[5] = VM_REG_GUEST_R9	
 	};	
 	
 
-	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RBX, &nargs);
-	KASSERT(error == 0, ("%s: error %d getting RBX",
-	    __func__, error));
-
-	if (nargs > HYPERCALL_MAX_ARGS) {
-		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, HYPERCALL_RET_ERROR);
-		KASSERT(error == 0, ("%s: error %d setting RAX",
-		    __func__, error));
-		return (0);
-	}
 
 	handled = 0;
 	paging = &vmexit->u.hypercall.paging;
 
-	for (i = 0; i < nargs; i++) {
+	for (i = 0; i < HYPERCALL_MAX_ARGS; i++) {
 		error = vm_get_register(vm, vcpuid, arg_regs[i], &args[i]);
 		KASSERT(error == 0, ("%s: error %d getting RBX",
 		    __func__, error));
+		printf("args[%d] = %lu\n", i, args[i]);
 	}
 
 	/*
