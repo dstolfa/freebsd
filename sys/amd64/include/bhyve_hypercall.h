@@ -50,8 +50,6 @@ int hypercall_dtrace_probe_create(uintptr_t id, const char *mod, const char *fun
 int hypercall_dtrace_probe(int probe, uintptr_t arg0, uintptr_t arg1, uintptr_t arg2,
     uintptr_t arg3, uintptr_t arg4);
 
-SET_DECLARE(hypercall, uint32_t);
-
 #endif
 
 #endif

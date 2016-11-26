@@ -142,6 +142,12 @@ SET_DECLARE(sysinit_set, struct sysinit);
 struct sysinit **sysinit, **sysinit_end;
 struct sysinit **newsysinit, **newsysinit_end;
 
+/* 
+ * This ensure that the hypercall symbol is defined so that it can be
+ * used to patch all the hypercall instructions in the kernel
+ */
+SET_DECLARE(hypercall, uint32_t);
+
 /*
  * Merge a new sysinit set into the current set, reallocating it if
  * necessary.  This can only be called after malloc is running.
