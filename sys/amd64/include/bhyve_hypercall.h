@@ -29,8 +29,6 @@
 #ifndef _MACHINE_HYPERCALL_H_
 #define _MACHINE_HYPERCALL_H_
 
-#include <sys/linker_set.h>
-
 #define	HYPERCALL_DTRACE_PROBE_CREATE	0
 #define	HYPERCALL_DTRACE_PROBE		1
 #define	HYPERCALL_DTRACE_RESERVED1	2
