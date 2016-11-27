@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2016 Domagoj Stolfa
+ * Copyright (c) 2016 Domagoj Stolfa <domagoj.stolfa@gmail.com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
