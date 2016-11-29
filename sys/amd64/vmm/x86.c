@@ -90,10 +90,6 @@ static int cpuid_leaf_b = 1;
 SYSCTL_INT(_hw_vmm_topology, OID_AUTO, cpuid_leaf_b, CTLFLAG_RDTUN,
     &cpuid_leaf_b, 0, NULL);
 
-/*
- * Round up to the next power of two, if necessary, and then take log2.
- * Returns -1 if argument is zero.
- */
 
 typedef	void (*cpuid_dispatcher_t)(unsigned int regs[4]);
 
@@ -116,6 +112,10 @@ cpuid_dispatcher_t cpuid_dispatcher[VMM_MAX_MODES][CPUID_HV_SPECIFIC_NUM] = {
 	}
 };
 
+/*
+ * Round up to the next power of two, if necessary, and then take log2.
+ * Returns -1 if argument is zero.
+ */
 static __inline int
 log2(u_int x)
 {
