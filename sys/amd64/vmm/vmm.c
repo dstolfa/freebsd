@@ -233,7 +233,7 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, hypercalls_enabled, CTLFLAG_RWTUN,
 /* 
  * The maximum amount of arguments currently supproted
  * through the hypercall functionality in the VMM.
- * Everything higher than HYPERCALL_MAX_ARGS will be 
+ * Everything higher than HYPERCALL_MAX_ARGS will be
  * discarded.
  */
 #define	HYPERCALL_MAX_ARGS	6
@@ -307,7 +307,7 @@ sysctl_vmm_hypervisor_mode(SYSCTL_HANDLER_ARGS)
 {
 	int error;
 	char buf[HV_MAX_NAMELEN];
-	
+
 	if (hypervisor_mode == BHYVE_MODE) {
 		strlcpy(buf, "bhyve", sizeof(buf));
 	} else {
@@ -317,7 +317,7 @@ sysctl_vmm_hypervisor_mode(SYSCTL_HANDLER_ARGS)
 	error = sysctl_handle_string(oidp, buf, sizeof(buf), req);
 	if (error != 0 || req->newptr == NULL)
 		return (error);
-	
+
 	if (strcmp(buf, "bhyve") == 0) {
 		hypervisor_mode = BHYVE_MODE;
 	} else {
@@ -1646,7 +1646,7 @@ hypercall_copy_arg(struct vm *vm, int vcpuid, uint64_t ds_base,
 
 	gla = ds_base + arg;
 	error = vm_copy_setup(vm, vcpuid, paging, gla, arg_len,
- 	   PROT_READ, copyinfo, nitems(copyinfo), &fault);
+	    PROT_READ, copyinfo, nitems(copyinfo), &fault);
 	if (error || fault) {
 		return (error);
 	}
@@ -1677,10 +1677,8 @@ bhyve_handle_hypercall(uint64_t hcid, struct vm *vm, int vcpuid,
 		[2] = VM_REG_GUEST_RDX,
 		[3] = VM_REG_GUEST_RCX,
 		[4] = VM_REG_GUEST_R8,
-		[5] = VM_REG_GUEST_R9	
-	};	
-	
-
+		[5] = VM_REG_GUEST_R9
+	};
 
 	handled = 0;
 	paging = &vmexit->u.hypercall.paging;

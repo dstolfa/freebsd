@@ -142,7 +142,7 @@ SET_DECLARE(sysinit_set, struct sysinit);
 struct sysinit **sysinit, **sysinit_end;
 struct sysinit **newsysinit, **newsysinit_end;
 
-/* 
+/*
  * This ensure that the hypercall symbol is defined so that it can be
  * used to patch all the hypercall instructions in the kernel
  */
@@ -237,8 +237,8 @@ mi_startup(void)
 					break;
 				(**hypercall_instr) ^= (0x18 << 16);
 			}
-		}	
-	}		
+		}
+	}
 #endif
 
 	if (sysinit == NULL) {
