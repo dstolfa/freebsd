@@ -1177,16 +1177,17 @@ struct dtrace_state {
 };
 
 typedef struct dtrace_instance {
-	dtrace_iattr_t dtis_iattr;
-	struct dtrace_provider *dtis_dtpv_head;
-	struct dtrace_instance *dtis_next;
+	char *name;				/* instance name */
+	struct dtrace_provider *dtis_provhead;	/* first provider in the instance */
+	struct dtrace_instance *dtis_next;	/* next instance */
+	struct dtrace_instance *dtis_prev;	/* previous instance */
 } dtrace_instance_t;
 
 struct dtrace_provider {
 	dtrace_pattr_t dtpv_attr;		/* provider attributes */
 	dtrace_ppriv_t dtpv_priv;		/* provider privileges */
 	dtrace_pops_t dtpv_pops;		/* provider operations */
-	dtrace_instance_t *dtpv_istc;		/* instance name */
+	char *dtpv_istcname;			/* instance name */
 	char *dtpv_name;			/* provider name */
 	void *dtpv_arg;				/* provider argument */
 	hrtime_t dtpv_defunct;			/* when made defunct */

@@ -1272,15 +1272,6 @@ typedef struct dtrace_providerdesc {
 	dtrace_ppriv_t dtvd_priv;		/* privileges required */
 } dtrace_providerdesc_t;
 
-typedef struct dtrace_ipriv {
-	uint32_t dtip_flags;
-} dtrace_ipriv_t;
-
-typedef struct dtrace_iattr {
-	char *name;
-	dtrace_ipriv_t dtia_ipriv;
-} dtrace_iattr_t;
-
 /*
  * DTrace Pseudodevice Interface
  *
