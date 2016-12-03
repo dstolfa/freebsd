@@ -111,10 +111,13 @@ struct dtrace_probe {
 	void *dtpr_arg;				/* provider argument */
 	dtrace_cacheid_t dtpr_predcache;	/* predicate cache ID */
 	int dtpr_aframes;			/* artificial frames */
+	char *dtpr_instance;			/* probe's instance name */
 	dtrace_provider_t *dtpr_provider;	/* pointer to provider */
 	char *dtpr_mod;				/* probe's module name */
 	char *dtpr_func;			/* probe's function name */
 	char *dtpr_name;			/* probe's name */
+	dtrace_probe_t *dtpr_nextistc;		/* next in instance hash */
+	dtrace_probe_t *dptr_previstc;		/* previous in instance hash */
 	dtrace_probe_t *dtpr_nextmod;		/* next in module hash */
 	dtrace_probe_t *dtpr_prevmod;		/* previous in module hash */
 	dtrace_probe_t *dtpr_nextfunc;		/* next in function hash */
@@ -127,6 +130,8 @@ struct dtrace_probe {
 typedef int dtrace_probekey_f(const char *, const char *, int);
 
 typedef struct dtrace_probekey {
+	char *dtpk_istc;			/* instance name to match */
+	dtrace_probekey_f *dtpk_imatch;		/* instance matching function */
 	char *dtpk_prov;			/* provider name to match */
 	dtrace_probekey_f *dtpk_pmatch;		/* provider matching function */
 	char *dtpk_mod;				/* module name to match */
@@ -1171,10 +1176,17 @@ struct dtrace_state {
 	int dts_getf;				/* number of getf() calls */
 };
 
+typedef struct dtrace_instance {
+	dtrace_iattr_t dtis_iattr;
+	struct dtrace_provider *dtis_dtpv_head;
+	struct dtrace_instance *dtis_next;
+} dtrace_instance_t;
+
 struct dtrace_provider {
 	dtrace_pattr_t dtpv_attr;		/* provider attributes */
 	dtrace_ppriv_t dtpv_priv;		/* provider privileges */
 	dtrace_pops_t dtpv_pops;		/* provider operations */
+	dtrace_instance_t *dtpv_istc;		/* instance name */
 	char *dtpv_name;			/* provider name */
 	void *dtpv_arg;				/* provider argument */
 	hrtime_t dtpv_defunct;			/* when made defunct */

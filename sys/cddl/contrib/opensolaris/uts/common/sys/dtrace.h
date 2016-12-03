@@ -85,6 +85,7 @@ typedef int model_t;
 #define	DTRACE_METAPROVNONE	0	/* invalid meta-provider identifier */
 #define	DTRACE_ARGNONE		-1	/* invalid argument index */
 
+#define	DTRACE_INSTANCENAMELEN	64
 #define	DTRACE_PROVNAMELEN	64
 #define	DTRACE_MODNAMELEN	64
 #define	DTRACE_FUNCNAMELEN	192
@@ -751,6 +752,7 @@ typedef struct dof_ecbdesc {
 
 typedef struct dof_probedesc {
 	dof_secidx_t dofp_strtab;	/* link to DOF_SECT_STRTAB section */
+	dof_stridx_t dofp_instance;	/* instance string */
 	dof_stridx_t dofp_provider;	/* provider string */
 	dof_stridx_t dofp_mod;		/* module string */
 	dof_stridx_t dofp_func;		/* function string */
@@ -910,11 +912,12 @@ typedef struct dtrace_difo {
 struct dtrace_predicate;
 
 typedef struct dtrace_probedesc {
-	dtrace_id_t dtpd_id;			/* probe identifier */
-	char dtpd_provider[DTRACE_PROVNAMELEN]; /* probe provider name */
-	char dtpd_mod[DTRACE_MODNAMELEN];	/* probe module name */
-	char dtpd_func[DTRACE_FUNCNAMELEN];	/* probe function name */
-	char dtpd_name[DTRACE_NAMELEN];		/* probe name */
+	dtrace_id_t dtpd_id;				/* probe identifier */
+	char dtpd_instance[DTRACE_INSTANCENAMELEN];	/* probe instance name */
+	char dtpd_provider[DTRACE_PROVNAMELEN];		/* probe provider name */
+	char dtpd_mod[DTRACE_MODNAMELEN];		/* probe module name */
+	char dtpd_func[DTRACE_FUNCNAMELEN];		/* probe function name */
+	char dtpd_name[DTRACE_NAMELEN];			/* probe name */
 } dtrace_probedesc_t;
 
 typedef struct dtrace_repldesc {
@@ -1268,6 +1271,15 @@ typedef struct dtrace_providerdesc {
 	dtrace_pattr_t dtvd_attr;		/* stability attributes */
 	dtrace_ppriv_t dtvd_priv;		/* privileges required */
 } dtrace_providerdesc_t;
+
+typedef struct dtrace_ipriv {
+	uint32_t dtip_flags;
+} dtrace_ipriv_t;
+
+typedef struct dtrace_iattr {
+	char *name;
+	dtrace_ipriv_t dtia_ipriv;
+} dtrace_iattr_t;
 
 /*
  * DTrace Pseudodevice Interface
