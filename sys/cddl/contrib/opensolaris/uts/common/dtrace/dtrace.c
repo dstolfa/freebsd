@@ -9003,7 +9003,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 		kmem_free(instance->name, strlen(instance->name) + 1);
 		instance->dtis_prev->dtis_next = instance->dtis_next;
 		instance->dtis_next->dtis_prev = instance->dtis_prev;
-		kmem_free(instance);
+		kmem_free(instance, sizeof (dtrace_instance_t));
 	}
 
 	mutex_exit(&dtrace_instance_lock);
@@ -9143,7 +9143,7 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 
 	probe->dtpr_id = id;
 	probe->dtpr_gen = dtrace_probegen++;
-	probe->dtpr_instance = dtrace_strdup(prov->dtpv_instance->name);
+	probe->dtpr_instance = dtrace_strdup(provider->dtpv_istcname);
 	probe->dtpr_mod = dtrace_strdup(mod);
 	probe->dtpr_func = dtrace_strdup(func);
 	probe->dtpr_name = dtrace_strdup(name);
