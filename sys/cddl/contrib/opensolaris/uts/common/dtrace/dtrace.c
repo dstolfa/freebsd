@@ -232,7 +232,6 @@ static int		dtrace_getf;		/* number of unpriv getf()s */
 #ifdef illumos
 static void		*dtrace_softstate;	/* softstate pointer */
 #endif
-static dtrace_hash_t	*dtrace_byinstance;	/* probes hashed by instance */
 static dtrace_hash_t	*dtrace_bymod;		/* probes hashed by module */
 static dtrace_hash_t	*dtrace_byfunc;		/* probes hashed by function */
 static dtrace_hash_t	*dtrace_byname;		/* probes hashed by name */
@@ -8491,16 +8490,11 @@ dtrace_match(const dtrace_probekey_t *pkp, uint32_t priv, uid_t uid,
 	template.dtpr_name = (char *)pkp->dtpk_name;
 
 	/*
-	 * We want to find the most distinct of the instance name, module name,
-	 * function name, and name.  So for each one that is not a glob pattern
-	 * or empty string, we perform a lookup in the corresponding hash and
-	 * use the hash table with the fewest collisions to do our search.
+	 * We want to find the most distinct of the module name, function name, 
+	 * and name.  So for each one that is not a glob pattern or empty
+	 * string, we perform a lookup in the corresponding hash and use
+	 * the hash table with the fewest collisions to do our search.
 	 */
-	if (pkp->dtpk_imatch == &dtrace_match_string &&
-	    (len = dtrace_hash_collisions(dtrace_byinstance, &template)) < best) {
-		best = len;
-		hash = dtrace_byinstance;
-	}
 
 	if (pkp->dtpk_mmatch == &dtrace_match_string &&
 	    (len = dtrace_hash_collisions(dtrace_bymod, &template)) < best) {
@@ -8931,7 +8925,6 @@ dtrace_unregister(dtrace_provider_id_t id)
 
 		dtrace_probes[i] = NULL;
 
-		dtrace_hash_remove(dtrace_byinstance, probe);
 		dtrace_hash_remove(dtrace_bymod, probe);
 		dtrace_hash_remove(dtrace_byfunc, probe);
 		dtrace_hash_remove(dtrace_byname, probe);
@@ -9082,7 +9075,6 @@ dtrace_condense(dtrace_provider_id_t id)
 
 		dtrace_probes[i] = NULL;
 
-		dtrace_hash_remove(dtrace_byinstance, probe);
 		dtrace_hash_remove(dtrace_bymod, probe);
 		dtrace_hash_remove(dtrace_byfunc, probe);
 		dtrace_hash_remove(dtrace_byname, probe);
@@ -9151,7 +9143,6 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 	probe->dtpr_aframes = aframes;
 	probe->dtpr_provider = provider;
 
-	dtrace_hash_add(dtrace_byinstance, probe);
 	dtrace_hash_add(dtrace_bymod, probe);
 	dtrace_hash_add(dtrace_byfunc, probe);
 	dtrace_hash_add(dtrace_byname, probe);
@@ -17072,9 +17063,6 @@ dtrace_attach(dev_info_t *devi, ddi_attach_cmd_t cmd)
 	    NULL, NULL, NULL, NULL, NULL, 0);
 
 	ASSERT(MUTEX_HELD(&cpu_lock));
-	dtrace_byinstance = dtrace_hash_create(offsetof(dtrace_probe_t, dtpr_instance),
-	    offsetof(dtrace_probe_t, dtpr_nextistc),
-	    offsetof(dtrace_probe_t, dtpr_previstc));
 
 	dtrace_bymod = dtrace_hash_create(offsetof(dtrace_probe_t, dtpr_mod),
 	    offsetof(dtrace_probe_t, dtpr_nextmod),
@@ -18264,11 +18252,9 @@ dtrace_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 	dtrace_probes = NULL;
 	dtrace_nprobes = 0;
 
-	dtrace_hash_destroy(dtrace_byinstance);
 	dtrace_hash_destroy(dtrace_bymod);
 	dtrace_hash_destroy(dtrace_byfunc);
 	dtrace_hash_destroy(dtrace_byname);
-	dtrace_byinstance = NULL;
 	dtrace_bymod = NULL;
 	dtrace_byfunc = NULL;
 	dtrace_byname = NULL;
