@@ -1177,12 +1177,17 @@ struct dtrace_state {
 };
 
 typedef struct dtrace_instance {
-	char *name;				/* instance name */
+	char *dtis_name;			/* instance name */
 	struct dtrace_provider *dtis_provhead;	/* first provider in the instance */
 	struct dtrace_instance *dtis_next;	/* next instance */
 	struct dtrace_instance *dtis_prev;	/* previous instance */
 } dtrace_instance_t;
 
+/*
+ * XXX: Could be made a doubly linked list to allow
+ * for turning some operations to O(1) when it comes
+ * to instances
+ */
 struct dtrace_provider {
 	dtrace_pattr_t dtpv_attr;		/* provider attributes */
 	dtrace_ppriv_t dtpv_priv;		/* provider privileges */

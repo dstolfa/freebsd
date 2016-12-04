@@ -91,6 +91,7 @@ dtrace_load(void *dummy)
 	 * the very problem we are trying to trace.
 	 */
 	mutex_init(&dtrace_lock,"dtrace probe state", MUTEX_DEFAULT, NULL);
+	mutex_init(&dtrace_instance_lock, "dtrace instance state", MUTEX_DEFAULT, NULL);
 	mutex_init(&dtrace_provider_lock,"dtrace provider state", MUTEX_DEFAULT, NULL);
 	mutex_init(&dtrace_meta_lock,"dtrace meta-provider state", MUTEX_DEFAULT, NULL);
 #ifdef DEBUG

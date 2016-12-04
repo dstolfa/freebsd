@@ -2149,6 +2149,9 @@ typedef struct dtrace_pops {
 
 typedef uintptr_t	dtrace_provider_id_t;
 
+extern int dtrace_distributed_register(const char *, const char *,
+    const dtrace_pattr_t *, uint32_t, cred_t *, const dtrace_pops_t *,
+    void *, dtrace_provider_id_t *);
 extern int dtrace_register(const char *, const dtrace_pattr_t *, uint32_t,
     cred_t *, const dtrace_pops_t *, void *, dtrace_provider_id_t *);
 extern int dtrace_unregister(dtrace_provider_id_t);

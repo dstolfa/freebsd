@@ -101,6 +101,7 @@ dtrace_unload()
 	mutex_exit(&dtrace_provider_lock);
 
 	mutex_destroy(&dtrace_meta_lock);
+	mutex_destroy(&dtrace_instance_lock);
 	mutex_destroy(&dtrace_provider_lock);
 	mutex_destroy(&dtrace_lock);
 #ifdef DEBUG

@@ -606,6 +606,7 @@ static int dtrace_canload_remains(uint64_t, size_t, size_t *,
     dtrace_mstate_t *, dtrace_vstate_t *);
 static int dtrace_canstore_remains(uint64_t, size_t, size_t *,
     dtrace_mstate_t *, dtrace_vstate_t *);
+static dtrace_instance_t *dtrace_instance_lookup(const char *);
 
 /*
  * DTrace Probe Context Functions
@@ -8621,34 +8622,23 @@ static dtrace_instance_t *
 dtrace_instance_lookup(const char *name)
 {
 	dtrace_instance_t *node;
-	if (name == NULL)
-		return dtrace_instance;
 
 	node = dtrace_instance;
-	while (node && strcmp(node->name, name) != 0) {
+	while (node && strcmp(node->dtis_name, name) != 0) {
+		printf("%s == %s\n", node->dtis_name, name);
 		node = node->dtis_next;
 	}
 
 	return (node);
 }
 
-/*
- * DTrace Provider-to-Framework API Functions
- *
- * These functions implement much of the Provider-to-Framework API, as
- * described in <sys/dtrace.h>.  The parts of the API not in this section are
- * the functions in the API for probe management (found below), and
- * dtrace_probe() itself (found above).
- */
 
-/*
- * Register the calling provider with the DTrace framework.  This should
- * generally be called by DTrace providers in their attach(9E) entry point.
- */
 int
-dtrace_register(const char *name, const dtrace_pattr_t *pap, uint32_t priv,
-    cred_t *cr, const dtrace_pops_t *pops, void *arg, dtrace_provider_id_t *idp)
+dtrace_distributed_register(const char *name, const char *istcname,
+    const dtrace_pattr_t *pap, uint32_t priv, cred_t *cr,
+    const dtrace_pops_t *pops, void *arg, dtrace_provider_id_t *idp)
 {
+
 	dtrace_instance_t *instance;
 	dtrace_provider_t *provider;
 
@@ -8698,8 +8688,8 @@ dtrace_register(const char *name, const dtrace_pattr_t *pap, uint32_t priv,
 	}
 
 	provider = kmem_zalloc(sizeof (dtrace_provider_t), KM_SLEEP);
-	provider->dtpv_name = kmem_alloc(strlen(name) + 1, KM_SLEEP);
-	(void) strcpy(provider->dtpv_name, name);
+	provider->dtpv_name = dtrace_strdup(name);
+	provider->dtpv_istcname = dtrace_strdup(istcname);
 
 	provider->dtpv_attr = *pap;
 	provider->dtpv_priv.dtpp_flags = priv;
@@ -8732,6 +8722,42 @@ dtrace_register(const char *name, const dtrace_pattr_t *pap, uint32_t priv,
 	provider->dtpv_arg = arg;
 	*idp = (dtrace_provider_id_t)provider;
 
+	/*
+	 * Every provider must have an isntance name it belongs to in
+	 * it. The name "host" is reserved for the instance that the
+	 * tracing is happening on.
+	 */
+	ASSERT(provider->dtpv_istcname != NULL);
+
+	if (pops != &dtrace_provider_ops) {
+		mutex_enter(&dtrace_provider_lock);
+		mutex_enter(&dtrace_lock);
+	}
+	mutex_enter(&dtrace_instance_lock);
+
+	/*
+	 * If there is at least one instance registered, we'll look for
+	 * the corresponding instance in the instance list and add the
+	 * new one if necessary. We will then bind the provider to the
+	 * corresponding instance. The provider list itself should be
+	 * handled by the code following this block.
+	 */
+	instance = dtrace_instance_lookup(provider->dtpv_istcname);
+	if (instance == NULL) {
+		printf("Creating a new instance\n");
+		instance = kmem_zalloc(sizeof (dtrace_instance_t), KM_SLEEP);
+		instance->dtis_name = provider->dtpv_istcname;
+		instance->dtis_provhead = provider;
+		instance->dtis_prev = NULL;
+		instance->dtis_next = dtrace_instance;
+		if (dtrace_instance != NULL) {
+			dtrace_instance->dtis_prev = instance;
+		}
+		dtrace_instance = instance;
+	}
+
+	mutex_exit(&dtrace_instance_lock);
+
 	if (pops == &dtrace_provider_ops) {
 		ASSERT(MUTEX_HELD(&dtrace_provider_lock));
 		ASSERT(MUTEX_HELD(&dtrace_lock));
@@ -8747,35 +8773,6 @@ dtrace_register(const char *name, const dtrace_pattr_t *pap, uint32_t priv,
 		return (0);
 	}
 
-	/*
-	 * We need to have at least one instance in order to keep our
-	 * providers and probes in.
-	 */
-	ASSERT(dtrace_instance != NULL);
-
-	mutex_enter(&dtrace_provider_lock);
-	mutex_enter(&dtrace_lock);
-	mutex_enter(&dtrace_instance_lock);
-
-	/*
-	 * If there is at least one instance registered, we'll look for
-	 * the corresponding instance in the instance list and add the
-	 * new one if necessary. We will then bind the provider to the
-	 * corresponding instance. The provider list itself should be
-	 * handled by the code following this block.
-	 */
-	instance = dtrace_instance_lookup(provider->dtpv_istcname);
-	if (instance == NULL) {
-		instance = kmem_zalloc(sizeof (dtrace_instance_t), KM_SLEEP);
-		instance->name = dtrace_strdup(provider->dtpv_istcname);
-		instance->dtis_provhead = provider;
-		instance->dtis_next = dtrace_instance->dtis_next;
-		instance->dtis_next->dtis_prev = instance;
-		dtrace_instance->dtis_next = instance;
-		instance->dtis_prev = dtrace_instance;
-	}
-
-	mutex_exit(&dtrace_instance_lock);
 
 	/*
 	 * If there is at least one provider registered, we'll add this
@@ -8787,6 +8784,8 @@ dtrace_register(const char *name, const dtrace_pattr_t *pap, uint32_t priv,
 	} else {
 		dtrace_provider = provider;
 	}
+
+	printf("%s:(%s, %s):*\n", instance->dtis_name, provider->dtpv_istcname, provider->dtpv_name);
 
 	if (dtrace_retained != NULL) {
 		dtrace_enabling_provide(provider);
@@ -8808,6 +8807,25 @@ dtrace_register(const char *name, const dtrace_pattr_t *pap, uint32_t priv,
 
 	return (0);
 }
+/*
+ * DTrace Provider-to-Framework API Functions
+ *
+ * These functions implement much of the Provider-to-Framework API, as
+ * described in <sys/dtrace.h>.  The parts of the API not in this section are
+ * the functions in the API for probe management (found below), and
+ * dtrace_probe() itself (found above).
+ */
+
+/*
+ * Register the calling provider with the DTrace framework.  This should
+ * generally be called by DTrace providers in their attach(9E) entry point.
+ */
+inline int
+dtrace_register(const char *name, const dtrace_pattr_t *pap, uint32_t priv,
+    cred_t *cr, const dtrace_pops_t *pops, void *arg, dtrace_provider_id_t *idp)
+{
+	return (dtrace_distributed_register(name, "host", pap, priv, cr, pops, arg, idp));
+}
 
 /*
  * Unregister the specified provider from the DTrace framework.  This should
@@ -8818,6 +8836,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 {
 	dtrace_provider_t *old = (dtrace_provider_t *)id;
 	dtrace_provider_t *prev = NULL;
+	dtrace_provider_t *provnode = NULL;
 	dtrace_instance_t *instance = NULL;
 	int i, self = 0, noreap = 0;
 	dtrace_probe_t *probe, *first = NULL;
@@ -8850,7 +8869,6 @@ dtrace_unregister(dtrace_provider_id_t id)
 		mutex_enter(&dtrace_lock);
 	}
 
-	instance = dtrace_instance_lookup(old->dtpv_istcname);
 	/*
 	 * If anyone has /dev/dtrace open, or if there are anonymous enabled
 	 * probes, we refuse to let providers slither away, unless this
@@ -8980,26 +8998,58 @@ dtrace_unregister(dtrace_provider_id_t id)
 	}
 
 	if (!self) {
-		mutex_exit(&dtrace_lock);
 #ifdef illumos
 		mutex_exit(&mod_lock);
 #endif
-		mutex_exit(&dtrace_provider_lock);
 	}
 
-	kmem_free(old->dtpv_name, strlen(old->dtpv_name) + 1);
-	kmem_free(old, sizeof (dtrace_provider_t));
-
+	/*
+	 * FIXME: This can be done O(1) with proper data structs
+	 * XXX: Perhaps we don't need to hold the locks that long?
+	 */
 	mutex_enter(&dtrace_instance_lock);
 
+	instance = dtrace_instance_lookup(old->dtpv_istcname);
+	ASSERT(instance != NULL);
+	printf("Currently at instance: %s\n", instance->dtis_name);
+
+	provnode = instance->dtis_provhead;
+	while (provnode && provnode != old) {
+		prev = provnode;
+		provnode = provnode->dtpv_next;
+		if (prev)
+			printf("prev = %s, provnode = %s\n", prev->dtpv_name, provnode->dtpv_name);
+	}
+
+	ASSERT(provnode != NULL);
+
+	if (prev != NULL)
+		prev->dtpv_next = provnode->dtpv_next;
+	else
+		instance->dtis_provhead = provnode->dtpv_next;
+
+	kmem_free(old->dtpv_name, strlen(old->dtpv_name) + 1);
+	kmem_free(old->dtpv_istcname, strlen(old->dtpv_istcname) + 1);
+	kmem_free(old, sizeof (dtrace_provider_t));
+
 	if (instance->dtis_provhead == NULL) {
-		kmem_free(instance->name, strlen(instance->name) + 1);
-		instance->dtis_prev->dtis_next = instance->dtis_next;
-		instance->dtis_next->dtis_prev = instance->dtis_prev;
+		printf("instance->dtis_provhead == NULL\n");
+		if (dtrace_instance == instance) {
+			printf("dtrace_instance == instance\n");
+			dtrace_instance = instance->dtis_next;
+		} else {
+			instance->dtis_prev->dtis_next = instance->dtis_next;
+		}
+		if (instance->dtis_next != NULL) {
+			printf("instance->dtis_next == NULL\n");
+			instance->dtis_next->dtis_prev = instance->dtis_prev;
+		}
 		kmem_free(instance, sizeof (dtrace_instance_t));
 	}
 
 	mutex_exit(&dtrace_instance_lock);
+	mutex_exit(&dtrace_lock);
+	mutex_exit(&dtrace_provider_lock);
 
 	return (0);
 }
@@ -17087,19 +17137,6 @@ dtrace_attach(dev_info_t *devi, ddi_attach_cmd_t cmd)
 	 */
 	dtrace_toxic_ranges(dtrace_toxrange_add);
 
-	/*
-	 * In order to ensure that the OS instance that is being traced always
-	 * exists, we need to keep the head of our list as the OS instance
-	 * that the current instance of DTrace is running on. We name this
-	 * instance "host" so that the script can specify a tuple such as
-	 * "host:prov:mod:func:name".
-	 */
-	mutex_lock(&dtrace_instance_lock);
-	dtrace_instance = kmem_zalloc(sizeof (dtrace_instance_t), KM_SLEEP);
-	dtrace_instance->name = dtrace_strdup("host");
-	dtrace_instance->dtis_provhead = NULL;
-	dtrace_instance->dtis_next = NULL;
-	mutex_unlock(&dtrace_instance_lock);
 
 	/*
 	 * Before we register ourselves as a provider to our own framework,
