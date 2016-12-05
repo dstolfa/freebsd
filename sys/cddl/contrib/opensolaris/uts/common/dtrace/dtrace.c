@@ -8962,6 +8962,12 @@ dtrace_unregister(dtrace_provider_id_t id)
 	 * everyone has cleared out from any probe array processing.
 	 */
 	dtrace_sync();
+	mutex_enter(&dtrace_instance_lock);
+
+	instance = dtrace_instance_lookup(old->dtpv_istcname);
+	ASSERT(instance != NULL);
+	printf("Currently at instance: %s\n", instance->dtis_name);
+	printf("Want to delete: %s\n", old->dtpv_name);
 
 	for (probe = first; probe != NULL; probe = first) {
 		first = probe->dtpr_nextmod;
@@ -9003,45 +9009,9 @@ dtrace_unregister(dtrace_provider_id_t id)
 #endif
 	}
 
-	/*
-	 * FIXME: This can be done O(1) with proper data structs
-	 * XXX: Perhaps we don't need to hold the locks that long?
-	 */
-	mutex_enter(&dtrace_instance_lock);
-
-	instance = dtrace_instance_lookup(old->dtpv_istcname);
-	ASSERT(instance != NULL);
-	printf("Currently at instance: %s\n", instance->dtis_name);
-
-	/*
-	 * FIXME: This needs some form of an identifier. The issue is
-	 * that dtpv_name is _not_ unique. We need some form of key to
-	 * identify what provider it is
-	 */
-	provnode = instance->dtis_provhead;
-	while (provnode && provnode != old) {
-		prev = provnode;
-		provnode = provnode->dtpv_next;
-		if (prev && provnode)
-			printf("prev = %s, provnode = %s\n", prev->dtpv_name, provnode->dtpv_name);
+	if (dtrace_provider == NULL) {
+		instance->dtis_provhead = NULL;
 	}
-
-	ASSERT(provnode != NULL);
-
-	printf("Done: provnode = %s\n", provnode->dtpv_name);
-
-	if (prev != NULL) {
-		printf("prev != NULL\n");
-		prev->dtpv_next = provnode->dtpv_next;
-	} else {
-		printf("prev == NULL\n");
-		instance->dtis_provhead = provnode->dtpv_next;
-	}
-
-
-	kmem_free(old->dtpv_name, strlen(old->dtpv_name) + 1);
-	kmem_free(old->dtpv_istcname, strlen(old->dtpv_istcname) + 1);
-	kmem_free(old, sizeof (dtrace_provider_t));
 
 	printf("instance->dtis_provhead check\n");
 
@@ -9061,10 +9031,14 @@ dtrace_unregister(dtrace_provider_id_t id)
 	}
 
 	mutex_exit(&dtrace_instance_lock);
-	mutex_exit(&dtrace_lock);
-	mutex_exit(&dtrace_provider_lock);
+	if (!self) {
+		mutex_exit(&dtrace_lock);
+		mutex_exit(&dtrace_provider_lock);
+	}
 
-	printf("Unlocked\n");
+	kmem_free(old->dtpv_name, strlen(old->dtpv_name) + 1);
+	kmem_free(old->dtpv_istcname, strlen(old->dtpv_istcname) + 1);
+	kmem_free(old, sizeof (dtrace_provider_t));
 
 	return (0);
 }
