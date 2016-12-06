@@ -6945,10 +6945,20 @@ dtrace_action_panic(dtrace_ecb_t *ecb)
 	 * We won the right to panic.  (We want to be sure that only one
 	 * thread calls panic() from dtrace_probe(), and that panic() is
 	 * called exactly once.)
+	 *
+	 * If the instance is "host", we are tracing this OS instance, that
+	 * means that we have no need to report the instance itself in the
+	 * panic and reporting the prov:mod:func:name is sufficient.
 	 */
-	dtrace_panic("dtrace: panic action at probe %s:%s:%s:%s (ecb %p)",
-	    probe->dtpr_provider->dtpv_name, probe->dtpr_mod,
-	    probe->dtpr_func, probe->dtpr_name, (void *)ecb);
+	if (strcmp(probe->dtpr_instance, "host") != 0) {
+		dtrace_panic("dtrace: panic action at probe %s:%s:%s:%s:%s (ecb %p)",
+		    probe->dtpr_instance, probe->dtpr_provider->dtpv_name, probe->dtpr_mod,
+		    probe->dtpr_func, probe->dtpr_name, (void *)ecb);
+	} else {
+		dtrace_panic("dtrace: panic action at probe %s:%s:%s:%s (ecb %p)",
+		    probe->dtpr_provider->dtpv_name, probe->dtpr_mod,
+		    probe->dtpr_func, probe->dtpr_name, (void *)ecb);
+	}
 }
 
 static void
@@ -8689,7 +8699,6 @@ dtrace_distributed_register(const char *name, const char *istcname,
 
 	provider = kmem_zalloc(sizeof (dtrace_provider_t), KM_SLEEP);
 	provider->dtpv_name = dtrace_strdup(name);
-	provider->dtpv_istcname = dtrace_strdup(istcname);
 
 	provider->dtpv_attr = *pap;
 	provider->dtpv_priv.dtpp_flags = priv;
@@ -8722,12 +8731,6 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	provider->dtpv_arg = arg;
 	*idp = (dtrace_provider_id_t)provider;
 
-	/*
-	 * Every provider must have an isntance name it belongs to in
-	 * it. The name "host" is reserved for the instance that the
-	 * tracing is happening on.
-	 */
-	ASSERT(provider->dtpv_istcname != NULL);
 
 	if (pops != &dtrace_provider_ops) {
 		mutex_enter(&dtrace_provider_lock);
@@ -8742,11 +8745,10 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	 * corresponding instance. The provider list itself should be
 	 * handled by the code following this block.
 	 */
-	instance = dtrace_instance_lookup(provider->dtpv_istcname);
+	instance = dtrace_instance_lookup(istcname);
 	if (instance == NULL) {
-		printf("Creating a new instance\n");
 		instance = kmem_zalloc(sizeof (dtrace_instance_t), KM_SLEEP);
-		instance->dtis_name = provider->dtpv_istcname;
+		instance->dtis_name = dtrace_strdup(istcname);
 		instance->dtis_provhead = provider;
 		instance->dtis_prev = NULL;
 		instance->dtis_next = dtrace_instance;
@@ -8757,6 +8759,15 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	}
 
 	mutex_exit(&dtrace_instance_lock);
+
+	provider->dtpv_instance = instance->dtis_name;
+
+	/*
+	 * Every provider must have an isntance name it belongs to in
+	 * it. The name "host" is reserved for the instance that the
+	 * tracing is happening on.
+	 */
+	ASSERT(provider->dtpv_instance != NULL);
 
 	if (pops == &dtrace_provider_ops) {
 		ASSERT(MUTEX_HELD(&dtrace_provider_lock));
@@ -8784,8 +8795,6 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	} else {
 		dtrace_provider = provider;
 	}
-
-	printf("%s:(%s, %s):*\n", instance->dtis_name, provider->dtpv_istcname, provider->dtpv_name);
 
 	if (dtrace_retained != NULL) {
 		dtrace_enabling_provide(provider);
@@ -8836,7 +8845,6 @@ dtrace_unregister(dtrace_provider_id_t id)
 {
 	dtrace_provider_t *old = (dtrace_provider_t *)id;
 	dtrace_provider_t *prev = NULL;
-	dtrace_provider_t *provnode = NULL;
 	dtrace_instance_t *instance = NULL;
 	int i, self = 0, noreap = 0;
 	dtrace_probe_t *probe, *first = NULL;
@@ -8964,16 +8972,15 @@ dtrace_unregister(dtrace_provider_id_t id)
 	dtrace_sync();
 	mutex_enter(&dtrace_instance_lock);
 
-	instance = dtrace_instance_lookup(old->dtpv_istcname);
+	instance = dtrace_instance_lookup(old->dtpv_instance);
 	ASSERT(instance != NULL);
-	printf("Currently at instance: %s\n", instance->dtis_name);
-	printf("Want to delete: %s\n", old->dtpv_name);
 
 	for (probe = first; probe != NULL; probe = first) {
 		first = probe->dtpr_nextmod;
 
 		old->dtpv_pops.dtps_destroy(old->dtpv_arg, probe->dtpr_id,
 		    probe->dtpr_arg);
+		kmem_free(probe->dtpr_instance, strlen(probe->dtpr_instance) + 1);
 		kmem_free(probe->dtpr_mod, strlen(probe->dtpr_mod) + 1);
 		kmem_free(probe->dtpr_func, strlen(probe->dtpr_func) + 1);
 		kmem_free(probe->dtpr_name, strlen(probe->dtpr_name) + 1);
@@ -9003,41 +9010,32 @@ dtrace_unregister(dtrace_provider_id_t id)
 		prev->dtpv_next = old->dtpv_next;
 	}
 
-	if (!self) {
-#ifdef illumos
-		mutex_exit(&mod_lock);
-#endif
-	}
-
-	if (dtrace_provider == NULL) {
+	if (dtrace_provider == NULL)
 		instance->dtis_provhead = NULL;
-	}
-
-	printf("instance->dtis_provhead check\n");
 
 	if (instance->dtis_provhead == NULL) {
-		printf("instance->dtis_provhead == NULL\n");
-		if (dtrace_instance == instance) {
-			printf("dtrace_instance == instance\n");
+		if (dtrace_instance == instance)
 			dtrace_instance = instance->dtis_next;
-		} else {
+		else
 			instance->dtis_prev->dtis_next = instance->dtis_next;
-		}
-		if (instance->dtis_next != NULL) {
-			printf("instance->dtis_next == NULL\n");
+
+		if (instance->dtis_next != NULL)
 			instance->dtis_next->dtis_prev = instance->dtis_prev;
-		}
+
+		kmem_free(instance->dtis_name, strlen(instance->dtis_name) + 1);
 		kmem_free(instance, sizeof (dtrace_instance_t));
 	}
 
 	mutex_exit(&dtrace_instance_lock);
 	if (!self) {
 		mutex_exit(&dtrace_lock);
+#ifdef illumos
+		mutex_exit(&mod_lock);
+#endif
 		mutex_exit(&dtrace_provider_lock);
 	}
 
 	kmem_free(old->dtpv_name, strlen(old->dtpv_name) + 1);
-	kmem_free(old->dtpv_istcname, strlen(old->dtpv_istcname) + 1);
 	kmem_free(old, sizeof (dtrace_provider_t));
 
 	return (0);
@@ -9120,6 +9118,7 @@ dtrace_condense(dtrace_provider_id_t id)
 
 		prov->dtpv_pops.dtps_destroy(prov->dtpv_arg, i + 1,
 		    probe->dtpr_arg);
+		kmem_free(probe->dtpr_instance, strlen(probe->dtpr_instance) + 1);
 		kmem_free(probe->dtpr_mod, strlen(probe->dtpr_mod) + 1);
 		kmem_free(probe->dtpr_func, strlen(probe->dtpr_func) + 1);
 		kmem_free(probe->dtpr_name, strlen(probe->dtpr_name) + 1);
@@ -9174,7 +9173,7 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 
 	probe->dtpr_id = id;
 	probe->dtpr_gen = dtrace_probegen++;
-	probe->dtpr_instance = dtrace_strdup(provider->dtpv_istcname);
+	probe->dtpr_instance = dtrace_strdup(provider->dtpv_instance);
 	probe->dtpr_mod = dtrace_strdup(mod);
 	probe->dtpr_func = dtrace_strdup(func);
 	probe->dtpr_name = dtrace_strdup(name);
@@ -16860,6 +16859,7 @@ dtrace_module_unloaded(modctl_t *ctl, int *error)
 		prov = probe->dtpr_provider;
 		prov->dtpv_pops.dtps_destroy(prov->dtpv_arg, probe->dtpr_id,
 		    probe->dtpr_arg);
+		kmem_free(probe->dtpr_instance, strlen(probe->dtpr_instance) + 1);
 		kmem_free(probe->dtpr_mod, strlen(probe->dtpr_mod) + 1);
 		kmem_free(probe->dtpr_func, strlen(probe->dtpr_func) + 1);
 		kmem_free(probe->dtpr_name, strlen(probe->dtpr_name) + 1);
