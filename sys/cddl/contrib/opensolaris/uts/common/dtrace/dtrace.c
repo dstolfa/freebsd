@@ -3514,6 +3514,12 @@ dtrace_dif_variable(dtrace_mstate_t *mstate, dtrace_state_t *state, uint64_t v,
 
 		return (mstate->dtms_ucaller);
 
+	case DIF_VAR_PROBEISTC:
+		ASSERT(mstate->dtms_present & DTRACE_MSTATE_PROBE);
+		return (dtrace_dif_varstr(
+		    (uintptr_t)mstate->dtms_probe->dtpr_instance,
+		    state, mstate));
+
 	case DIF_VAR_PROBEPROV:
 		ASSERT(mstate->dtms_present & DTRACE_MSTATE_PROBE);
 		return (dtrace_dif_varstr(
@@ -9465,6 +9471,7 @@ static void
 dtrace_dofprov2hprov(dtrace_helper_provdesc_t *hprov,
     const dof_provider_t *dofprov, char *strtab)
 {
+	hprov->instance = strtab + dofprov->dofpv_instance;
 	hprov->dthpv_provname = strtab + dofprov->dofpv_name;
 	dtrace_dofattr2attr(&hprov->dthpv_pattr.dtpa_provider,
 	    dofprov->dofpv_provattr);
