@@ -9471,7 +9471,7 @@ static void
 dtrace_dofprov2hprov(dtrace_helper_provdesc_t *hprov,
     const dof_provider_t *dofprov, char *strtab)
 {
-	hprov->instance = strtab + dofprov->dofpv_instance;
+	hprov->dthpv_instance = strtab + dofprov->dofpv_instance;
 	hprov->dthpv_provname = strtab + dofprov->dofpv_name;
 	dtrace_dofattr2attr(&hprov->dthpv_pattr.dtpa_provider,
 	    dofprov->dofpv_provattr);
