@@ -108,7 +108,7 @@ typedef enum dtrace_probespec {
 	DTRACE_PROBESPEC_PROVIDER,
 	DTRACE_PROBESPEC_MOD,
 	DTRACE_PROBESPEC_FUNC,
-	DTRACE_PROBESPEC_NAME
+	DoTRACE_PROBESPEC_NAME
 } dtrace_probespec_t;
 
 /*
@@ -1253,29 +1253,30 @@ typedef uint8_t dtrace_class_t;		/* architectural dependency class */
 	DTRACE_PRIV_PROC | DTRACE_PRIV_OWNER | DTRACE_PRIV_ZONEOWNER)
 
 typedef struct dtrace_ppriv {
-	uint32_t dtpp_flags;			/* privilege flags */
-	uid_t dtpp_uid;				/* user ID */
-	zoneid_t dtpp_zoneid;			/* zone ID */
+	uint32_t dtpp_flags;				/* privilege flags */
+	uid_t dtpp_uid;					/* user ID */
+	zoneid_t dtpp_zoneid;				/* zone ID */
 } dtrace_ppriv_t;
 
 typedef struct dtrace_attribute {
-	dtrace_stability_t dtat_name;		/* entity name stability */
-	dtrace_stability_t dtat_data;		/* entity data stability */
-	dtrace_class_t dtat_class;		/* entity data dependency */
+	dtrace_stability_t dtat_name;			/* entity name stability */
+	dtrace_stability_t dtat_data;			/* entity data stability */
+	dtrace_class_t dtat_class;			/* entity data dependency */
 } dtrace_attribute_t;
 
 typedef struct dtrace_pattr {
-	dtrace_attribute_t dtpa_provider;	/* provider attributes */
-	dtrace_attribute_t dtpa_mod;		/* module attributes */
-	dtrace_attribute_t dtpa_func;		/* function attributes */
-	dtrace_attribute_t dtpa_name;		/* name attributes */
-	dtrace_attribute_t dtpa_args;		/* args[] attributes */
+	dtrace_attribute_t dtpa_provider;		/* provider attributes */
+	dtrace_attribute_t dtpa_mod;			/* module attributes */
+	dtrace_attribute_t dtpa_func;			/* function attributes */
+	dtrace_attribute_t dtpa_name;			/* name attributes */
+	dtrace_attribute_t dtpa_args;			/* args[] attributes */
 } dtrace_pattr_t;
 
 typedef struct dtrace_providerdesc {
-	char dtvd_name[DTRACE_PROVNAMELEN];	/* provider name */
-	dtrace_pattr_t dtvd_attr;		/* stability attributes */
-	dtrace_ppriv_t dtvd_priv;		/* privileges required */
+	chat dtvd_instance[DTRACE_INSTANCENAMELEN];	/* instance name */
+	char dtvd_name[DTRACE_PROVNAMELEN];		/* provider name */
+	dtrace_pattr_t dtvd_attr;			/* stability attributes */
+	dtrace_ppriv_t dtvd_priv;			/* privileges required */
 } dtrace_providerdesc_t;
 
 /*
