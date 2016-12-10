@@ -4976,7 +4976,7 @@ dt_node_printr(dt_node_t *dnp, FILE *fp, int depth)
 			    dnp->dn_desc->dtpd_id);
 		} else {
 			(void) fprintf(fp, "PDESC %s:%s:%s:%s:%s [%u]\n",
-			    dnp->dn_desc->instance, dnp->dn_desc->dtpd_provider,
+			    dnp->dn_desc->dtpd_instance, dnp->dn_desc->dtpd_provider,
 			    dnp->dn_desc->dtpd_mod, dnp->dn_desc->dtpd_func,
 			    dnp->dn_desc->dtpd_name, dnp->dn_desc->dtpd_id);
 		}

@@ -108,7 +108,7 @@ typedef enum dtrace_probespec {
 	DTRACE_PROBESPEC_PROVIDER,
 	DTRACE_PROBESPEC_MOD,
 	DTRACE_PROBESPEC_FUNC,
-	DoTRACE_PROBESPEC_NAME
+	DTRACE_PROBESPEC_NAME
 } dtrace_probespec_t;
 
 /*
@@ -1273,7 +1273,7 @@ typedef struct dtrace_pattr {
 } dtrace_pattr_t;
 
 typedef struct dtrace_providerdesc {
-	chat dtvd_instance[DTRACE_INSTANCENAMELEN];	/* instance name */
+	char dtvd_instance[DTRACE_INSTANCENAMELEN];	/* instance name */
 	char dtvd_name[DTRACE_PROVNAMELEN];		/* provider name */
 	dtrace_pattr_t dtvd_attr;			/* stability attributes */
 	dtrace_ppriv_t dtvd_priv;			/* privileges required */
