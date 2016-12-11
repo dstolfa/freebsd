@@ -68,6 +68,7 @@ dtrace_xstr2desc(dtrace_hdl_t *dtp, dtrace_probespec_t spec,
 {
 	size_t off, len, vlen, wlen;
 	const char *p, *q, *v, *w;
+	int i = 0;
 
 	char buf[32]; /* for id_t as %d (see below) */
 
@@ -149,10 +150,14 @@ dtrace_xstr2desc(dtrace_hdl_t *dtp, dtrace_probespec_t spec,
 		if (len + vlen >= dtrace_probespecs[spec].dtps_len)
 			return (dt_set_errno(dtp, ENAMETOOLONG));
 
+		printf("spec before = %d\n", spec);
 		off = dtrace_probespecs[spec--].dtps_offset;
+		printf("spec after = %d\n", spec);
 		bcopy(q, (char *)pdp + off, len);
 		bcopy(v, (char *)pdp + off + len, vlen);
 		bcopy(w, (char *)pdp + off + len + vlen, wlen);
+		printf("q = %s\n", q);
+		i++;
 	} while (--p >= s);
 
 	pdp->dtpd_id = DTRACE_IDNONE;
