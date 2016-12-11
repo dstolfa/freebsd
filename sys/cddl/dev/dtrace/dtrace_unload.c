@@ -75,9 +75,11 @@ dtrace_unload()
 		dtrace_nprobes = 0;
 	}
 
+	dtrace_hash_destroy(dtrace_byinstance);
 	dtrace_hash_destroy(dtrace_bymod);
 	dtrace_hash_destroy(dtrace_byfunc);
 	dtrace_hash_destroy(dtrace_byname);
+	dtrace_byinstance = NULL;
 	dtrace_bymod = NULL;
 	dtrace_byfunc = NULL;
 	dtrace_byname = NULL;

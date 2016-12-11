@@ -116,8 +116,8 @@ struct dtrace_probe {
 	char *dtpr_mod;				/* probe's module name */
 	char *dtpr_func;			/* probe's function name */
 	char *dtpr_name;			/* probe's name */
-	dtrace_probe_t *dtpr_nextistc;		/* next in instance hash */
-	dtrace_probe_t *dptr_previstc;		/* previous in instance hash */
+	dtrace_probe_t *dtpr_nextinstance;	/* next in instance hash */
+	dtrace_probe_t *dtpr_previnstance;	/* previous in instance hash */
 	dtrace_probe_t *dtpr_nextmod;		/* next in module hash */
 	dtrace_probe_t *dtpr_prevmod;		/* previous in module hash */
 	dtrace_probe_t *dtpr_nextfunc;		/* next in function hash */
@@ -130,7 +130,7 @@ struct dtrace_probe {
 typedef int dtrace_probekey_f(const char *, const char *, int);
 
 typedef struct dtrace_probekey {
-	char *dtpk_istc;			/* instance name to match */
+	char *dtpk_instance;			/* instance name to match */
 	dtrace_probekey_f *dtpk_imatch;		/* instance matching function */
 	char *dtpk_prov;			/* provider name to match */
 	dtrace_probekey_f *dtpk_pmatch;		/* provider matching function */

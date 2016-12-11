@@ -109,6 +109,12 @@ dtrace_load(void *dummy)
 	    NULL, NULL, NULL, NULL, NULL, 0);
 
 	ASSERT(MUTEX_HELD(&cpu_lock));
+
+	dtrace_byinstance = dtrace_hash_create(offsetof(dtrace_probe_t,
+	    dtpr_instance),
+	    offsetof(dtrace_probe_t, dtpr_nextinstance),
+	    offsetof(dtrace_probe_t, dtpr_previnstance));
+
 	dtrace_bymod = dtrace_hash_create(offsetof(dtrace_probe_t, dtpr_mod),
 	    offsetof(dtrace_probe_t, dtpr_nextmod),
 	    offsetof(dtrace_probe_t, dtpr_prevmod));

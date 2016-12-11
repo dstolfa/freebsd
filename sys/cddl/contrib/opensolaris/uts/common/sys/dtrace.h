@@ -105,7 +105,7 @@ typedef uint32_t dtrace_cacheid_t;	/* predicate cache identifier */
 typedef enum dtrace_probespec {
 	DTRACE_PROBESPEC_NONE = -1,
 	DTRACE_PROBESPEC_INSTANCE = 0,
-	DTRACE_PROBESPEC_PROVIDER,
+	DTRACE_PROBESPEC_PROVIDER = 1,
 	DTRACE_PROBESPEC_MOD,
 	DTRACE_PROBESPEC_FUNC,
 	DTRACE_PROBESPEC_NAME
