@@ -43,10 +43,13 @@
 
 #ifndef __asm__
 
-int hypercall_dtrace_probe_create(uintptr_t id, const char *mod, const char *func,
-    const char *name, int aframes, void *arg);
-int hypercall_dtrace_probe(int probe, uintptr_t arg0, uintptr_t arg1, uintptr_t arg2,
+int	hypercall_dtrace_register(dtrace_provider_t *);
+int	hypercall_dtrace_unregister(dtrace_provider_t *);
+int	hypercall_dtrace_probe_create(dtrace_probe_t *);
+int	hypercall_dtrace_probe(int probe, uintptr_t arg0, uintptr_t arg1, uintptr_t arg2,
     uintptr_t arg3, uintptr_t arg4);
+int	hypercall_dtps_getargval(uint64_t);
+int	hypercall_dtps_getargdesc(dtrace_argdesc_t *);
 
 #endif
 

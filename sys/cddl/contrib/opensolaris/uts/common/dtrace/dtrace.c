@@ -7324,6 +7324,42 @@ dtrace_probe(dtrace_id_t id, uintptr_t arg0, uintptr_t arg1,
 		return;
 	}
 
+#ifdef __FreeBSD__
+#ifdef __distdtrace__
+	switch (vm_guest) {
+	case VM_GUEST_BHYVE:
+		if (ext_attach) {
+			/*
+			 * If we have attached to this probe externally,
+			 * specifically, a virtual machine at this point.
+			 *
+			 * TODO: ext_attach is not enough as a variable, each
+			 * probe should have it's ext_attach variable, so that
+			 * we know what to send where.
+			 *
+			 * In the distributed work, we want to send this infor-
+			 * mation to everyone asking for it, while in the case
+			 * of virtual machines, we want to notify the host that
+			 * a probe has fired.
+			 *
+			 * However, a usecase where this becomes problematic is
+			 * using a hypervisor to monitor how distributed DTrace
+			 * behaves on the network side-of-things. We don't want
+			 * to fire all probes back to the host, as it is slow.
+			 * We only want to fire the probes that the _host_ asks
+			 * for. This needs to be thought of in a generic way so
+			 * that we don't repeat ourselves too much.
+			 */
+			hypercall_dtrace_probe(id, arg0, arg1, arg2, arg3, arg4);
+			return;
+		}
+		break; 
+	default:
+		break;
+	}
+#endif
+#endif
+
 	now = mstate.dtms_timestamp = dtrace_gethrtime();
 	mstate.dtms_present |= DTRACE_MSTATE_TIMESTAMP;
 	vtime = dtrace_vtime_references != 0;
@@ -8830,6 +8866,15 @@ dtrace_distributed_register(const char *name, const char *istcname,
 		dtrace_provider = provider;
 	}
 
+#ifdef __FreeBSD__
+#ifdef __distdtrace__
+	switch (vm_guest) {
+	case VM_GUEST_BHYVE:
+		hypercall_dtrace_register(provider);
+	}
+#endif
+#endif
+
 	if (dtrace_retained != NULL) {
 		dtrace_enabling_provide(provider);
 
@@ -9069,6 +9114,22 @@ dtrace_unregister(dtrace_provider_id_t id)
 #endif
 		mutex_exit(&dtrace_provider_lock);
 	}
+	/*
+	 * We only need the UUID to unregister a provider, thus
+	 * it is acceptable to hypercall here
+	 * TODO: Actually implement this.
+	 */
+#ifdef __FreeBSD__
+#ifdef __distdtrace__
+	switch (vm_guest) {
+	case VM_GUEST_BHYVE:
+		hypercall_dtrace_unregister(old);
+		break;
+	default:
+		break;
+	}
+#endif
+#endif
 
 	kmem_free(old->dtpv_name, strlen(old->dtpv_name) + 1);
 	kmem_free(old, sizeof (dtrace_provider_t));
