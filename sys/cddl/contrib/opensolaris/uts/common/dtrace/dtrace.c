@@ -132,6 +132,10 @@
 
 #include <netinet/in.h>
 
+#ifdef __amd64__
+#include <machine/bhyve_hypercall.h>
+#endif
+
 #include "dtrace_cddl.h"
 #include "dtrace_debug.c"
 #endif
@@ -3326,10 +3330,26 @@ dtrace_dif_variable(dtrace_mstate_t *mstate, dtrace_state_t *state, uint64_t v,
 			uint64_t val;
 
 			pv = mstate->dtms_probe->dtpr_provider;
-			if (pv->dtpv_pops.dtps_getargval != NULL)
+			if (pv->dtpv_pops.dtps_getargval != NULL) {
 				val = pv->dtpv_pops.dtps_getargval(pv->dtpv_arg,
 				    mstate->dtms_probe->dtpr_id,
 				    mstate->dtms_probe->dtpr_arg, ndx, aframes);
+				/*
+				 * This code takes care of:
+				 * dtps_getargval()
+				 */
+#ifdef __FreeBSD__
+#ifdef __distdtrace__
+				switch (vm_guest) {
+				case VM_GUEST_BHYVE:
+					hypercall_dtps_getargval(val);
+					break;
+				default:
+					break;
+				}
+#endif
+#endif
+			}
 			else
 				val = dtrace_getarg(ndx, aframes);
 
@@ -9240,6 +9260,23 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 
 	ASSERT(dtrace_probes[id - 1] == NULL);
 	dtrace_probes[id - 1] = probe;
+
+	/*
+	 * This code takes care of:
+	 * dtps_provide()
+	 * dtps_provide_module()
+	 */
+#ifdef __FreeBSD__
+#ifdef __distdtrace__
+	switch (vm_guest) {
+	case VM_GUEST_BHYVE:
+		hypercall_dtrace_probe_create(probe);
+		break;
+	default:
+		break;
+	}
+#endif
+#endif
 
 	if (provider != dtrace_provider)
 		mutex_exit(&dtrace_lock);
@@ -17900,6 +17937,21 @@ dtrace_ioctl(dev_t dev, int cmd, intptr_t arg, int md, cred_t *cr, int *rv)
 
 			prov->dtpv_pops.dtps_getargdesc(prov->dtpv_arg,
 			    probe->dtpr_id, probe->dtpr_arg, &desc);
+			/*
+			 * This code takes care of:
+			 * dtps_getargdesc()
+			 */
+#ifdef __FreeBSD__
+#ifdef __distdtrace__
+			switch (vm_guest) {
+			case VM_GUEST_BHYVE:
+				hypercall_dtps_getargdesc(&desc);
+				break;
+			default:
+				break;
+			}
+#endif
+#endif
 		}
 
 		mutex_exit(&mod_lock);
