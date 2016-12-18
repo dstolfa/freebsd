@@ -51,15 +51,25 @@
 #define R92S_MACID		(R92S_MACIDSETTING + 0x000)
 #define R92S_MAR		(R92S_MACIDSETTING + 0x010)
 
-#define R92S_GP			0x01e0
-#define R92S_GPIO_CTRL		(R92S_GP + 0x00c)
-#define R92S_GPIO_IO_SEL	(R92S_GP + 0x00e)
-#define R92S_MAC_PINMUX_CTRL	(R92S_GP + 0x011)
+#define R92S_TIMECTRL		0x0080
+#define R92S_TSFTR		(R92S_TIMECTRL + 0x000)
+
+#define R92S_FIFOCTRL		0x00a0
+#define R92S_RXFLTMAP_MGT	(R92S_FIFOCTRL + 0x076)
+#define R92S_RXFLTMAP_CTL	(R92S_FIFOCTRL + 0x078)
+#define R92S_RXFLTMAP_DATA	(R92S_FIFOCTRL + 0x07a)
+#define R92S_RXFLTMAP_MESH	(R92S_FIFOCTRL + 0x07c)
 
 #define R92S_SECURITY		0x0240
 #define R92S_CAMCMD		(R92S_SECURITY + 0x000)
 #define R92S_CAMWRITE		(R92S_SECURITY + 0x004)
 #define R92S_CAMREAD		(R92S_SECURITY + 0x008)
+
+#define R92S_GP			0x02e0
+#define R92S_GPIO_CTRL		(R92S_GP + 0x00c)
+#define R92S_GPIO_IO_SEL	(R92S_GP + 0x00e)
+#define R92S_MAC_PINMUX_CTRL	(R92S_GP + 0x011)
+#define R92S_LEDCFG		(R92S_GP + 0x012)
 
 #define R92S_IOCMD_CTRL		0x0370
 #define R92S_IOCMD_DATA		0x0374
@@ -137,6 +147,30 @@
 #define R92S_TCR_DMEM_CODE_DONE	0x10
 #define R92S_TCR_IMEM_RDY	0x20
 #define R92S_TCR_FWRDY		0x80
+
+/* Bits for R92S_RCR. */
+#define R92S_RCR_AAP		0x00000001
+#define R92S_RCR_APM		0x00000002
+#define R92S_RCR_AM		0x00000004
+#define R92S_RCR_AB		0x00000008
+#define R92S_RCR_ACRC32		0x00000020
+#define R92S_RCR_AICV		0x00001000
+#define R92S_RCR_APP_ICV	0x00010000
+#define R92S_RCR_APP_MIC	0x00020000
+#define R92S_RCR_ADF		0x00040000
+#define R92S_RCR_ACF		0x00080000
+#define R92S_RCR_AMF		0x00100000
+#define R92S_RCR_ADD3		0x00200000
+#define R92S_RCR_APWRMGT	0x00400000
+#define R92S_RCR_CBSSID		0x00800000
+#define R92S_RCR_APP_PHYSTS	0x02000000
+#define R92S_RCR_TCP_OFFLD_EN	0x04000000
+#define R92S_RCR_ENMBID		0x08000000
+
+/* Bits for R92S_RXFLTMAP*. */
+#define R92S_RXFLTMAP_MGT_DEF	0x3f3f
+#define R92S_RXFLTMAP_FW(subtype)	\
+	(1 << ((subtype) >> IEEE80211_FC0_SUBTYPE_SHIFT))
 
 /* Bits for R92S_GPIO_IO_SEL. */
 #define R92S_GPIO_WPS	0x10
@@ -543,6 +577,11 @@ struct r92s_set_pwr_mode {
 	uint8_t		bcn_pass_time;
 } __packed;
 
+/* Structure for R92S_CMD_SET_CHANNEL. */
+struct r92s_set_channel {
+	uint32_t	channel;
+} __packed;
+
 /* Structure for event R92S_EVENT_JOIN_BSS. */
 struct r92s_event_join_bss {
 	uint32_t	next;
@@ -592,7 +631,7 @@ struct r92s_rx_stat {
 #define R92S_RXDW3_HTC		0x00004000
 
 	uint32_t	rxdw4;
-	uint32_t	rxdw5;
+	uint32_t	tsf_low;
 } __packed __aligned(4);
 
 /* Rx PHY descriptor. */
@@ -685,10 +724,10 @@ struct r92s_add_ba_req {
 /*
  * Driver definitions.
  */
-#define RSU_RX_LIST_COUNT	100
+#define RSU_RX_LIST_COUNT	1
 #define RSU_TX_LIST_COUNT	32
 
-#define RSU_RXBUFSZ	(8 * 1024)
+#define RSU_RXBUFSZ	(30 * 1024)
 #define RSU_TXBUFSZ	\
 	((sizeof(struct r92s_tx_desc) + IEEE80211_MAX_LEN + 3) & ~3)
 
@@ -735,6 +774,7 @@ static const uint8_t rsu_qid2idx_11ep[] =
 
 struct rsu_rx_radiotap_header {
 	struct ieee80211_radiotap_header wr_ihdr;
+	uint64_t	wr_tsft;
 	uint8_t		wr_flags;
 	uint8_t		wr_rate;
 	uint16_t	wr_chan_freq;
@@ -743,7 +783,8 @@ struct rsu_rx_radiotap_header {
 } __packed __aligned(8);
 
 #define RSU_RX_RADIOTAP_PRESENT			\
-	(1 << IEEE80211_RADIOTAP_FLAGS |	\
+	(1 << IEEE80211_RADIOTAP_TSFT |		\
+	 1 << IEEE80211_RADIOTAP_FLAGS |	\
 	 1 << IEEE80211_RADIOTAP_RATE |		\
 	 1 << IEEE80211_RADIOTAP_CHANNEL |	\
 	 1 << IEEE80211_RADIOTAP_DBM_ANTSIGNAL)
@@ -812,6 +853,8 @@ struct rsu_softc {
 	int				sc_currssi;
 
 	u_int				sc_running:1,
+					sc_vap_is_running:1,
+					sc_rx_checksum_enable:1,
 					sc_calibrating:1,
 					sc_active_scan:1,
 					sc_extra_scan:1;

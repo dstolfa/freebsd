@@ -1417,6 +1417,10 @@ cxgbe_vi_attach(device_t dev, struct vi_info *vi)
 	if (vi->nofldrxq != 0)
 		ifp->if_capabilities |= IFCAP_TOE;
 #endif
+#ifdef DEV_NETMAP
+	if (vi->nnmrxq != 0)
+		ifp->if_capabilities |= IFCAP_NETMAP;
+#endif
 	ifp->if_capenable = T4_CAP_ENABLE;
 	ifp->if_hwassist = CSUM_TCP | CSUM_UDP | CSUM_IP | CSUM_TSO |
 	    CSUM_UDP_IPV6 | CSUM_TCP_IPV6;
@@ -1435,7 +1439,7 @@ cxgbe_vi_attach(device_t dev, struct vi_info *vi)
 
 	ether_ifattach(ifp, vi->hw_addr);
 #ifdef DEV_NETMAP
-	if (vi->nnmrxq != 0)
+	if (ifp->if_capabilities & IFCAP_NETMAP)
 		cxgbe_nm_attach(vi);
 #endif
 	sb = sbuf_new_auto();
@@ -7215,25 +7219,23 @@ sysctl_tids(SYSCTL_HANDLER_ARGS)
 	}
 
 	if (t->ntids) {
+		sbuf_printf(sb, "TID range: ");
 		if (t4_read_reg(sc, A_LE_DB_CONFIG) & F_HASHEN) {
-			uint32_t b;
+			uint32_t b, hb;
 
-			if (chip_id(sc) <= CHELSIO_T5)
+			if (chip_id(sc) <= CHELSIO_T5) {
 				b = t4_read_reg(sc, A_LE_DB_SERVER_INDEX) / 4;
-			else
-				b = t4_read_reg(sc, A_LE_DB_SRVR_START_INDEX);
-
-			if (b) {
-				sbuf_printf(sb, "TID range: 0-%u, %u-%u", b - 1,
-				    t4_read_reg(sc, A_LE_DB_TID_HASHBASE) / 4,
-				    t->ntids - 1);
+				hb = t4_read_reg(sc, A_LE_DB_TID_HASHBASE) / 4;
 			} else {
-				sbuf_printf(sb, "TID range: %u-%u",
-				    t4_read_reg(sc, A_LE_DB_TID_HASHBASE) / 4,
-				    t->ntids - 1);
+				b = t4_read_reg(sc, A_LE_DB_SRVR_START_INDEX);
+				hb = t4_read_reg(sc, A_T6_LE_DB_HASH_TID_BASE);
 			}
+
+			if (b)
+				sbuf_printf(sb, "0-%u, ", b - 1);
+			sbuf_printf(sb, "%u-%u", hb, t->ntids - 1);
 		} else
-			sbuf_printf(sb, "TID range: 0-%u", t->ntids - 1);
+			sbuf_printf(sb, "0-%u", t->ntids - 1);
 		sbuf_printf(sb, ", in use: %u\n",
 		    atomic_load_acq_int(&t->tids_in_use));
 	}
