@@ -29,13 +29,14 @@
 #ifndef _MACHINE_HYPERCALL_H_
 #define _MACHINE_HYPERCALL_H_
 
-#define	HYPERCALL_DTRACE_PROBE_CREATE	0
-#define	HYPERCALL_DTRACE_PROBE		1
-#define	HYPERCALL_DTRACE_RESERVED1	2
-#define	HYPERCALL_DTRACE_RESERVED2	3
-#define	HYPERCALL_DTRACE_RESERVED3	4
-#define	HYPERCALL_DTRACE_RESERVED4	5
-#define	HYPERCALL_INDEX_MAX		6
+#define	HYPERCALL_PROTOTYPE		0
+#define	HYPERCALL_DTRACE_PROBE_CREATE	1
+#define	HYPERCALL_DTRACE_PROBE		2
+#define	HYPERCALL_DTRACE_RESERVED1	3
+#define	HYPERCALL_DTRACE_RESERVED2	4
+#define	HYPERCALL_DTRACE_RESERVED3	5
+#define	HYPERCALL_DTRACE_RESERVED4	6
+#define	HYPERCALL_INDEX_MAX		7
 
 #define	HYPERCALL_RET_SUCCESS		0
 #define	HYPERCALL_RET_ERROR		1
@@ -43,12 +44,13 @@
 
 #ifndef __asm__
 
-int	hypercall_dtrace_register(uintptr_t /* dtrace_provider_t */);
-int	hypercall_dtrace_unregister(uintptr_t /* dtrace_provider_t */);
-int	hypercall_dtrace_probe_create(uintptr_t /* dtrace_probe_t */);
-int	hypercall_dtrace_probe(int /* probe_id_t */, uintptr_t /* args[] */);
-int	hypercall_dtps_getargval(uint64_t /* value or ptr */);
-int	hypercall_dtps_getargdesc(uintptr_t /* dtrace_argdesc_t */);
+/*
+ * Arguments are only specified in this header file.
+ * Do not move the arguments around in the assembly
+ * file as the convention used is the SystemV ABI
+ * calling convention.
+ */
+int	hypercall_prototype(/* args */);
 
 #endif
 

@@ -262,22 +262,20 @@ hc_handler_t	hc_handler[VMM_MAX_MODES] = {
 	[BHYVE_MODE]	= bhyve_handle_hypercall
 };
 
+static int64_t hc_handle_prototype(struct vm *, int,
+    uint64_t *, struct vm_guest_paging *);
+
 /*
  * Each hypercall mode implements different hypercalls
  * with differently mapped hypercall numbers. If the
  * hypercall is not implemented it should be kept as
- * NULL. This will generate an #UD fault in the guest
- * without exception. Keep in sync with
+ * NULL. This will generate an return the error to 
+ * the guest without exception. Keep in sync with
  * hc_handler(see above) and ring_plevel(see below).
  */
 hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
-		[HYPERCALL_DTRACE_PROBE_CREATE]	= NULL,
-		[HYPERCALL_DTRACE_PROBE]	= NULL,
-		[HYPERCALL_DTRACE_RESERVED1]	= NULL,
-		[HYPERCALL_DTRACE_RESERVED2]	= NULL,
-		[HYPERCALL_DTRACE_RESERVED3]	= NULL,
-		[HYPERCALL_DTRACE_RESERVED4]	= NULL
+		[HYPERCALL_PROTOTYPE]		= hc_handle_prototype
 	}
 };
 
@@ -289,6 +287,7 @@ hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
  */
 static int8_t	ring_plevel[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
+		[HYPERCALL_PROTOTYPE]		= 3,
 		[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
 		[HYPERCALL_DTRACE_PROBE]	= 0,
 		[HYPERCALL_DTRACE_RESERVED1]	= 0,
@@ -1738,6 +1737,13 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	}
 
 	return (hypercall_handle(hcid, vm, vcpuid, vmexit, retu));
+}
+
+static __inline int64_t
+hc_handle_prototype(struct vm *vm, int vcpuid,
+    uint64_t *args, struct vm_guest_paging *paging)
+{
+	return (HYPERCALL_RET_SUCCESS);
 }
 
 int
