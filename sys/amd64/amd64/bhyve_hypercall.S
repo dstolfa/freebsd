@@ -37,6 +37,15 @@
 .globl __start_set_hypercall
 .globl __stop_set_hypercall
 
+/*
+ * The hypercalls implemented here are only the ones
+ * that are called from the kernel context. The
+ * hypercalls that are intended to be called from
+ * userland are expected to be implemented from each
+ * program individually or within a library, as
+ * opposed to here.
+ */
+
 ENTRY(hypercall_prototype)
 	VENTER
 	movq $HYPERCALL_PROTOTYPE, %rax
