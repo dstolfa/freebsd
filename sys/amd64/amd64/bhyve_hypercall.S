@@ -55,9 +55,88 @@ hc_prototype:
 	ret
 END(hypercall_prototype)
 
+ENTRY(hypercall_dtrace_probe_create)
+	VENTER
+	movq $HYPERCALL_DTRACE_PROBE_CREATE, %rax
+hc_dtrace_probe_create:
+	.byte 0x0f,0x01,0xc1
+	VLEAVE
+	ret
+END(hypercall_dtrace_probe_create)
+
+ENTRY(hypercall_dtrace_probe)
+	VENTER
+	movq $HYPERCALL_DTRACE_PROBE, %rax
+hc_dtrace_probe:
+	.byte 0x0f,0x01,0xc1
+	VLEAVE
+	ret
+END(hypercall_dtrace_probe)
+
+ENTRY(hypercall_dtrace_register)
+	VENTER
+	movq $HYPERCALL_DTRACE_REGISTER, %rax
+hc_dtrace_register:
+	.byte 0x0f,0x01,0xc1
+	VLEAVE
+	ret
+END(hypercall_dtrace_register)
+
+ENTRY(hypercall_dtrace_unregister)
+	VENTER
+	movq $HYPERCALL_DTRACE_UNREGISTER, %rax
+hc_dtrace_unregister:
+	.byte 0x0f,0x01,0xc1
+	VLEAVE
+	ret
+END(hypercall_dtrace_unregister)
+
+ENTRY(hypercall_dtps_getargval)
+	VENTER
+	movq $HYPERCALL_DTPS_GETARGVAL, %rax
+hc_dtps_getargval:
+	.byte 0x0f,0x01,0xc1
+	VLEAVE
+	ret
+END(hypercall_dtps_getargval)
+
+ENTRY(hypercall_dtps_getargdesc)
+	VENTER
+	movq $HYPERCALL_DTPS_GETARGDESC, %rax
+hc_dtps_getargdesc:
+	.byte 0x0f,0x01,0xc1
+	VLEAVE
+	ret
+END(hypercall_dtps_getargdesc)
+
 .type __set_hypercall_prototype, @object
+.type __set_hypercall_dtrace_probe_create, @object
+.type __set_hypercall_dtrace_probe, @object
+.type __set_hypercall_dtrace_register, @object
+.type __set_hypercall_dtrace_unregister, @object
+.type __set_hypercall_dtps_getargval, @object
+.type __set_hypercall_dtps_getargdesc, @object
 .section set_hypercall, "a", @progbits
 .align 8
 __set_hypercall_prototype:
 	.quad hc_prototype
 	.size __set_hypercall_prototype, 3
+__set_hypercall_dtrace_probe_create:
+	.quad hc_dtrace_probe_create
+	.size __set_hypercall_dtrace_probe_create, 3
+__set_hypercall_dtrace_probe:
+	.quad hc_dtrace_probe
+	.size __set_hypercall_dtrace_probe, 3
+__set_hypercall_dtrace_register:
+	.quad hc_dtrace_register
+	.size __set_hypercall_dtrace_register, 3
+__set_hypercall_dtrace_unregister:
+	.quad hc_dtrace_unregister
+	.size __set_hypercall_dtrace_unregister, 3
+__set_hypercall_dtps_getargval:
+	.quad hc_dtps_getargval
+	.size __set_hypercall_dtps_getargval, 3
+__set_hypercall_dtps_getargdesc:
+	.quad hc_dtps_getargdesc
+	.size __set_hypercall_dtps_getargdesc, 3
+
