@@ -112,6 +112,7 @@ struct dtrace_probe {
 	dtrace_cacheid_t dtpr_predcache;	/* predicate cache ID */
 	int dtpr_aframes;			/* artificial frames */
 	dtrace_provider_t *dtpr_provider;	/* pointer to provider */
+	char *dtpr_instance;			/* probe's instance name */
 	char *dtpr_mod;				/* probe's module name */
 	char *dtpr_func;			/* probe's function name */
 	char *dtpr_name;			/* probe's name */
