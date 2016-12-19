@@ -70,7 +70,6 @@ typedef enum dt_dclass {
 	DT_DC_STATIC,			/* static storage */
 	DT_DC_EXTERN,			/* extern storage */
 	DT_DC_TYPEDEF,			/* type definition */
-	DT_DC_INSTANCE,			/* OS instance-local storage */
 	DT_DC_SELF,			/* thread-local storage */
 	DT_DC_THIS			/* clause-local storage */
 } dt_dclass_t;

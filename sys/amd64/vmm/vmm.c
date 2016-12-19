@@ -230,7 +230,7 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, hypercalls_enabled, CTLFLAG_RWTUN,
     &hypercalls_enabled, 0,
     "Enable hypercalls on all guests");
 
-/* 
+/*
  * The maximum amount of arguments currently supproted
  * through the hypercall functionality in the VMM.
  * Everything higher than HYPERCALL_MAX_ARGS will be
@@ -262,33 +262,35 @@ hc_handler_t	hc_handler[VMM_MAX_MODES] = {
 	[BHYVE_MODE]	= bhyve_handle_hypercall
 };
 
+static int64_t hc_handle_prototype(struct vm *, int,
+    uint64_t *, struct vm_guest_paging *);
+
 /*
  * Each hypercall mode implements different hypercalls
  * with differently mapped hypercall numbers. If the
  * hypercall is not implemented it should be kept as
- * NULL. This will generate an #UD fault in the guest
- * without exception. Keep in sync with
+ * NULL. It is not necessary to add an entry to this
+ * table, as the hypercall will automatically be
+ * assigned as NULL. This will return the error to
+ * the guest without exception. Keep in sync with
  * hc_handler(see above) and ring_plevel(see below).
  */
 hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
-		[HYPERCALL_DTRACE_PROBE_CREATE]	= NULL,
-		[HYPERCALL_DTRACE_PROBE]	= NULL,
-		[HYPERCALL_DTRACE_RESERVED1]	= NULL,
-		[HYPERCALL_DTRACE_RESERVED2]	= NULL,
-		[HYPERCALL_DTRACE_RESERVED3]	= NULL,
-		[HYPERCALL_DTRACE_RESERVED4]	= NULL
+		[HYPERCALL_PROTOTYPE]		= hc_handle_prototype
 	}
 };
 
 /*
  * Each of the hypercalls can only be called from well
- * defined protection rings. The most minimal ring
- * should be assigned to each of the hypercalls. This
- * should be kept in sync with hc_dispatcher(see above).
+ * defined protection rings. Each hypercall should be
+ * assigned a minimal possible ring that is required
+ * for correct operation of the hypercall. This should
+ * be kept in snyc with hc_dispatcher(see above).
  */
 static int8_t	ring_plevel[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
+		[HYPERCALL_PROTOTYPE]		= 0,
 		[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
 		[HYPERCALL_DTRACE_PROBE]	= 0,
 		[HYPERCALL_DTRACE_RESERVED1]	= 0,
@@ -1632,6 +1634,10 @@ hypercall_handle(uint64_t hcid, struct vm *vm, int vcpuid,
 	return (hc_handler[hypervisor_mode](hcid, vm, vcpuid, vmexit, retu));
 }
 
+/*
+ * The hypercall_copy_arg function assumes that appropriate
+ * checks have been made before calling the function.
+ */
 static int
 hypercall_copy_arg(struct vm *vm, int vcpuid, uint64_t ds_base,
     uintptr_t arg, uint64_t arg_len, struct vm_guest_paging *paging, void *dst)
@@ -1738,6 +1744,13 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	}
 
 	return (hypercall_handle(hcid, vm, vcpuid, vmexit, retu));
+}
+
+static __inline int64_t
+hc_handle_prototype(struct vm *vm, int vcpuid,
+    uint64_t *args, struct vm_guest_paging *paging)
+{
+	return (HYPERCALL_RET_SUCCESS);
 }
 
 int

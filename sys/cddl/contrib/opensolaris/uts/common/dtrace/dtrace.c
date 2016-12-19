@@ -8844,7 +8844,6 @@ dtrace_distributed_register(const char *name, const char *istcname,
 		ASSERT(MUTEX_HELD(&dtrace_lock));
 		ASSERT(dtrace_anon.dta_enabling == NULL);
 
-
 		/*
 		 * We make sure that the DTrace provider is at the head of
 		 * the provider chain.

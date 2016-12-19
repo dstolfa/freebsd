@@ -37,31 +37,27 @@
 .globl __start_set_hypercall
 .globl __stop_set_hypercall
 
-ENTRY(hypercall_dtrace_probe_create)
+/*
+ * The hypercalls implemented here are only the ones
+ * that are called from the kernel context. The
+ * hypercalls that are intended to be called from
+ * userland are expected to be implemented from each
+ * program individually or within a library, as
+ * opposed to here.
+ */
+
+ENTRY(hypercall_prototype)
 	VENTER
-	movq $HYPERCALL_DTRACE_PROBE_CREATE, %rax
-hc_dt_pb_c:
+	movq $HYPERCALL_PROTOTYPE, %rax
+hc_prototype:
 	.byte 0x0f,0x01,0xc1
 	VLEAVE
 	ret
-END(hypercall_dtrace_probe_create)
+END(hypercall_prototype)
 
-ENTRY(hypercall_dtrace_probe)
-	VENTER
-	movq $HYPERCALL_DTRACE_PROBE, %rax
-hc_dt_pb:
-	.byte 0x0f,0x01,0xc1
-	VLEAVE
-	ret
-END(hypercall_dtrace_probe)
-
-.type __set_hypercall_dtrace_probe_create, @object
-.type __set_hypercall_dtrace_probe, @object
+.type __set_hypercall_prototype, @object
 .section set_hypercall, "a", @progbits
 .align 8
-__set_hypercall_dtrace_probe_create:
-	.quad hc_dt_pb_c
-	.size __set_hypercall_dtrace_probe_create, 3
-__set_hypercall_dtrace_probe:
-	.quad hc_dt_pb
-	.size __set_hypercall_dtrace_probe, 3
+__set_hypercall_prototype:
+	.quad hc_prototype
+	.size __set_hypercall_prototype, 3
