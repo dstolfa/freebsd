@@ -544,3 +544,14 @@ parse_uuid(const char *str, struct uuid *uuid)
 	    (c[3] & 0xc0) != 0x80 &&			/* variant 1? */
 	    (c[3] & 0xe0) != 0xc0) ? EINVAL : 0);	/* variant 2? */
 }
+
+u_int8_t
+uuidcmp(const struct uuid *uuid1, const struct uuid *uuid2)
+{
+	return ((uuid1->time_low == uuid2->time_low)					&&
+	   (uuid1->time_mid == uuid2->time_mid)						&&
+	   (uuid1->time_hi_and_version == uuid2->time_hi_and_version)			&&
+	   (uuid1->clock_seq_hi_and_reserved == uuid2->clock_seq_hi_and_reserved)	&&
+	   (uuid1->clock_seq_low == uuid2->clock_seq_low)				&&
+	   (memcmp(uuid1->node, uuid2->node, UUID_NODE_LEN) == 0));
+}

@@ -1192,6 +1192,7 @@ struct dtrace_provider {
 	dtrace_pattr_t dtpv_attr;		/* provider attributes */
 	dtrace_ppriv_t dtpv_priv;		/* provider privileges */
 	dtrace_pops_t dtpv_pops;		/* provider operations */
+	struct uuid *dtpv_uuid;			/* provider uuid */
 	char *dtpv_instance;			/* instance name */
 	char *dtpv_name;			/* provider name */
 	void *dtpv_arg;				/* provider argument */

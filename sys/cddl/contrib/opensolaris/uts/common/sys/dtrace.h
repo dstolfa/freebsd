@@ -71,6 +71,9 @@ typedef int model_t;
 #else
 #include <sys/stdint.h>
 #endif
+#ifdef __FreeBSD__
+#include <sys/uuid.h>
+#endif
 
 /*
  * DTrace Universal Constants and Typedefs
@@ -92,6 +95,8 @@ typedef int model_t;
 #define	DTRACE_NAMELEN		64
 #define	DTRACE_FULLNAMELEN	(DTRACE_PROVNAMELEN + DTRACE_MODNAMELEN + \
 				DTRACE_FUNCNAMELEN + DTRACE_NAMELEN + 4)
+#define	DTRACE_RANDBUFLEN	(DTRACE_INSTANCENAMELEN + 32)
+#define	DTRACE_RANDBYTES	32
 #define	DTRACE_ARGTYPELEN	128
 
 typedef uint32_t dtrace_id_t;		/* probe identifier */

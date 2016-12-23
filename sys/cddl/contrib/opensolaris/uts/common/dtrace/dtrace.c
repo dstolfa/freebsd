@@ -8378,6 +8378,12 @@ dtrace_match_probe(const dtrace_probe_t *prp, const dtrace_probekey_t *pkp,
 	if (pvp->dtpv_defunct)
 		return (0);
 
+	/*
+	 * XXX(dstolfa): This might break everything
+	 */
+	if ((rv = pkp->dtpk_imatch(pvp->dtpv_instance, pkp->dtpk_prov, 0)) <= 0)
+		return (rv);
+
 	if ((rv = pkp->dtpk_pmatch(pvp->dtpv_name, pkp->dtpk_prov, 0)) <= 0)
 		return (rv);
 
@@ -8712,7 +8718,18 @@ dtrace_instance_lookup(const char *name)
 	return (node);
 }
 
+/*
+ * DTrace Provider-to-Framework API Functions
+ *
+ * These functions implement much of the Provider-to-Framework API, as
+ * described in <sys/dtrace.h>.  The parts of the API not in this section are
+ * the functions in the API for probe management (found below), and
+ * dtrace_probe() itself (found above).
+ */
 
+/*
+ * TODO(dstolfa): Document this function
+ */
 int
 dtrace_distributed_register(const char *name, const char *istcname,
     const dtrace_pattr_t *pap, uint32_t priv, cred_t *cr,
@@ -8721,6 +8738,9 @@ dtrace_distributed_register(const char *name, const char *istcname,
 
 	dtrace_instance_t *instance;
 	dtrace_provider_t *provider;
+	struct uuid luuid;
+	char namespace[DTRACE_RANDBUFLEN];
+	size_t iname_len;
 
 	if (name == NULL || pap == NULL || pops == NULL || idp == NULL) {
 		cmn_err(CE_WARN, "failed to register provider '%s': invalid "
@@ -8833,6 +8853,17 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	provider->dtpv_instance = instance->dtis_name;
 
 	/*
+	 * Generate the UUIDv5 for a provider
+	 */
+	provider->dtpv_uuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
+	iname_len = strlen(provider->dtpv_instance);
+	(void) kern_uuidgen(&luuid, 1);
+	(void) strcpy(namespace, provider->dtpv_instance);
+	arc4rand(namespace + iname_len, DTRACE_RANDBYTES, 1);
+	uuid_generate_version5(provider->dtpv_uuid, &luuid, namespace,
+	    iname_len + DTRACE_RANDBYTES);
+
+	/*
 	 * Every provider must have an isntance name it belongs to in
 	 * it. The name "host" is reserved for the instance that the
 	 * tracing is happening on.
@@ -8894,14 +8925,6 @@ dtrace_distributed_register(const char *name, const char *istcname,
 
 	return (0);
 }
-/*
- * DTrace Provider-to-Framework API Functions
- *
- * These functions implement much of the Provider-to-Framework API, as
- * described in <sys/dtrace.h>.  The parts of the API not in this section are
- * the functions in the API for probe management (found below), and
- * dtrace_probe() itself (found above).
- */
 
 /*
  * Register the calling provider with the DTrace framework.  This should
@@ -8932,6 +8955,9 @@ dtrace_unregister(dtrace_provider_id_t id)
 		/*
 		 * If DTrace itself is the provider, we're called with locks
 		 * already held.
+		 *
+		 * This should not be checked using the UUID comparison due
+		 * to this only having an effect on the host DTrace.
 		 */
 		ASSERT(old == dtrace_provider);
 #ifdef illumos
@@ -8980,7 +9006,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 		if ((probe = dtrace_probes[i]) == NULL)
 			continue;
 
-		if (probe->dtpr_provider != old)
+		if (!uuidcmp(probe->dtpr_provider->dtpv_uuid, old->dtpv_uuid))
 			continue;
 
 		if (probe->dtpr_ecb == NULL)
@@ -9024,7 +9050,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 		if ((probe = dtrace_probes[i]) == NULL)
 			continue;
 
-		if (probe->dtpr_provider != old)
+		if (!uuidcmp(probe->dtpr_provider->dtpv_uuid, old->dtpv_uuid))
 			continue;
 
 		dtrace_probes[i] = NULL;
@@ -9071,14 +9097,15 @@ dtrace_unregister(dtrace_provider_id_t id)
 		kmem_free(probe, sizeof (dtrace_probe_t));
 	}
 
-	if ((prev = dtrace_provider) == old) {
+	prev = dtrace_provider;
+	if (uuidcmp(prev->dtpv_uuid, old->dtpv_uuid)) {
 #ifdef illumos
 		ASSERT(self || dtrace_devi == NULL);
 		ASSERT(old->dtpv_next == NULL || dtrace_devi == NULL);
 #endif
 		dtrace_provider = old->dtpv_next;
 	} else {
-		while (prev != NULL && prev->dtpv_next != old)
+		while (prev != NULL && (!uuidcmp(prev->dtpv_next->dtpv_uuid, old->dtpv_uuid)))
 			prev = prev->dtpv_next;
 
 		if (prev == NULL) {
@@ -9131,6 +9158,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 #endif
 
 	kmem_free(old->dtpv_name, strlen(old->dtpv_name) + 1);
+	kmem_free(old->dtpv_uuid, sizeof (struct uuid));
 	kmem_free(old, sizeof (dtrace_provider_t));
 
 	return (0);
@@ -9199,7 +9227,7 @@ dtrace_condense(dtrace_provider_id_t id)
 		if ((probe = dtrace_probes[i]) == NULL)
 			continue;
 
-		if (probe->dtpr_provider != prov)
+		if (!uuidcmp(probe->dtpr_provider->dtpv_uuid, prov->dtpv_uuid))
 			continue;
 
 		if (probe->dtpr_ecb != NULL)
@@ -9253,6 +9281,10 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 	dtrace_provider_t *provider = (dtrace_provider_t *)prov;
 	dtrace_id_t id;
 
+	/*
+	 * Not necessary to compare UUIDs here. Only relevant to
+	 * the host instance.
+	 */
 	if (provider == dtrace_provider) {
 		ASSERT(MUTEX_HELD(&dtrace_lock));
 	} else {
@@ -9372,11 +9404,18 @@ dtrace_probe_lookup(dtrace_provider_id_t prid, char *mod,
     char *func, char *name)
 {
 	dtrace_probekey_t pkey;
+	dtrace_provider_t *prov = (dtrace_provider_t *)prid;
 	dtrace_id_t id;
 	int match;
 
-	pkey.dtpk_prov = ((dtrace_provider_t *)prid)->dtpv_name;
+	pkey.dtpk_prov = prov->dtpv_name;
 	pkey.dtpk_pmatch = &dtrace_match_string;
+	/*
+	 * XXX(dstolfa): This might break everything
+	 */
+	pkey.dtpk_instance = prov->dtpv_instance;
+	pkey.dtpk_imatch = prov->dtpv_instance ? 
+	    &dtrace_match_string : &dtrace_match_nul;
 	pkey.dtpk_mod = mod;
 	pkey.dtpk_mmatch = mod ? &dtrace_match_string : &dtrace_match_nul;
 	pkey.dtpk_func = func;
@@ -9401,12 +9440,13 @@ void *
 dtrace_probe_arg(dtrace_provider_id_t id, dtrace_id_t pid)
 {
 	dtrace_probe_t *probe;
+	dtrace_provider_t *prov = (dtrace_provider_t *)id;
 	void *rval = NULL;
 
 	mutex_enter(&dtrace_lock);
 
 	if ((probe = dtrace_probe_lookup_id(pid)) != NULL &&
-	    probe->dtpr_provider == (dtrace_provider_t *)id)
+	    (uuidcmp(probe->dtpr_provider->dtpv_uuid, prov->dtpv_uuid)))
 		rval = probe->dtpr_arg;
 
 	mutex_exit(&dtrace_lock);
@@ -12858,15 +12898,27 @@ dtrace_enabling_dump(dtrace_enabling_t *enab)
 	for (i = 0; i < enab->dten_ndesc; i++) {
 		dtrace_probedesc_t *desc = &enab->dten_desc[i]->dted_probe;
 
+		if (strcmp(desc->dtpd_instance, "host") == 0) {
 #ifdef __FreeBSD__
-		printf("dtrace: enabling probe %d (%s:%s:%s:%s)\n", i,
-		    desc->dtpd_provider, desc->dtpd_mod,
-		    desc->dtpd_func, desc->dtpd_name);
+			printf("dtrace: enabling probe %d (%s:%s:%s:%s)\n", i,
+			    desc->dtpd_provider, desc->dtpd_mod,
+			    desc->dtpd_func, desc->dtpd_name);
 #else
-		cmn_err(CE_NOTE, "enabling probe %d (%s:%s:%s:%s)", i,
-		    desc->dtpd_provider, desc->dtpd_mod,
-		    desc->dtpd_func, desc->dtpd_name);
+			cmn_err(CE_NOTE, "enabling probe %d (%s:%s:%s:%s)", i,
+			    desc->dtpd_provider, desc->dtpd_mod,
+			    desc->dtpd_func, desc->dtpd_name);
 #endif
+		} else {
+#ifdef __FreeBSD__
+			printf("dtrace: enabling probe %d (%s:%s:%s:%s:%s)\n", i,
+			    desc->dtpd_instance, desc->dtpd_provider,
+			    desc->dtpd_mod, desc->dtpd_func, desc->dtpd_name);
+#else
+			cmn_err(CE_NOTE, "enabling probe %d (%s:%s:%s:%s:%s)", i,
+			    desc->dtpd_instance, desc->dtpd_provider,
+			    desc->dtpd_mod, desc->dtpd_func, desc->dtpd_name);
+#endif
+		}
 	}
 }
 
@@ -12974,6 +13026,7 @@ dtrace_enabling_replicate(dtrace_state_t *state, dtrace_probedesc_t *match,
 	int found = 0, err = ENOENT;
 
 	ASSERT(MUTEX_HELD(&dtrace_lock));
+	ASSERT(strlen(match->dtpd_instance) < DTRACE_INSTANCENAMELEN);
 	ASSERT(strlen(match->dtpd_provider) < DTRACE_PROVNAMELEN);
 	ASSERT(strlen(match->dtpd_mod) < DTRACE_MODNAMELEN);
 	ASSERT(strlen(match->dtpd_func) < DTRACE_FUNCNAMELEN);
@@ -13004,6 +13057,9 @@ dtrace_enabling_replicate(dtrace_state_t *state, dtrace_probedesc_t *match,
 		for (i = 0; i < enab->dten_ndesc; i++) {
 			dtrace_ecbdesc_t *ep = enab->dten_desc[i];
 			dtrace_probedesc_t *pd = &ep->dted_probe;
+
+			if (strcmp(pd->dtpd_instance, match->dtpd_instance))
+				continue;
 
 			if (strcmp(pd->dtpd_provider, match->dtpd_provider))
 				continue;
@@ -16137,6 +16193,9 @@ dtrace_helper_provider_register(proc_t *p, dtrace_helpers_t *help,
 		 * these provider descriptions, we need to postpone creating
 		 * the actual providers until later.
 		 */
+		/*
+		 * TODO(dstolfa): Is UUID needed here?
+		 */
 
 		if (help->dthps_next == NULL && help->dthps_prev == NULL &&
 		    dtrace_deferred_pid != help) {
@@ -16200,6 +16259,9 @@ dtrace_helper_provider_add(dof_helper_t *dofhp, dtrace_helpers_t *help, int gen)
 	 * Check to make sure this isn't a duplicate.
 	 */
 	for (i = 0; i < help->dthps_nprovs; i++) {
+		/*
+		 * TODO(dstolfa): Check if UUID check is needed
+		 */
 		if (dofhp->dofhp_addr ==
 		    help->dthps_provs[i]->dthp_prov.dofhp_addr)
 			return (EALREADY);
@@ -16614,6 +16676,9 @@ static
 void
 dtrace_helpers_destroy(proc_t *p)
 {
+	/*
+	 * TODO(dstolfa): What is dtrace_helpers_t?
+	 */
 	dtrace_helpers_t *help;
 	dtrace_vstate_t *vstate;
 #ifdef illumos
@@ -17857,11 +17922,13 @@ dtrace_ioctl(dev_t dev, int cmd, intptr_t arg, int md, cred_t *cr, int *rv)
 		if (copyin((void *)arg, &desc, sizeof (desc)) != 0)
 			return (EFAULT);
 
+		match->dtpd_instance[DTRACE_INSTANCENAMELEN - 1] = '\0';
 		match->dtpd_provider[DTRACE_PROVNAMELEN - 1] = '\0';
 		match->dtpd_mod[DTRACE_MODNAMELEN - 1] = '\0';
 		match->dtpd_func[DTRACE_FUNCNAMELEN - 1] = '\0';
 		match->dtpd_name[DTRACE_NAMELEN - 1] = '\0';
 
+		create->dtpd_instance[DTRACE_INSTANCENAMELEN - 1] = '\0';
 		create->dtpd_provider[DTRACE_PROVNAMELEN - 1] = '\0';
 		create->dtpd_mod[DTRACE_MODNAMELEN - 1] = '\0';
 		create->dtpd_func[DTRACE_FUNCNAMELEN - 1] = '\0';
@@ -17888,6 +17955,7 @@ dtrace_ioctl(dev_t dev, int cmd, intptr_t arg, int md, cred_t *cr, int *rv)
 		if (copyin((void *)arg, &desc, sizeof (desc)) != 0)
 			return (EFAULT);
 
+		desc.dtpd_instance[DTRACE_INSTANCENAMELEN - 1] = '\0';
 		desc.dtpd_provider[DTRACE_PROVNAMELEN - 1] = '\0';
 		desc.dtpd_mod[DTRACE_MODNAMELEN - 1] = '\0';
 		desc.dtpd_func[DTRACE_FUNCNAMELEN - 1] = '\0';
