@@ -8381,7 +8381,7 @@ dtrace_match_probe(const dtrace_probe_t *prp, const dtrace_probekey_t *pkp,
 	/*
 	 * XXX(dstolfa): This might break everything
 	 */
-	if ((rv = pkp->dtpk_imatch(pvp->dtpv_instance, pkp->dtpk_prov, 0)) <= 0)
+	if ((rv = pkp->dtpk_imatch(pvp->dtpv_instance, pkp->dtpk_instance, 0)) <= 0)
 		return (rv);
 
 	if ((rv = pkp->dtpk_pmatch(pvp->dtpv_name, pkp->dtpk_prov, 0)) <= 0)
@@ -16676,9 +16676,6 @@ static
 void
 dtrace_helpers_destroy(proc_t *p)
 {
-	/*
-	 * TODO(dstolfa): What is dtrace_helpers_t?
-	 */
 	dtrace_helpers_t *help;
 	dtrace_vstate_t *vstate;
 #ifdef illumos
