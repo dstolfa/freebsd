@@ -37,10 +37,8 @@ __FBSDID("$FreeBSD$");
 
 #include <dev/hyperv/include/hyperv.h>
 #include <dev/hyperv/include/vmbus.h>
-#include <dev/hyperv/utilities/hv_util.h>
 #include <dev/hyperv/utilities/vmbus_icreg.h>
-
-#include "vmbus_if.h"
+#include <dev/hyperv/utilities/vmbus_icvar.h>
 
 #define VMBUS_TIMESYNC_FWVER_MAJOR	3
 #define VMBUS_TIMESYNC_FWVER		\
@@ -50,9 +48,15 @@ __FBSDID("$FreeBSD$");
 #define VMBUS_TIMESYNC_MSGVER		\
 	VMBUS_IC_VERSION(VMBUS_TIMESYNC_MSGVER_MAJOR, 0)
 
+#define VMBUS_TIMESYNC_MSGVER4(sc)	\
+	VMBUS_ICVER_LE(VMBUS_IC_VERSION(4, 0), (sc)->ic_msgver)
+
 #define VMBUS_TIMESYNC_DORTT(sc)	\
-	((sc)->ic_msgver >= VMBUS_IC_VERSION(4, 0) && \
+	(VMBUS_TIMESYNC_MSGVER4((sc)) &&\
 	 (hyperv_features & CPUID_HV_MSR_TIME_REFCNT))
+
+static int			vmbus_timesync_probe(device_t);
+static int			vmbus_timesync_attach(device_t);
 
 static const struct vmbus_ic_desc vmbus_timesync_descs[] = {
 	{
@@ -63,6 +67,27 @@ static const struct vmbus_ic_desc vmbus_timesync_descs[] = {
 	},
 	VMBUS_IC_DESC_END
 };
+
+static device_method_t vmbus_timesync_methods[] = {
+	/* Device interface */
+	DEVMETHOD(device_probe,		vmbus_timesync_probe),
+	DEVMETHOD(device_attach,	vmbus_timesync_attach),
+	DEVMETHOD(device_detach,	vmbus_ic_detach),
+	DEVMETHOD_END
+};
+
+static driver_t vmbus_timesync_driver = {
+	"hvtimesync",
+	vmbus_timesync_methods,
+	sizeof(struct vmbus_ic_softc)
+};
+
+static devclass_t vmbus_timesync_devclass;
+
+DRIVER_MODULE(hv_timesync, vmbus, vmbus_timesync_driver,
+    vmbus_timesync_devclass, NULL, NULL);
+MODULE_VERSION(hv_timesync, 1);
+MODULE_DEPEND(hv_timesync, vmbus, 1, 1, 1);
 
 SYSCTL_NODE(_hw, OID_AUTO, hvtimesync, CTLFLAG_RW | CTLFLAG_MPSAFE, NULL,
     "Hyper-V timesync interface");
@@ -85,7 +110,7 @@ SYSCTL_INT(_hw_hvtimesync, OID_AUTO, sample_verbose, CTLFLAG_RWTUN,
     &vmbus_ts_sample_verbose, 0, "Increase sample request verbosity.");
 
 static void
-vmbus_timesync(struct hv_util_sc *sc, uint64_t hvtime, uint64_t sent_tc,
+vmbus_timesync(struct vmbus_ic_softc *sc, uint64_t hvtime, uint64_t sent_tc,
     uint8_t tsflags)
 {
 	struct timespec vm_ts;
@@ -114,7 +139,7 @@ vmbus_timesync(struct hv_util_sc *sc, uint64_t hvtime, uint64_t sent_tc,
 	}
 
 	if ((tsflags & VMBUS_ICMSG_TS_FLAG_SAMPLE) &&
-	    vmbus_ts_sample_thresh > 0) {
+	    vmbus_ts_sample_thresh >= 0) {
 		int64_t diff;
 
 		if (vmbus_ts_sample_verbose) {
@@ -150,9 +175,8 @@ vmbus_timesync(struct hv_util_sc *sc, uint64_t hvtime, uint64_t sent_tc,
 static void
 vmbus_timesync_cb(struct vmbus_channel *chan, void *xsc)
 {
-	struct hv_util_sc *sc = xsc;
+	struct vmbus_ic_softc *sc = xsc;
 	struct vmbus_icmsg_hdr *hdr;
-	const struct vmbus_icmsg_timesync *msg;
 	int dlen, error;
 	uint64_t xactid;
 	void *data;
@@ -160,7 +184,7 @@ vmbus_timesync_cb(struct vmbus_channel *chan, void *xsc)
 	/*
 	 * Receive request.
 	 */
-	data = sc->receive_buffer;
+	data = sc->ic_buf;
 	dlen = sc->ic_buflen;
 	error = vmbus_chan_recv(chan, data, &dlen, &xactid);
 	KASSERT(error != ENOBUFS, ("icbuf is not large enough"));
@@ -187,14 +211,28 @@ vmbus_timesync_cb(struct vmbus_channel *chan, void *xsc)
 		break;
 
 	case VMBUS_ICMSG_TYPE_TIMESYNC:
-		if (dlen < sizeof(*msg)) {
-			device_printf(sc->ic_dev, "invalid timesync len %d\n",
-			    dlen);
-			return;
+		if (VMBUS_TIMESYNC_MSGVER4(sc)) {
+			const struct vmbus_icmsg_timesync4 *msg4;
+
+			if (dlen < sizeof(*msg4)) {
+				device_printf(sc->ic_dev, "invalid timesync4 "
+				    "len %d\n", dlen);
+				return;
+			}
+			msg4 = data;
+			vmbus_timesync(sc, msg4->ic_hvtime, msg4->ic_sent_tc,
+			    msg4->ic_tsflags);
+		} else {
+			const struct vmbus_icmsg_timesync *msg;
+
+			if (dlen < sizeof(*msg)) {
+				device_printf(sc->ic_dev, "invalid timesync "
+				    "len %d\n", dlen);
+				return;
+			}
+			msg = data;
+			vmbus_timesync(sc, msg->ic_hvtime, 0, msg->ic_tsflags);
 		}
-		msg = data;
-		vmbus_timesync(sc, msg->ic_hvtime, msg->ic_sent_tc,
-		    msg->ic_tsflags);
 		break;
 
 	default:
@@ -203,41 +241,21 @@ vmbus_timesync_cb(struct vmbus_channel *chan, void *xsc)
 	}
 
 	/*
-	 * Send response by echoing the updated request back.
+	 * Send response by echoing the request back.
 	 */
-	hdr->ic_flags = VMBUS_ICMSG_FLAG_XACT | VMBUS_ICMSG_FLAG_RESP;
-	error = vmbus_chan_send(chan, VMBUS_CHANPKT_TYPE_INBAND, 0,
-	    data, dlen, xactid);
-	if (error)
-		device_printf(sc->ic_dev, "resp send failed: %d\n", error);
+	vmbus_ic_sendresp(sc, chan, data, dlen, xactid);
 }
 
 static int
-hv_timesync_probe(device_t dev)
+vmbus_timesync_probe(device_t dev)
 {
 
 	return (vmbus_ic_probe(dev, vmbus_timesync_descs));
 }
 
 static int
-hv_timesync_attach(device_t dev)
+vmbus_timesync_attach(device_t dev)
 {
 
-	return (hv_util_attach(dev, vmbus_timesync_cb));
+	return (vmbus_ic_attach(dev, vmbus_timesync_cb));
 }
-
-static device_method_t timesync_methods[] = {
-	/* Device interface */
-	DEVMETHOD(device_probe, hv_timesync_probe),
-	DEVMETHOD(device_attach, hv_timesync_attach),
-	DEVMETHOD(device_detach, hv_util_detach),
-	{ 0, 0 }
-};
-
-static driver_t timesync_driver = { "hvtimesync", timesync_methods, sizeof(hv_util_sc)};
-
-static devclass_t timesync_devclass;
-
-DRIVER_MODULE(hv_timesync, vmbus, timesync_driver, timesync_devclass, NULL, NULL);
-MODULE_VERSION(hv_timesync, 1);
-MODULE_DEPEND(hv_timesync, vmbus, 1, 1, 1);
