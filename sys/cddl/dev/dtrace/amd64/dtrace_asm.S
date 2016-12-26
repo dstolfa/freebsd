@@ -81,6 +81,10 @@
 	je	bp_nop
 	cmpl	$DTRACE_INVOP_RET, %eax
 	je	bp_ret
+/*
+	cmpl	$DTRACE_INVOP_INSTALL_PROBE, %eax
+	je	call
+*/
 
 	/* When all else fails handle the trap in the usual way. */
 	jmpq	*dtrace_invop_calltrap_addr

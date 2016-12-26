@@ -8728,7 +8728,11 @@ dtrace_instance_lookup(const char *name)
  */
 
 /*
- * TODO(dstolfa): Document this function
+ * Register the DTrace provider with the DTrace framework, providing an
+ * additional argument as opposed to dtrace_register(). The istcname argument
+ * should correspond to the OS instance that the provider resides on.
+ * This should generally be called by the code that is aware of other DTrace
+ * instances.
  */
 int
 dtrace_distributed_register(const char *name, const char *istcname,
@@ -8853,15 +8857,45 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	provider->dtpv_instance = instance->dtis_name;
 
 	/*
-	 * Generate the UUIDv5 for a provider
+	 * If we're not running on the host instance, we want to
+	 * generate a UUIDv5, allowing for a way to keep track of
+	 * UUIDs across different machines.
+	 *
+	 * XXX: Does this seem sensible? Assuming we have a topology
+	 * as such:
+	 *              
+	 *         V0-Vn - V00-Vnm
+	 *       /
+	 *     S1
+	 *    /
+	 *   /
+	 * H ---- S2 - V0-Vn - V00-Vnm
+	 *   \
+	 *    \
+	 *     Sk
+	 *       \
+	 *        V0-Vn - V00-Vnm
+	 *
+	 * Each nested virtual machine, V00-Vnm would generate it's
+	 * local UUID using kern_uuidgen. They would then advertise
+	 * to it's top level virtual machine, V0-Vn, creating a
+	 * namespace-local UUIDv5 to that namespace(V00-V0m, V10-V1m,
+	 * V20-V2m, ... Vn0-Vnm). Each of the virtual machine would then
+	 * advertise it's providers to the bare metal OS. Another
+	 * UUIDv5 would be generated, local to the namespace of S1,
+	 * S2, S3, ... Sk. Each of the bare metal instances would then
+	 * advertise to H. H would generate a new UUIDv5 for each of the
+	 * bare-metal instances, S1 ... Sk, creating a namespace-local
+	 * UUID of each of the Si instances. This would in turn be building
+	 * a distributed graph, that can then be traversed.
 	 */
-	provider->dtpv_uuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
-	iname_len = strlen(provider->dtpv_instance);
-	(void) kern_uuidgen(&luuid, 1);
-	(void) strcpy(namespace, provider->dtpv_instance);
-	arc4rand(namespace + iname_len, DTRACE_RANDBYTES, 1);
-	uuid_generate_version5(provider->dtpv_uuid, &luuid, namespace,
-	    iname_len + DTRACE_RANDBYTES);
+	if (strcmp(provider->dtpv_instance, "host") != 0) {
+		uuid_generate_version5(provider->dtpv_uuid, provider->dtpv_uuid,
+		    provider->dtpv_instance, strlen(provider->dtpv_instance));
+	} else {
+		provider->dtpv_uuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
+		(void) kern_uuidgen(provider->dtpv_uuid, 1);
+	}
 
 	/*
 	 * Every provider must have an isntance name it belongs to in

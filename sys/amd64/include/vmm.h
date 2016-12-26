@@ -682,6 +682,7 @@ vm_inject_ss(void *vm, int vcpuid, int errcode)
 }
 
 void vm_inject_pf(void *vm, int vcpuid, int error_code, uint64_t cr2);
+void vm_inject_bp(void *vm, int vcpuid, int error_code);
 
 int vm_restart_instruction(void *vm, int vcpuid);
 
