@@ -12,6 +12,9 @@ CFLAGS+= -I${.CURDIR}/../../amd64/vmm/io
 CFLAGS+= -I${.CURDIR}/../../amd64/vmm/intel
 CFLAGS+= -I${.CURDIR}/../../amd64/vmm/amd
 
+CFLAGS_INCLUDE_SOLARIS= -I${.CURDIR}/../../cddl/compat/opensolaris
+CFLAGS_INCLUDE_SOLARIS+= -I${.CURDIR}/../../cddl/contrib/opensolaris/uts/common
+
 # generic vmm support
 .PATH: ${.CURDIR}/../../amd64/vmm
 SRCS+=	vmm.c		\
@@ -75,5 +78,9 @@ vmx_genassym.o:
 
 svm_genassym.o:
 	${CC} -c ${CFLAGS:N-fno-common} ${.IMPSRC}
+
+vmm.o:
+	${CC} -c ${CFLAGS_INCLUDE_SOLARIS} ${CFLAGS} \
+		${.IMPSRC} -o ${.TARGET}
 
 .include <bsd.kmod.mk>

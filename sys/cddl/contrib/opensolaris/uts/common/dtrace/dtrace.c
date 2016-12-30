@@ -8890,7 +8890,8 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	 * a distributed graph, that can then be traversed.
 	 */
 	if (strcmp(provider->dtpv_instance, "host") != 0) {
-		uuid_generate_version5(provider->dtpv_uuid, provider->dtpv_uuid,
+		*(provider->dtpv_advuuid) = *(provider->dtpv_uuid);
+		uuid_generate_version5(provider->dtpv_uuid, provider->dtpv_advuuid,
 		    provider->dtpv_instance, strlen(provider->dtpv_instance));
 	} else {
 		provider->dtpv_uuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
@@ -8922,6 +8923,9 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	/*
 	 * If there is at least one provider registered, we'll add this
 	 * provider after the first provider.
+	 */
+	/*
+	 * TODO(dstolfa): Add to the proper instance
 	 */
 	if (dtrace_provider != NULL) {
 		provider->dtpv_next = dtrace_provider->dtpv_next;

@@ -1184,20 +1184,25 @@ typedef struct dtrace_instance {
 } dtrace_instance_t;
 
 /*
- * XXX: Could be made a doubly linked list to allow
+ * XXX(dstolfa): Could be made a doubly linked list to allow
  * for turning some operations to O(1) when it comes
  * to instances
+ *
+ * XXX(dstolfa): dtpv_next is now redundant. We can can access
+ * instances at any point and we can easily traverse all the
+ * providers using that
  */
 struct dtrace_provider {
 	dtrace_pattr_t dtpv_attr;		/* provider attributes */
 	dtrace_ppriv_t dtpv_priv;		/* provider privileges */
 	dtrace_pops_t dtpv_pops;		/* provider operations */
 	struct uuid *dtpv_uuid;			/* provider uuid */
+	struct uuid *dtpv_advuuid;		/* advertised provider uuid */
 	char *dtpv_instance;			/* instance name */
 	char *dtpv_name;			/* provider name */
 	void *dtpv_arg;				/* provider argument */
 	hrtime_t dtpv_defunct;			/* when made defunct */
-	struct dtrace_provider *dtpv_next;	/* next provider */
+	struct dtrace_provider *dtpv_next;	/* next provider in the instance*/
 };
 
 struct dtrace_meta {

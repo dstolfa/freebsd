@@ -43,6 +43,8 @@ __FBSDID("$FreeBSD$");
 #include <sys/sched.h>
 #include <sys/smp.h>
 #include <sys/systm.h>
+#include <sys/dtrace_impl.h>
+#include <sys/dtrace.h>
 
 #include <vm/vm.h>
 #include <vm/vm_object.h>
@@ -201,6 +203,7 @@ static struct vmm_ops *ops;
 #define	fpu_stop_emulating()	clts()
 
 static MALLOC_DEFINE(M_VM, "vm", "vm");
+static MALLOC_DEFINE(M_DTVM, "dtvm", "dtvm");
 
 /* statistics */
 static VMM_STAT(VCPU_TOTAL_RUNTIME, "vcpu total runtime");
@@ -261,6 +264,10 @@ static int	bhyve_handle_hypercall(uint64_t hcid, struct vm *vm,
 hc_handler_t	hc_handler[VMM_MAX_MODES] = {
 	[BHYVE_MODE]	= bhyve_handle_hypercall
 };
+
+static int
+hypercall_copy_arg(struct vm *, int, uint64_t,
+    uintptr_t, uint64_t, struct vm_guest_paging *, void *);
 
 static int64_t hc_handle_prototype(struct vm *, int,
     uint64_t *, struct vm_guest_paging *);
@@ -325,7 +332,7 @@ static int8_t	ring_plevel[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	}
 };
 
-static LIST_HEAD(provhead, provhead)
+/*static LIST_HEAD(, uintptr_t) provhead; */
 
 static void vm_free_memmap(struct vm *vm, int ident);
 static bool sysmem_mapping(struct vm *vm, struct mem_map *mm);
@@ -1668,14 +1675,17 @@ hc_handle_dtrace_register(struct vm *vm, int vcpuid,
 	{ DTRACE_STABILITY_STABLE, DTRACE_STABILITY_STABLE, DTRACE_CLASS_COMMON },
 	{ DTRACE_STABILITY_STABLE, DTRACE_STABILITY_STABLE, DTRACE_CLASS_COMMON },
 	};
-	struct seg_desc *ds;
-	uintptr_t prov_addr;
+	struct seg_desc ds;
 	char prov_name[DTRACE_PROVNAMELEN];
-	char instance[DTRACE_INSTACENAMELEN];
+	char instance[DTRACE_INSTANCENAMELEN];
+	uintptr_t prov_addr;
+	int error;
 
 	(void) strcpy(instance, vm->name);
 	prov = malloc(sizeof(dtrace_provider_t), M_DTVM, M_WAITOK | M_ZERO);
-	prov_id = prov;
+	KASSERT(prov != NULL, ("%s: prov allocation failed\n",
+	    __func__));
+	prov_id = (dtrace_provider_id_t)prov;
 	prov_ops = malloc(sizeof(dtrace_pops_t), M_DTVM, M_WAITOK | M_ZERO);
 	KASSERT(prov_ops != NULL, ("%s: prov_ops allocation failed\n",
 	    __func__));
@@ -1690,12 +1700,12 @@ hc_handle_dtrace_register(struct vm *vm, int vcpuid,
 	 * We now have a provider from the guest.
 	 */
 
-	error = hypercall_copy_arg(vm, vcpuid, ds.base, prov->dtpv_name,
+	error = hypercall_copy_arg(vm, vcpuid, ds.base, (uintptr_t)prov->dtpv_name,
 	    DTRACE_PROVNAMELEN, paging, prov_name);
 	
-	dtrace_distributed_register(prov_name, instance, prov_attr,
+	dtrace_distributed_register(prov_name, instance, &prov_attr,
 	    DTRACE_PRIV_USER, NULL /* cred_t, for now */, prov_ops,
-	    NULL, prov_id /* have to store it */);
+	    NULL, &prov_id /* have to store it */);
 	    
 	/*
 	 * dtrace_provider_id_t -> is it really necessary?
