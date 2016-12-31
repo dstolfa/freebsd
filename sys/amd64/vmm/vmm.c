@@ -1702,11 +1702,11 @@ hc_handle_dtrace_register(struct vm *vm, int vcpuid,
 
 	error = hypercall_copy_arg(vm, vcpuid, ds.base, (uintptr_t)prov->dtpv_name,
 	    DTRACE_PROVNAMELEN, paging, prov_name);
-	
+
 	dtrace_distributed_register(prov_name, instance, &prov_attr,
 	    DTRACE_PRIV_USER, NULL /* cred_t, for now */, prov_ops,
 	    NULL, &prov_id /* have to store it */);
-	    
+
 	/*
 	 * dtrace_provider_id_t -> is it really necessary?
 	 * -- shouldn't be?

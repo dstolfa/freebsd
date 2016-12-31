@@ -228,7 +228,7 @@ static struct unrhdr	*dtrace_arena;		/* Probe ID number.     */
 static dtrace_probe_t	**dtrace_probes;	/* array of all probes */
 static int		dtrace_nprobes;		/* number of probes */
 static dtrace_instance_t *dtrace_instance;	/* instance list */
-static dtrace_provider_t *dtrace_provider;	/* provider list */
+static dtrace_provider_t *dtrace_provider;	/* DTrace provider */
 static dtrace_meta_t	*dtrace_meta_pid;	/* user-land meta provider */
 static int		dtrace_opens;		/* number of opens */
 static int		dtrace_helpers;		/* number of helpers */
@@ -3338,17 +3338,6 @@ dtrace_dif_variable(dtrace_mstate_t *mstate, dtrace_state_t *state, uint64_t v,
 				 * This code takes care of:
 				 * dtps_getargval()
 				 */
-#ifdef __FreeBSD__
-#ifdef __distdtrace__
-				switch (vm_guest) {
-				case VM_GUEST_BHYVE:
-					hypercall_dtps_getargval(val);
-					break;
-				default:
-					break;
-				}
-#endif
-#endif
 			}
 			else
 				val = dtrace_getarg(ndx, aframes);
@@ -7324,42 +7313,6 @@ dtrace_probe(dtrace_id_t id, uintptr_t arg0, uintptr_t arg1,
 		return;
 	}
 
-#ifdef __FreeBSD__
-#ifdef __distdtrace__
-	switch (vm_guest) {
-	case VM_GUEST_BHYVE:
-		if (ext_attach) {
-			/*
-			 * If we have attached to this probe externally,
-			 * specifically, a virtual machine at this point.
-			 *
-			 * TODO: ext_attach is not enough as a variable, each
-			 * probe should have it's ext_attach variable, so that
-			 * we know what to send where.
-			 *
-			 * In the distributed work, we want to send this infor-
-			 * mation to everyone asking for it, while in the case
-			 * of virtual machines, we want to notify the host that
-			 * a probe has fired.
-			 *
-			 * However, a usecase where this becomes problematic is
-			 * using a hypervisor to monitor how distributed DTrace
-			 * behaves on the network side-of-things. We don't want
-			 * to fire all probes back to the host, as it is slow.
-			 * We only want to fire the probes that the _host_ asks
-			 * for. This needs to be thought of in a generic way so
-			 * that we don't repeat ourselves too much.
-			 */
-			hypercall_dtrace_probe(id, arg0, arg1, arg2, arg3, arg4);
-			return;
-		}
-		break; 
-	default:
-		break;
-	}
-#endif
-#endif
-
 	now = mstate.dtms_timestamp = dtrace_gethrtime();
 	mstate.dtms_present |= DTRACE_MSTATE_TIMESTAMP;
 	vtime = dtrace_vtime_references != 0;
@@ -8842,13 +8795,25 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	if (instance == NULL) {
 		instance = kmem_zalloc(sizeof (dtrace_instance_t), KM_SLEEP);
 		instance->dtis_name = dtrace_strdup(istcname);
+		/*
+		 * Here a modification needs to be made in a way that
+		 * for multiple lists. The current implementation of the
+		 * dtrace_provider list is done by one large list, as opposed to
+		 * different lists in different instances.
+		 */
 		instance->dtis_provhead = provider;
-		instance->dtis_prev = NULL;
-		instance->dtis_next = dtrace_instance;
+		instance->dtis_prev = dtrace_instance;
 		if (dtrace_instance != NULL) {
-			dtrace_instance->dtis_prev = instance;
+			instance->dtis_next = dtrace_instance->dtis_next;
+			dtrace_instance->dtis_next->dtis_prev = instance;
+			dtrace_instance->dtis_next = instance;
+		} else {
+			instance->dtis_next = NULL;
+			dtrace_instance = instance;
 		}
-		dtrace_instance = instance;
+	} else {
+		provider->dtpv_next = instance->dtis_provhead->dtpv_next;
+		instance->dtis_provhead->dtpv_next = provider;
 	}
 
 	mutex_exit(&dtrace_instance_lock);
@@ -8859,34 +8824,6 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	 * If we're not running on the host instance, we want to
 	 * generate a UUIDv5, allowing for a way to keep track of
 	 * UUIDs across different machines.
-	 *
-	 * XXX: Does this seem sensible? Assuming we have a topology
-	 * as such:
-	 *              
-	 *         V0-Vn - V00-Vnm
-	 *       /
-	 *     S1
-	 *    /
-	 *   /
-	 * H ---- S2 - V0-Vn - V00-Vnm
-	 *   \
-	 *    \
-	 *     Sk
-	 *       \
-	 *        V0-Vn - V00-Vnm
-	 *
-	 * Each nested virtual machine, V00-Vnm would generate it's
-	 * local UUID using kern_uuidgen. They would then advertise
-	 * to it's top level virtual machine, V0-Vn, creating a
-	 * namespace-local UUIDv5 to that namespace(V00-V0m, V10-V1m,
-	 * V20-V2m, ... Vn0-Vnm). Each of the virtual machine would then
-	 * advertise it's providers to the bare metal OS. Another
-	 * UUIDv5 would be generated, local to the namespace of S1,
-	 * S2, S3, ... Sk. Each of the bare metal instances would then
-	 * advertise to H. H would generate a new UUIDv5 for each of the
-	 * bare-metal instances, S1 ... Sk, creating a namespace-local
-	 * UUID of each of the Si instances. This would in turn be building
-	 * a distributed graph, that can then be traversed.
 	 */
 	if (strcmp(provider->dtpv_instance, "host") != 0) {
 		*(provider->dtpv_advuuid) = *(provider->dtpv_uuid);
@@ -8913,34 +8850,11 @@ dtrace_distributed_register(const char *name, const char *istcname,
 		 * We make sure that the DTrace provider is at the head of
 		 * the provider chain.
 		 */
-		provider->dtpv_next = dtrace_provider;
+		provider->dtpv_next = instance->dtis_provhead;
+		instance->dtis_provhead = provider;
 		dtrace_provider = provider;
 		return (0);
 	}
-
-
-	/*
-	 * If there is at least one provider registered, we'll add this
-	 * provider after the first provider.
-	 */
-	/*
-	 * TODO(dstolfa): Add to the proper instance
-	 */
-	if (dtrace_provider != NULL) {
-		provider->dtpv_next = dtrace_provider->dtpv_next;
-		dtrace_provider->dtpv_next = provider;
-	} else {
-		dtrace_provider = provider;
-	}
-
-#ifdef __FreeBSD__
-#ifdef __distdtrace__
-	switch (vm_guest) {
-	case VM_GUEST_BHYVE:
-		hypercall_dtrace_register(provider);
-	}
-#endif
-#endif
 
 	if (dtrace_retained != NULL) {
 		dtrace_enabling_provide(provider);
@@ -8983,8 +8897,9 @@ dtrace_unregister(dtrace_provider_id_t id)
 {
 	dtrace_provider_t *old = (dtrace_provider_t *)id;
 	dtrace_provider_t *prev = NULL;
+	dtrace_provider_t *prov = NULL;
 	dtrace_instance_t *instance = NULL;
-	int i, self = 0, noreap = 0;
+	int i, self = 0, noreap = 0, error;
 	dtrace_probe_t *probe, *first = NULL;
 
 	if (old->dtpv_pops.dtps_enable ==
@@ -8995,6 +8910,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 		 *
 		 * This should not be checked using the UUID comparison due
 		 * to this only having an effect on the host DTrace.
+		 * XXX: dirty hack
 		 */
 		ASSERT(old == dtrace_provider);
 #ifdef illumos
@@ -9004,11 +8920,28 @@ dtrace_unregister(dtrace_provider_id_t id)
 		ASSERT(MUTEX_HELD(&dtrace_lock));
 		self = 1;
 
+		/*
+	   	 * XXX(dstolfa): Something might not be right here. This should
+		 * be double checked. In the distributed operation, we should
+		 * unregister all the guest providers first.
+		 */
 		if (dtrace_provider->dtpv_next != NULL) {
 			/*
 			 * There's another provider here; return failure.
 			 */
 			return (EBUSY);
+		}
+
+		instance = dtrace_instance->dtis_next;
+		while (instance) {
+			prov = instance->dtis_provhead;
+			while (prov) {
+				error = dtrace_unregister(
+				    (dtrace_provider_id_t)prov);
+				ASSERT(error == 0);
+				prov = prov->dtpv_next;
+			}
+			instance = instance->dtis_next;
 		}
 	} else {
 		mutex_enter(&dtrace_provider_lock);
@@ -9112,10 +9045,6 @@ dtrace_unregister(dtrace_provider_id_t id)
 	 * everyone has cleared out from any probe array processing.
 	 */
 	dtrace_sync();
-	mutex_enter(&dtrace_instance_lock);
-
-	instance = dtrace_instance_lookup(old->dtpv_instance);
-	ASSERT(instance != NULL);
 
 	for (probe = first; probe != NULL; probe = first) {
 		first = probe->dtpr_nextmod;
@@ -9134,15 +9063,23 @@ dtrace_unregister(dtrace_provider_id_t id)
 		kmem_free(probe, sizeof (dtrace_probe_t));
 	}
 
-	prev = dtrace_provider;
+	mutex_enter(&dtrace_instance_lock);
+
+	instance = dtrace_instance_lookup(old->dtpv_instance);
+	ASSERT(instance != NULL);
+
+	prev = instance->dtis_provhead;
 	if (uuidcmp(prev->dtpv_uuid, old->dtpv_uuid)) {
 #ifdef illumos
 		ASSERT(self || dtrace_devi == NULL);
 		ASSERT(old->dtpv_next == NULL || dtrace_devi == NULL);
 #endif
-		dtrace_provider = old->dtpv_next;
+		instance->dtis_provhead = old->dtpv_next;
+		if (instance == dtrace_instance)
+			dtrace_provider = instance->dtis_provhead;
 	} else {
-		while (prev != NULL && (!uuidcmp(prev->dtpv_next->dtpv_uuid, old->dtpv_uuid)))
+		while (prev != NULL && (!uuidcmp(prev->dtpv_next->dtpv_uuid,
+		    old->dtpv_uuid)))
 			prev = prev->dtpv_next;
 
 		if (prev == NULL) {
@@ -9152,9 +9089,6 @@ dtrace_unregister(dtrace_provider_id_t id)
 
 		prev->dtpv_next = old->dtpv_next;
 	}
-
-	if (dtrace_provider == NULL)
-		instance->dtis_provhead = NULL;
 
 	if (instance->dtis_provhead == NULL) {
 		if (dtrace_instance == instance)
@@ -9182,20 +9116,10 @@ dtrace_unregister(dtrace_provider_id_t id)
 	 * it is acceptable to hypercall here
 	 * TODO: Actually implement this.
 	 */
-#ifdef __FreeBSD__
-#ifdef __distdtrace__
-	switch (vm_guest) {
-	case VM_GUEST_BHYVE:
-		hypercall_dtrace_unregister(old);
-		break;
-	default:
-		break;
-	}
-#endif
-#endif
 
 	kmem_free(old->dtpv_name, strlen(old->dtpv_name) + 1);
 	kmem_free(old->dtpv_uuid, sizeof (struct uuid));
+	kmem_free(old->dtpv_advuuid, sizeof (struct uuid));
 	kmem_free(old, sizeof (dtrace_provider_t));
 
 	return (0);
@@ -9395,17 +9319,6 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 	 * dtps_provide()
 	 * dtps_provide_module()
 	 */
-#ifdef __FreeBSD__
-#ifdef __distdtrace__
-	switch (vm_guest) {
-	case VM_GUEST_BHYVE:
-		hypercall_dtrace_probe_create(probe);
-		break;
-	default:
-		break;
-	}
-#endif
-#endif
 
 	if (provider != dtrace_provider)
 		mutex_exit(&dtrace_lock);
@@ -9532,13 +9445,17 @@ dtrace_probe_provide(dtrace_probedesc_t *desc, dtrace_provider_t *prv)
 #ifdef illumos
 	modctl_t *ctl;
 #endif
+	dtrace_instance_t *instance;
 	int all = 0;
 
 	ASSERT(MUTEX_HELD(&dtrace_provider_lock));
+	ASSERT(MUTEX_HELD(&dtrace_instance_lock));
+
+	instance = dtrace_instance_lookup(prv->dtpv_instance);
 
 	if (prv == NULL) {
 		all = 1;
-		prv = dtrace_provider;
+		prv = instance->dtis_provhead;
 	}
 
 	do {
@@ -13289,13 +13206,17 @@ dtrace_enabling_provide(dtrace_provider_t *prv)
 	int i, all = 0;
 	dtrace_probedesc_t desc;
 	dtrace_genid_t gen;
+	dtrace_instance_t *instance;
 
 	ASSERT(MUTEX_HELD(&dtrace_lock));
 	ASSERT(MUTEX_HELD(&dtrace_provider_lock));
+	ASSERT(MUTEX_HELD(&dtrace_instance_lock));
+
+	instance = dtrace_instance_lookup(prv->dtpv_instance);
 
 	if (prv == NULL) {
 		all = 1;
-		prv = dtrace_provider;
+		prv = instance->dtis_provhead;
 	}
 
 	do {
@@ -16896,8 +16817,10 @@ static void
 dtrace_module_loaded(modctl_t *ctl)
 {
 	dtrace_provider_t *prv;
+	dtrace_instance_t *ins;
 
 	mutex_enter(&dtrace_provider_lock);
+	mutex_enter(&dtrace_instance_lock);
 #ifdef illumos
 	mutex_enter(&mod_lock);
 #endif
@@ -16907,11 +16830,12 @@ dtrace_module_loaded(modctl_t *ctl)
 #endif
 
 	/*
-	 * We're going to call each providers per-module provide operation
-	 * specifying only this module.
-	 */
-	for (prv = dtrace_provider; prv != NULL; prv = prv->dtpv_next)
-		prv->dtpv_pops.dtps_provide_module(prv->dtpv_arg, ctl);
+	* We're going to call each providers per-module provide operation
+	* specifying only this module.
+	*/
+	for (ins = dtrace_instance; ins != NULL; ins = ins->dtis_next)
+		for (prv = ins->dtis_provhead; prv != NULL; prv = prv->dtpv_next)
+			prv->dtpv_pops.dtps_provide_module(prv->dtpv_arg, ctl);
 
 #ifdef illumos
 	mutex_exit(&mod_lock);
@@ -17690,12 +17614,18 @@ dtrace_ioctl(dev_t dev, int cmd, intptr_t arg, int md, cred_t *cr, int *rv)
 
 		pvd.dtvd_name[DTRACE_PROVNAMELEN - 1] = '\0';
 		mutex_enter(&dtrace_provider_lock);
+		mutex_enter(&dtrace_instance_lock);
 
+		/*
+		 * TODO(dstolfa): Report providers from _all_ instances
+		 * (This could perhaps be done in userland by reusing this?)
+		 */
 		for (pvp = dtrace_provider; pvp != NULL; pvp = pvp->dtpv_next) {
 			if (strcmp(pvp->dtpv_name, pvd.dtvd_name) == 0)
 				break;
 		}
 
+		mutex_exit(&dtrace_instance_lock);
 		mutex_exit(&dtrace_provider_lock);
 
 		if (pvp == NULL)
@@ -18103,17 +18033,6 @@ dtrace_ioctl(dev_t dev, int cmd, intptr_t arg, int md, cred_t *cr, int *rv)
 			 * This code takes care of:
 			 * dtps_getargdesc()
 			 */
-#ifdef __FreeBSD__
-#ifdef __distdtrace__
-			switch (vm_guest) {
-			case VM_GUEST_BHYVE:
-				hypercall_dtps_getargdesc(&desc);
-				break;
-			default:
-				break;
-			}
-#endif
-#endif
 		}
 
 		mutex_exit(&mod_lock);
