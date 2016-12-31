@@ -8711,7 +8711,6 @@ dtrace_instance_lookup(const char *name)
 
 	node = dtrace_instance;
 	while (node && strcmp(node->dtis_name, name) != 0) {
-		printf("%s == %s\n", node->dtis_name, name);
 		node = node->dtis_next;
 	}
 
