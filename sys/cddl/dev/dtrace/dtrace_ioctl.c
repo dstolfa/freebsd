@@ -675,9 +675,11 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		 * all providers the opportunity to provide it.
 		 */
 		if (p_desc->dtpd_id == DTRACE_IDNONE) {
+			mutex_enter(&dtrace_instance_lock);
 			mutex_enter(&dtrace_provider_lock);
 			dtrace_probe_provide(p_desc, NULL);
 			mutex_exit(&dtrace_provider_lock);
+			mutex_exit(&dtrace_instance_lock);
 			p_desc->dtpd_id++;
 		}
 

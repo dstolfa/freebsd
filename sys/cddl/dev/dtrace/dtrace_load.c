@@ -98,6 +98,7 @@ dtrace_load(void *dummy)
 	mutex_init(&dtrace_errlock,"dtrace error lock", MUTEX_DEFAULT, NULL);
 #endif
 
+	mutex_enter(&dtrace_instance_lock);
 	mutex_enter(&dtrace_provider_lock);
 	mutex_enter(&dtrace_lock);
 	mutex_enter(&cpu_lock);
@@ -163,6 +164,7 @@ dtrace_load(void *dummy)
 
 	mutex_exit(&dtrace_lock);
 	mutex_exit(&dtrace_provider_lock);
+	mutex_exit(&dtrace_instance_lock);
 
 	mutex_enter(&cpu_lock);
 

@@ -277,6 +277,9 @@ static eventhandler_tag	dtrace_kld_unload_try_tag;
  * (3) dtrace_meta_lock is required when manipulating meta provider state, or
  *     when meta provider state must be held constant.
  *
+ * (4) dtrace_instance_lock is required when manipulating instance state, or
+ *     when instance state must be held constant.
+ *
  * The lock ordering between these three locks is dtrace_meta_lock before
  * dtrace_provider_lock before dtrace_lock.  (In particular, there are
  * several places where dtrace_provider_lock is held by the framework as it
@@ -8779,10 +8782,10 @@ dtrace_distributed_register(const char *name, const char *istcname,
 
 
 	if (pops != &dtrace_provider_ops) {
+		mutex_enter(&dtrace_instance_lock);
 		mutex_enter(&dtrace_provider_lock);
 		mutex_enter(&dtrace_lock);
 	}
-	mutex_enter(&dtrace_instance_lock);
 
 	/*
 	 * If there is at least one instance registered, we'll look for
@@ -8816,7 +8819,6 @@ dtrace_distributed_register(const char *name, const char *istcname,
 		instance->dtis_provhead->dtpv_next = provider;
 	}
 
-	mutex_exit(&dtrace_instance_lock);
 
 	provider->dtpv_instance = instance->dtis_name;
 
@@ -8842,6 +8844,7 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	ASSERT(provider->dtpv_instance != NULL);
 
 	if (pops == &dtrace_provider_ops) {
+		ASSERT(MUTEX_HELD(&dtrace_instance_lock));
 		ASSERT(MUTEX_HELD(&dtrace_provider_lock));
 		ASSERT(MUTEX_HELD(&dtrace_lock));
 		ASSERT(dtrace_anon.dta_enabling == NULL);
@@ -8866,6 +8869,7 @@ dtrace_distributed_register(const char *name, const char *istcname,
 		 */
 		mutex_exit(&dtrace_lock);
 		mutex_exit(&dtrace_provider_lock);
+		mutex_exit(&dtrace_instance_lock);
 		dtrace_enabling_matchall();
 
 		return (0);
@@ -8873,6 +8877,7 @@ dtrace_distributed_register(const char *name, const char *istcname,
 
 	mutex_exit(&dtrace_lock);
 	mutex_exit(&dtrace_provider_lock);
+	mutex_exit(&dtrace_instance_lock);
 
 	return (0);
 }
@@ -9448,12 +9453,17 @@ dtrace_probe_provide(dtrace_probedesc_t *desc, dtrace_provider_t *prv)
 	dtrace_instance_t *instance;
 	int all = 0;
 
-	ASSERT(MUTEX_HELD(&dtrace_provider_lock));
 	ASSERT(MUTEX_HELD(&dtrace_instance_lock));
+	ASSERT(MUTEX_HELD(&dtrace_provider_lock));
 
-	instance = dtrace_instance_lookup(prv->dtpv_instance);
-
+	/*
+	* FIXME(dstolfa): Page fault here.
+	* Happens because of the prv being NULL in many cases. If it's NULL,
+	* the idea would be to output all of them, regardless of the instance.
+	* Right now we only output the providers on the host.
+	*/
 	if (prv == NULL) {
+		instance = dtrace_instance;
 		all = 1;
 		prv = instance->dtis_provhead;
 	}
@@ -13209,8 +13219,8 @@ dtrace_enabling_provide(dtrace_provider_t *prv)
 	dtrace_instance_t *instance;
 
 	ASSERT(MUTEX_HELD(&dtrace_lock));
-	ASSERT(MUTEX_HELD(&dtrace_provider_lock));
 	ASSERT(MUTEX_HELD(&dtrace_instance_lock));
+	ASSERT(MUTEX_HELD(&dtrace_provider_lock));
 
 	instance = dtrace_instance_lookup(prv->dtpv_instance);
 
@@ -16819,14 +16829,14 @@ dtrace_module_loaded(modctl_t *ctl)
 	dtrace_provider_t *prv;
 	dtrace_instance_t *ins;
 
-	mutex_enter(&dtrace_provider_lock);
 	mutex_enter(&dtrace_instance_lock);
+	mutex_enter(&dtrace_provider_lock);
 #ifdef illumos
 	mutex_enter(&mod_lock);
 #endif
 
 #ifdef illumos
-	ASSERT(ctl->mod_busy);
+
 #endif
 
 	/*
@@ -16841,6 +16851,7 @@ dtrace_module_loaded(modctl_t *ctl)
 	mutex_exit(&mod_lock);
 #endif
 	mutex_exit(&dtrace_provider_lock);
+	mutex_exit(&dtrace_instance_lock);
 
 	/*
 	 * If we have any retained enablings, we need to match against them.
@@ -17304,7 +17315,9 @@ dtrace_attach(dev_info_t *devi, ddi_attach_cmd_t cmd)
 	if (dtrace_anon.dta_enabling != NULL) {
 		ASSERT(dtrace_retained == dtrace_anon.dta_enabling);
 
+		mutex_enter(&dtrace_instance_lock);
 		dtrace_enabling_provide(NULL);
+		mutex_exit(&dtrace_instance_lock);
 		state = dtrace_anon.dta_state;
 
 		/*
@@ -17386,9 +17399,11 @@ dtrace_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 	/*
 	 * Ask all providers to provide all their probes.
 	 */
+	mutex_enter(&dtrace_instance_lock);
 	mutex_enter(&dtrace_provider_lock);
 	dtrace_probe_provide(NULL, NULL);
 	mutex_exit(&dtrace_provider_lock);
+	mutex_exit(&dtrace_instance_lock);
 
 	mutex_enter(&cpu_lock);
 	mutex_enter(&dtrace_lock);
@@ -17613,8 +17628,8 @@ dtrace_ioctl(dev_t dev, int cmd, intptr_t arg, int md, cred_t *cr, int *rv)
 			return (EFAULT);
 
 		pvd.dtvd_name[DTRACE_PROVNAMELEN - 1] = '\0';
-		mutex_enter(&dtrace_provider_lock);
 		mutex_enter(&dtrace_instance_lock);
+		mutex_enter(&dtrace_provider_lock);
 
 		/*
 		 * TODO(dstolfa): Report providers from _all_ instances
@@ -17625,8 +17640,8 @@ dtrace_ioctl(dev_t dev, int cmd, intptr_t arg, int md, cred_t *cr, int *rv)
 				break;
 		}
 
-		mutex_exit(&dtrace_instance_lock);
 		mutex_exit(&dtrace_provider_lock);
+		mutex_exit(&dtrace_instance_lock);
 
 		if (pvp == NULL)
 			return (ESRCH);
@@ -17930,9 +17945,11 @@ dtrace_ioctl(dev_t dev, int cmd, intptr_t arg, int md, cred_t *cr, int *rv)
 		 * all providers the opportunity to provide it.
 		 */
 		if (desc.dtpd_id == DTRACE_IDNONE) {
+			mutex_enter(&dtrace_instance_lock);
 			mutex_enter(&dtrace_provider_lock);
 			dtrace_probe_provide(&desc, NULL);
 			mutex_exit(&dtrace_provider_lock);
+			mutex_exit(&dtrace_instance_lock);
 			desc.dtpd_id++;
 		}
 
