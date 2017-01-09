@@ -46,7 +46,7 @@
 
 /* Current ACPICA subsystem version in YYYYMMDD format */
 
-#define ACPI_CA_VERSION                 0x20161117
+#define ACPI_CA_VERSION                 0x20161222
 
 #include <contrib/dev/acpica/include/acconfig.h>
 #include <contrib/dev/acpica/include/actypes.h>
@@ -291,6 +291,15 @@ ACPI_INIT_GLOBAL (UINT32,           AcpiDbgLayer, ACPI_COMPONENT_DEFAULT);
 /* Optionally enable timer output with Debug Object output */
 
 ACPI_INIT_GLOBAL (UINT8,            AcpiGbl_DisplayDebugTimer, FALSE);
+
+/*
+ * Debugger command handshake globals. Host OSes need to access these
+ * variables to implement their own command handshake mechanism.
+ */
+#ifdef ACPI_DEBUGGER
+ACPI_INIT_GLOBAL (BOOLEAN,          AcpiGbl_MethodExecuting, FALSE);
+ACPI_GLOBAL (char,                  AcpiGbl_DbLineBuf[ACPI_DB_LINE_BUFFER_SIZE]);
+#endif
 
 /*
  * Other miscellaneous globals
@@ -577,6 +586,14 @@ AcpiGetTableHeader (
 
 ACPI_EXTERNAL_RETURN_STATUS (
 ACPI_STATUS
+AcpiGetTableWithSize (
+    ACPI_STRING             Signature,
+    UINT32                  Instance,
+    ACPI_TABLE_HEADER       **OutTable,
+    ACPI_SIZE               *TblSize))
+
+ACPI_EXTERNAL_RETURN_STATUS (
+ACPI_STATUS
 AcpiGetTable (
     ACPI_STRING             Signature,
     UINT32                  Instance,
@@ -660,6 +677,14 @@ AcpiGetData (
     ACPI_HANDLE             Object,
     ACPI_OBJECT_HANDLER     Handler,
     void                    **Data))
+
+ACPI_EXTERNAL_RETURN_STATUS (
+ACPI_STATUS
+AcpiGetDataFull (
+    ACPI_HANDLE             Object,
+    ACPI_OBJECT_HANDLER     Handler,
+    void                    **Data,
+    void (*Callback)(void *)))
 
 ACPI_EXTERNAL_RETURN_STATUS (
 ACPI_STATUS
@@ -1265,6 +1290,10 @@ AcpiInitializeDebugger (
 void
 AcpiTerminateDebugger (
     void);
+
+void
+AcpiRunDebugger (
+    char                    *BatchBuffer);
 
 void
 AcpiSetDebuggerThreadId (
