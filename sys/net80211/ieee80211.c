@@ -90,6 +90,7 @@ const uint8_t ieee80211broadcastaddr[IEEE80211_ADDR_LEN] =
 static	void ieee80211_syncflag_locked(struct ieee80211com *ic, int flag);
 static	void ieee80211_syncflag_ht_locked(struct ieee80211com *ic, int flag);
 static	void ieee80211_syncflag_ext_locked(struct ieee80211com *ic, int flag);
+static	void ieee80211_syncflag_vht_locked(struct ieee80211com *ic, int flag);
 static	int ieee80211_media_setup(struct ieee80211com *ic,
 		struct ifmedia *media, int caps, int addsta,
 		ifm_change_cb_t media_change, ifm_stat_cb_t media_stat);
@@ -433,6 +434,22 @@ default_reset(struct ieee80211vap *vap, u_long cmd)
 }
 
 /*
+ * Default for updating the VAP default TX key index.
+ *
+ * Drivers that support TX offload as well as hardware encryption offload
+ * may need to be informed of key index changes separate from the key
+ * update.
+ */
+static void
+default_update_deftxkey(struct ieee80211vap *vap, ieee80211_keyix kid)
+{
+
+	/* XXX assert validity */
+	/* XXX assert we're in a key update block */
+	vap->iv_def_txkey = kid;
+}
+
+/*
  * Add underlying device errors to vap errors.
  */
 static uint64_t
@@ -561,6 +578,12 @@ ieee80211_vap_setup(struct ieee80211com *ic, struct ieee80211vap *vap,
 	 */
 	vap->iv_reset = default_reset;
 
+	/*
+	 * Install a default crypto key update method, the driver
+	 * can override this.
+	 */
+	vap->iv_update_deftxkey = default_update_deftxkey;
+
 	ieee80211_sysctl_vattach(vap);
 	ieee80211_crypto_vattach(vap);
 	ieee80211_node_vattach(vap);
@@ -630,6 +653,12 @@ ieee80211_vap_attach(struct ieee80211vap *vap, ifm_change_cb_t media_change,
 	ieee80211_syncflag_locked(ic, IEEE80211_F_BURST);
 	ieee80211_syncflag_ht_locked(ic, IEEE80211_FHT_HT);
 	ieee80211_syncflag_ht_locked(ic, IEEE80211_FHT_USEHT40);
+
+	ieee80211_syncflag_vht_locked(ic, IEEE80211_FVHT_VHT);
+	ieee80211_syncflag_vht_locked(ic, IEEE80211_FVHT_USEVHT40);
+	ieee80211_syncflag_vht_locked(ic, IEEE80211_FVHT_USEVHT80);
+	ieee80211_syncflag_vht_locked(ic, IEEE80211_FVHT_USEVHT80P80);
+	ieee80211_syncflag_vht_locked(ic, IEEE80211_FVHT_USEVHT160);
 	IEEE80211_UNLOCK(ic);
 
 	return 1;
@@ -677,6 +706,13 @@ ieee80211_vap_detach(struct ieee80211vap *vap)
 	ieee80211_syncflag_locked(ic, IEEE80211_F_BURST);
 	ieee80211_syncflag_ht_locked(ic, IEEE80211_FHT_HT);
 	ieee80211_syncflag_ht_locked(ic, IEEE80211_FHT_USEHT40);
+
+	ieee80211_syncflag_vht_locked(ic, IEEE80211_FVHT_VHT);
+	ieee80211_syncflag_vht_locked(ic, IEEE80211_FVHT_USEVHT40);
+	ieee80211_syncflag_vht_locked(ic, IEEE80211_FVHT_USEVHT80);
+	ieee80211_syncflag_vht_locked(ic, IEEE80211_FVHT_USEVHT80P80);
+	ieee80211_syncflag_vht_locked(ic, IEEE80211_FVHT_USEVHT160);
+
 	/* NB: this handles the bpfdetach done below */
 	ieee80211_syncflag_ext_locked(ic, IEEE80211_FEXT_BPF);
 	if (vap->iv_ifflags & IFF_PROMISC)
@@ -827,6 +863,46 @@ ieee80211_syncflag_ht(struct ieee80211vap *vap, int flag)
 	} else
 		vap->iv_flags_ht |= flag;
 	ieee80211_syncflag_ht_locked(ic, flag);
+	IEEE80211_UNLOCK(ic);
+}
+
+/*
+ * Synchronize flags_vht bit state in the com structure
+ * according to the state of all vap's.  This is used,
+ * for example, to handle state changes via ioctls.
+ */
+static void
+ieee80211_syncflag_vht_locked(struct ieee80211com *ic, int flag)
+{
+	struct ieee80211vap *vap;
+	int bit;
+
+	IEEE80211_LOCK_ASSERT(ic);
+
+	bit = 0;
+	TAILQ_FOREACH(vap, &ic->ic_vaps, iv_next)
+		if (vap->iv_flags_vht & flag) {
+			bit = 1;
+			break;
+		}
+	if (bit)
+		ic->ic_flags_vht |= flag;
+	else
+		ic->ic_flags_vht &= ~flag;
+}
+
+void
+ieee80211_syncflag_vht(struct ieee80211vap *vap, int flag)
+{
+	struct ieee80211com *ic = vap->iv_ic;
+
+	IEEE80211_LOCK(ic);
+	if (flag < 0) {
+		flag = -flag;
+		vap->iv_flags_vht &= ~flag;
+	} else
+		vap->iv_flags_vht |= flag;
+	ieee80211_syncflag_vht_locked(ic, flag);
 	IEEE80211_UNLOCK(ic);
 }
 

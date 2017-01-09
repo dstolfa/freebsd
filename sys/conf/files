@@ -496,7 +496,7 @@ contrib/dev/acpica/components/utilities/utuuid.c	optional acpi acpi_debug
 contrib/dev/acpica/components/utilities/utxface.c	optional acpi
 contrib/dev/acpica/components/utilities/utxferror.c	optional acpi
 contrib/dev/acpica/components/utilities/utxfinit.c	optional acpi
-#contrib/dev/acpica/components/utilities/utxfmutex.c	optional acpi
+contrib/dev/acpica/os_specific/service_layers/osgendbg.c	optional acpi acpi_debug
 contrib/ipfilter/netinet/fil.c	optional ipfilter inet \
 	compile-with "${NORMAL_C} ${NO_WSELF_ASSIGN} -Wno-unused -I$S/contrib/ipfilter"
 contrib/ipfilter/netinet/ip_auth.c optional ipfilter inet \
@@ -1386,7 +1386,7 @@ t4fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t4fw.fwo"
 t4fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t4fw-1.16.22.0.bin.uu"	\
+	dependency	"$S/dev/cxgbe/firmware/t4fw-1.16.26.0.bin.uu"	\
 	compile-with	"${NORMAL_FW}"					\
 	no-obj no-implicit-rule						\
 	clean		"t4fw.fw"
@@ -1410,7 +1410,7 @@ t5fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t5fw.fwo"
 t5fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t5fw-1.16.22.0.bin.uu"	\
+	dependency	"$S/dev/cxgbe/firmware/t5fw-1.16.26.0.bin.uu"	\
 	compile-with	"${NORMAL_FW}"					\
 	no-obj no-implicit-rule						\
 	clean		"t5fw.fw"
@@ -1434,7 +1434,7 @@ t6fw.fwo		optional cxgbe					\
 	no-implicit-rule						\
 	clean		"t6fw.fwo"
 t6fw.fw			optional cxgbe					\
-	dependency	"$S/dev/cxgbe/firmware/t6fw-1.16.22.0.bin.uu"	\
+	dependency	"$S/dev/cxgbe/firmware/t6fw-1.16.26.0.bin.uu"	\
 	compile-with	"${NORMAL_FW}"					\
 	no-obj no-implicit-rule						\
 	clean		"t6fw.fw"
@@ -1544,6 +1544,7 @@ dev/drm2/drm_memory.c		optional drm2
 dev/drm2/drm_mm.c		optional drm2
 dev/drm2/drm_modes.c		optional drm2
 dev/drm2/drm_pci.c		optional drm2
+dev/drm2/drm_platform.c		optional drm2
 dev/drm2/drm_scatter.c		optional drm2
 dev/drm2/drm_stub.c		optional drm2
 dev/drm2/drm_sysctl.c		optional drm2
@@ -1638,6 +1639,7 @@ dev/etherswitch/ip17x/ip17x_phy.c	optional ip17x
 dev/etherswitch/ip17x/ip17x_vlans.c	optional ip17x
 dev/etherswitch/miiproxy.c		optional miiproxy
 dev/etherswitch/rtl8366/rtl8366rb.c	optional rtl8366rb
+dev/etherswitch/e6000sw/e6000sw.c	optional e6000sw
 dev/etherswitch/ukswitch/ukswitch.c	optional ukswitch
 dev/evdev/cdev.c			optional evdev
 dev/evdev/evdev.c			optional evdev
@@ -1729,6 +1731,7 @@ dev/hptiop/hptiop.c		optional hptiop scbus
 dev/hwpmc/hwpmc_logging.c	optional hwpmc
 dev/hwpmc/hwpmc_mod.c		optional hwpmc
 dev/hwpmc/hwpmc_soft.c		optional hwpmc
+dev/ichiic/ig4_acpi.c		optional ig4 acpi iicbus
 dev/ichiic/ig4_iic.c		optional ig4 iicbus
 dev/ichiic/ig4_pci.c		optional ig4 pci iicbus
 dev/ichsmb/ichsmb.c		optional ichsmb
@@ -2821,6 +2824,7 @@ dev/scc/scc_dev_quicc.c		optional scc quicc
 dev/scc/scc_dev_sab82532.c	optional scc
 dev/scc/scc_dev_z8530.c		optional scc
 dev/sdhci/sdhci.c		optional sdhci
+dev/sdhci/sdhci_fdt_gpio.c	optional sdhci fdt gpio
 dev/sdhci/sdhci_if.m		optional sdhci
 dev/sdhci/sdhci_pci.c		optional sdhci pci
 dev/sf/if_sf.c			optional sf pci
@@ -3962,6 +3966,7 @@ net80211/ieee80211_sta.c	optional wlan \
 net80211/ieee80211_superg.c	optional wlan ieee80211_support_superg
 net80211/ieee80211_scan_sw.c	optional wlan
 net80211/ieee80211_tdma.c	optional wlan ieee80211_support_tdma
+net80211/ieee80211_vht.c	optional wlan
 net80211/ieee80211_wds.c	optional wlan
 net80211/ieee80211_xauth.c	optional wlan wlan_xauth
 net80211/ieee80211_alq.c	optional wlan ieee80211_alq
