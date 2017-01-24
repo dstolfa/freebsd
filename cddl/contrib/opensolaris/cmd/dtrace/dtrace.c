@@ -76,7 +76,7 @@ typedef struct dtrace_cmd {
 #define	E_USAGE		2
 
 static const char DTRACE_OPTSTR[] =
-	"3:6:aAb:Bc:CD:ef:FGhHi:I:lL:m:n:o:p:P:qs:SU:vVwx:X:Z";
+	"3:6:aAb:Bc:CD:ef:FGhHi:I:lL:m:n:o:p:P:M:qs:SU:vVwx:X:Z";
 
 static char **g_argv;
 static int g_argc;
@@ -1607,6 +1607,13 @@ main(int argc, char *argv[])
 				dcp = &g_cmdv[g_cmdc++];
 				dcp->dc_func = compile_str;
 				dcp->dc_spec = DTRACE_PROBESPEC_PROVIDER;
+				dcp->dc_arg = optarg;
+				break;
+
+			case 'M':
+				dcp = &g_cmdv[g_cmdc++];
+				dcp->dc_func = compile_str;
+				dcp->dc_spec = DTRACE_PROBESPEC_INSTANCE;
 				dcp->dc_arg = optarg;
 				break;
 
