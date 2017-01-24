@@ -744,8 +744,9 @@ list_probe(dtrace_hdl_t *dtp, const dtrace_probedesc_t *pdp, void *arg)
 {
 	dtrace_probeinfo_t p;
 
-	oprintf("%5d %10s %17s %33s %s\n", pdp->dtpd_id,
-	    pdp->dtpd_provider, pdp->dtpd_mod, pdp->dtpd_func, pdp->dtpd_name);
+	oprintf("%5d %10s %10s %17s %33s %s\n",
+	    pdp->dtpd_id, pdp->dtpd_instance, pdp->dtpd_provider,
+	    pdp->dtpd_mod, pdp->dtpd_func, pdp->dtpd_name);
 
 	if (g_verbose && dtrace_probe_info(dtp, pdp, &p) == 0)
 		print_probe_info(&p);
@@ -767,10 +768,17 @@ list_stmt(dtrace_hdl_t *dtp, dtrace_prog_t *pgp,
 		return (0);
 
 	if (dtrace_probe_iter(g_dtp, &edp->dted_probe, list_probe, NULL) != 0) {
-		error("failed to match %s:%s:%s:%s: %s\n",
-		    edp->dted_probe.dtpd_provider, edp->dted_probe.dtpd_mod,
-		    edp->dted_probe.dtpd_func, edp->dted_probe.dtpd_name,
-		    dtrace_errmsg(dtp, dtrace_errno(dtp)));
+		if (strcmp(edp->dted_probe.dtpd_instance, "host") == 0) {
+			error("failed to match %s:%s:%s:%s: %s\n",
+			    edp->dted_probe.dtpd_provider, edp->dted_probe.dtpd_mod,
+			    edp->dted_probe.dtpd_func, edp->dted_probe.dtpd_name,
+			    dtrace_errmsg(dtp, dtrace_errno(dtp)));
+		} else {
+			error("failed to match %s:%s:%s:%s:%s: %s\n",
+			    edp->dted_probe.dtpd_instance, edp->dted_probe.dtpd_provider,
+			    edp->dted_probe.dtpd_mod, edp->dted_probe.dtpd_func,
+			    edp->dted_probe.dtpd_name, dtrace_errmsg(dtp, dtrace_errno(dtp)));
+		}
 	}
 
 	*last = edp;
@@ -1867,8 +1875,8 @@ main(int argc, char *argv[])
 
 		installsighands();
 
-		oprintf("%5s %10s %17s %33s %s\n",
-		    "ID", "PROVIDER", "MODULE", "FUNCTION", "NAME");
+		oprintf("%5s %10s %10s %17s %33s %s\n",
+		    "ID", "INSTANCE", "PROVIDER", "MODULE", "FUNCTION", "NAME");
 
 		for (i = 0; i < g_cmdc; i++)
 			list_prog(&g_cmdv[i]);
