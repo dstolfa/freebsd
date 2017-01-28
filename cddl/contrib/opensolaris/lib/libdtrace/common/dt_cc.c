@@ -1736,10 +1736,18 @@ dt_setcontext(dtrace_hdl_t *dtp, dtrace_probedesc_t *pdp)
 	if (err != EDT_NOPROBE && err != EDT_UNSTABLE && err != 0)
 		xyerror(D_PDESC_INVAL, "%s\n", dtrace_errmsg(dtp, err));
 
-	dt_dprintf("set context to %s:%s:%s:%s [%u] prp=%p attr=%s argc=%d\n",
-	    pdp->dtpd_provider, pdp->dtpd_mod, pdp->dtpd_func, pdp->dtpd_name,
-	    pdp->dtpd_id, (void *)prp, dt_attr_str(yypcb->pcb_pinfo.dtp_attr,
-	    attrstr, sizeof (attrstr)), yypcb->pcb_pinfo.dtp_argc);
+	if (strcmp(pdp->dtpd_provider, "host") == 0) {
+		dt_dprintf("set context to %s:%s:%s:%s [%u] prp=%p attr=%s argc=%d\n",
+		    pdp->dtpd_provider, pdp->dtpd_mod, pdp->dtpd_func, pdp->dtpd_name,
+		    pdp->dtpd_id, (void *)prp, dt_attr_str(yypcb->pcb_pinfo.dtp_attr,
+		    attrstr, sizeof (attrstr)), yypcb->pcb_pinfo.dtp_argc);
+	} else {
+		dt_dprintf("set context to %s:%s:%s:%s:%s [%u] prp=%p attr=%s argc=%d\n",
+		    pdp->dtpd_instance, pdp->dtpd_provider, pdp->dtpd_mod, pdp->dtpd_func,
+		    pdp->dtpd_name, pdp->dtpd_id, (void *)prp,
+		    dt_attr_str(yypcb->pcb_pinfo.dtp_attr, attrstr, sizeof (attrstr)),
+		    yypcb->pcb_pinfo.dtp_argc);
+	}
 
 	/*
 	 * Reset the stability attributes of D global variables that vary

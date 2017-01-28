@@ -133,12 +133,13 @@ usage(FILE *fp)
 	    "[-b bufsz] [-c cmd] [-D name[=def]]\n\t[-I path] [-L path] "
 	    "[-o output] [-p pid] [-s script] [-U name]\n\t"
 	    "[-x opt[=val]] [-X a|c|s|t]\n\n"
-	    "\t[-P provider %s]\n"
-	    "\t[-m [ provider: ] module %s]\n"
-	    "\t[-f [[ provider: ] module: ] func %s]\n"
-	    "\t[-n [[[ provider: ] module: ] func: ] name %s]\n"
+	    "\t[-M instance %s]\n"
+	    "\t[-P [ instance: ] provider %s]\n"
+	    "\t[-m [[ instance: ] provider: ] module %s]\n"
+	    "\t[-f [[[ instance: ] provider: ] module: ] func %s]\n"
+	    "\t[-n [[[[ instance: ] provider: ] module: ] func: ] name %s]\n"
 	    "\t[-i probe-id %s] [ args ... ]\n\n", g_pname,
-	    predact, predact, predact, predact, predact);
+	    predact, predact, predact, predact, predact, predact);
 
 	(void) fprintf(fp, "\tpredicate -> '/' D-expression '/'\n");
 	(void) fprintf(fp, "\t   action -> '{' D-statements '}'\n");
@@ -163,6 +164,7 @@ usage(FILE *fp)
 	    "\t-l  list probes matching specified criteria\n"
 	    "\t-L  add library directory to library search path\n"
 	    "\t-m  enable or list probes matching the specified module name\n"
+	    "\t-M  enable or list probes matching the specified instance name\n"
 	    "\t-n  enable or list probes matching the specified probe name\n"
 	    "\t-o  set output file\n"
 	    "\t-p  grab specified process-ID and cache its symbol tables\n"
@@ -1023,6 +1025,7 @@ bufhandler(const dtrace_bufdata_t *bufdata, void *arg)
 
 	if (pd != NULL) {
 		BUFDUMPHDR("  dtrace_probedesc");
+		BUFDUMPSTR(pd, dtpd_instance);
 		BUFDUMPSTR(pd, dtpd_provider);
 		BUFDUMPSTR(pd, dtpd_mod);
 		BUFDUMPSTR(pd, dtpd_func);

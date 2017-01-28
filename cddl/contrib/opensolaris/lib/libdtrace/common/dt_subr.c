@@ -183,8 +183,13 @@ char *
 dtrace_desc2str(const dtrace_probedesc_t *pdp, char *buf, size_t len)
 {
 	if (pdp->dtpd_id == 0) {
-		(void) snprintf(buf, len, "%s:%s:%s:%s", pdp->dtpd_provider,
-		    pdp->dtpd_mod, pdp->dtpd_func, pdp->dtpd_name);
+		if (strcmp(pdp->dtpd_instance, "host") == 0) {
+			(void) snprintf(buf, len, "%s:%s:%s:%s", pdp->dtpd_provider,
+			    pdp->dtpd_mod, pdp->dtpd_func, pdp->dtpd_name);
+		} else {
+			(void) snprintf(buf, len, "%s:%s:%s:%s:%s", pdp->dtpd_instance,
+			    pdp->dtpd_provider, pdp->dtpd_mod, pdp->dtpd_func, pdp->dtpd_name);
+		}
 	} else
 		(void) snprintf(buf, len, "%u", pdp->dtpd_id);
 
