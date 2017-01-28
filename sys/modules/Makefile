@@ -265,7 +265,6 @@ SUBDIR=	\
 	${_nctgpio} \
 	${_ncv} \
 	${_ndis} \
-	netfpga10g \
 	${_netgraph} \
 	${_nfe} \
 	nfscl \
@@ -504,13 +503,16 @@ _bce=		bce
 _fatm=		fatm
 _fxp=		fxp
 _ispfw=		ispfw
+_sf=		sf
+_ti=		ti
+_txp=		txp
+
+.if ${MACHINE_CPUARCH} != "mips"
 _mwlfw=		mwlfw
 _otusfw=	otusfw
 _ralfw=		ralfw
 _rtwnfw=	rtwnfw
-_sf=		sf
-_ti=		ti
-_txp=		txp
+.endif
 .endif
 
 .if ${MK_SOURCELESS_UCODE} != "no" && ${MACHINE_CPUARCH} != "arm" && \
@@ -597,7 +599,7 @@ _vxge=  	vxge
 _wbwd=		wbwd
 _wi=		wi
 _xe=		xe
-.if ${MACHINE} != "pc98"
+
 _aac=		aac
 _aacraid=	aacraid
 _acpi=		acpi
@@ -678,7 +680,6 @@ _wpifw=		wpifw
 .endif
 _x86bios=	x86bios
 .endif
-.endif
 
 .if ${MACHINE_CPUARCH} == "amd64"
 _efirt=		efirt
@@ -728,7 +729,6 @@ _sbni=		sbni
 _streams=	streams
 _stg=		stg
 _svr4=		svr4
-.if ${MACHINE} == "i386"
 .if ${MK_EISA} != "no"
 _ahb=		ahb
 .endif
@@ -738,13 +738,6 @@ _ctau=		ctau
 .endif
 _dpt=		dpt
 _ex=		ex
-.elif ${MACHINE} == "pc98"
-_canbepm=	canbepm
-_canbus=	canbus
-_ct=		ct
-_pmc=		pmc
-_snc=		snc
-.endif
 .endif
 
 .if ${MACHINE_CPUARCH} == "arm"
