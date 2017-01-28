@@ -144,7 +144,7 @@ int	(*carp_output_p)(struct ifnet *ifp, struct mbuf *m,
     const struct sockaddr *sa);
 int	(*carp_ioctl_p)(struct ifreq *, u_long, struct thread *);   
 int	(*carp_attach_p)(struct ifaddr *, int);
-void	(*carp_detach_p)(struct ifaddr *);
+void	(*carp_detach_p)(struct ifaddr *, bool);
 #endif
 #ifdef INET
 int	(*carp_iamatch_p)(struct ifaddr *, uint8_t **);
@@ -2218,6 +2218,7 @@ void
 if_down(struct ifnet *ifp)
 {
 
+	EVENTHANDLER_INVOKE(ifnet_event, ifp, IFNET_EVENT_DOWN);
 	if_unroute(ifp, IFF_UP, AF_UNSPEC);
 }
 
@@ -2230,6 +2231,7 @@ if_up(struct ifnet *ifp)
 {
 
 	if_route(ifp, IFF_UP, AF_UNSPEC);
+	EVENTHANDLER_INVOKE(ifnet_event, ifp, IFNET_EVENT_UP);
 }
 
 /*
@@ -3528,7 +3530,6 @@ if_setlladdr(struct ifnet *ifp, const u_char *lladdr, int len)
 	case IFT_BRIDGE:
 	case IFT_ARCNET:
 	case IFT_IEEE8023ADLAG:
-	case IFT_IEEE80211:
 		bcopy(lladdr, LLADDR(sdl), len);
 		ifa_free(ifa);
 		break;
