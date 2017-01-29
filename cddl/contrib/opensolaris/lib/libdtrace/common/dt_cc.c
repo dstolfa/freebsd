@@ -1728,9 +1728,16 @@ dt_setcontext(dtrace_hdl_t *dtp, dtrace_probedesc_t *pdp)
 	}
 
 	if (err == EDT_NOPROBE && !(yypcb->pcb_cflags & DTRACE_C_ZDEFS)) {
-		xyerror(D_PDESC_ZERO, "probe description %s:%s:%s:%s does not "
-		    "match any probes\n", pdp->dtpd_provider, pdp->dtpd_mod,
-		    pdp->dtpd_func, pdp->dtpd_name);
+		if (strcmp(pdp->dtpd_provider, "host") == 0) {
+			xyerror(D_PDESC_ZERO, "probe description %s:%s:%s:%s does not "
+			    "match any probes\n", pdp->dtpd_provider, pdp->dtpd_mod,
+			    pdp->dtpd_func, pdp->dtpd_name);
+		} else {
+			xyerror(D_PDESC_ZERO, "probe description %s:%s:%s:%s:%s does not "
+			    "match any probes\n", pdp->dtpd_instance, pdp->dtpd_provider,
+			    pdp->dtpd_mod, pdp->dtpd_func, pdp->dtpd_name);
+
+		}
 	}
 
 	if (err != EDT_NOPROBE && err != EDT_UNSTABLE && err != 0)
