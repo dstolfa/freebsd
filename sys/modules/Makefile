@@ -51,7 +51,6 @@ SUBDIR=	\
 	${_auxio} \
 	${_bce} \
 	bfe \
-	bhnd \
 	bge \
 	bhnd \
 	${_bxe} \
@@ -65,8 +64,6 @@ SUBDIR=	\
 	bwn_pci \
 	${_bytgpio} \
 	cam \
-	${_canbepm} \
-	${_canbus} \
 	${_cardbus} \
 	${_carp} \
 	cas \
@@ -92,7 +89,6 @@ SUBDIR=	\
 	${_crypto} \
 	${_cryptodev} \
 	${_cs} \
-	${_ct} \
 	${_ctau} \
 	ctl \
 	${_cxgb} \
@@ -142,6 +138,8 @@ SUBDIR=	\
 	${_hptnr} \
 	${_hptrr} \
 	hwpmc \
+	${_hwpmc_mips24k} \
+	${_hwpmc_mips74k} \
 	${_hyperv} \
 	i2c \
         ${_ibcore} \
@@ -296,7 +294,6 @@ SUBDIR=	\
 	${_pflog} \
 	${_pfsync} \
 	plip \
-	${_pmc} \
 	${_pms} \
 	ppbus \
 	ppc \
@@ -345,7 +342,6 @@ SUBDIR=	\
 	sk \
 	smbfs \
 	sn \
-	${_snc} \
 	snp \
 	sound \
 	${_speaker} \
@@ -524,6 +520,11 @@ _cxgbe=		cxgbe
 
 .if ${MK_ZFS} != "no" || defined(ALL_MODULES)
 SUBDIR+=	zfs
+.endif
+
+.if ${MACHINE_CPUARCH} == "mips"
+_hwpmc_mips24k=	hwpmc_mips24k
+_hwpmc_mips74k=	hwpmc_mips74k
 .endif
 
 .if ${MACHINE_CPUARCH} != "aarch64" && ${MACHINE_CPUARCH} != "arm" && \

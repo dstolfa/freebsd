@@ -1,6 +1,5 @@
 /*-
- * Copyright (c) 2008 TAKAHASHI Yoshihiro
- * All rights reserved.
+ * Copyright 2016 Netflix, Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,25 +21,53 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
-#ifndef	_DEV_IC_I8255_H_
-#define	_DEV_IC_I8255_H_
+#include <sys/cdefs.h>
+__FBSDID("$FreeBSD$");
+
+#include <efi.h>
+#include <efilib.h>
 
 /*
- * modem status via SYSTM_PORTB
+ * CHAR16 related functions moved from loader.
+ * Perhaps we should move those to libstand afterall, but they are
+ * needed only by UEFI.
  */
-#define	CICSCD_CD	0x20	/* CD */
-#define	CICSCD_CS	0x40	/* CS */
-#define	CICSCD_CI	0x80	/* CI */
+
+int
+wcscmp(CHAR16 *a, CHAR16 *b)
+{
+
+	while (*a && *b && *a == *b) {
+		a++;
+		b++;
+	}
+	return *a - *b;
+}
 
 /*
- * control intrline via SYSTM_PORTC 
+ * cpy8to16 copies a traditional C string into a CHAR16 string and
+ * 0 terminates it. len is the size of *dst in bytes.
  */
-#define	IEN_Rx		0x01
-#define	IEN_TxEMP	0x02
-#define	IEN_Tx		0x04
+void
+cpy8to16(const char *src, CHAR16 *dst, size_t len)
+{
+	len <<= 1;		/* Assume CHAR16 is 2 bytes */
+	while (len > 0 && *src) {
+		*dst++ = *src++;
+		len--;
+	}
+	*dst++ = (CHAR16)0;
+}
 
-#endif	/* _DEV_IC_I8255_H_ */
+void
+cpy16to8(const CHAR16 *src, char *dst, size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < len && src[i]; i++)
+		dst[i] = (char)src[i];
+	if (i < len)
+		dst[i] = '\0';
+}
