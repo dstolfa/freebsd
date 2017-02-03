@@ -585,7 +585,10 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 	case DTRACEIOC_PROBEARG: {
 		dtrace_argdesc_t *desc = (dtrace_argdesc_t *) addr;
 		dtrace_probe_t *probe;
+		dtrace_probe_t **dtrace_probes;
 		dtrace_provider_t *prov;
+		uint32_t idx;
+		uint32_t dtrace_nprobes;
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROBEARG\n",__func__,__LINE__);
 
@@ -600,6 +603,10 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		mutex_enter(&mod_lock);
 #endif
 		mutex_enter(&dtrace_lock);
+
+		idx = dtrace_instance_lookup_id(desc->dtpd_instance);
+		dtrace_nprobes = dtrace_istc_probecount[idx];
+		dtrace_probes = dtrace_istc_probes[idx];
 
 		if (desc->dtargd_id > dtrace_nprobes) {
 			mutex_exit(&dtrace_lock);
@@ -649,10 +656,13 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 	case DTRACEIOC_PROBES: {
 		dtrace_probedesc_t *p_desc = (dtrace_probedesc_t *) addr;
 		dtrace_probe_t *probe = NULL;
+		dtrace_probe_t **dtrace_probes;
 		dtrace_probekey_t pkey;
 		dtrace_id_t i;
 		int m = 0;
 		uint32_t priv = 0;
+		uint32_t dtrace_nprobes;
+		uint32_t idx;
 		uid_t uid = 0;
 		zoneid_t zoneid = 0;
 
@@ -670,6 +680,12 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		 * all providers the opportunity to provide it.
 		 */
 		if (p_desc->dtpd_id == DTRACE_IDNONE) {
+			/*
+			 * XXX(dstolfa): Possibly clean up these locks. The hash
+			 * table should be protected via dtrace_lock, not
+			 * dtrace_instance_lock, which protects the instance
+			 * list.
+			 */
 			mutex_enter(&dtrace_instance_lock);
 			mutex_enter(&dtrace_provider_lock);
 			dtrace_probe_provide(p_desc, NULL);
@@ -686,6 +702,10 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		dtrace_cred2priv(td->td_ucred, &priv, &uid, &zoneid);
 
 		mutex_enter(&dtrace_lock);
+
+		idx = dtrace_instance_lookup_id(p_desc->dtpd_instance);
+		dtrace_nprobes = dtrace_istc_probecount[idx];
+		dtrace_probes = dtrace_istc_probes[idx];
 
 		if (cmd == DTRACEIOC_PROBEMATCH) {
 			for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {
