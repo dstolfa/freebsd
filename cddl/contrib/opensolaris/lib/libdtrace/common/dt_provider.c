@@ -260,6 +260,8 @@ dt_probe_discover(dt_provider_t *pvp, const dtrace_probedesc_t *pdp)
 		bzero(adp, sizeof (dtrace_argdesc_t));
 		adp->dtargd_ndx = i;
 		adp->dtargd_id = pdp->dtpd_id;
+		strlcpy(adp->dtargd_instance, pdp->dtpd_instance,
+		    DTRACE_INSTANCENAMELEN);
 
 		if (dt_ioctl(dtp, DTRACEIOC_PROBEARG, adp) != 0) {
 			(void) dt_set_errno(dtp, errno);

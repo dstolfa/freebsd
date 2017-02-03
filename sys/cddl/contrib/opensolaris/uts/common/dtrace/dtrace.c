@@ -116,6 +116,7 @@
 #include <sys/callout.h>
 #include <sys/ctype.h>
 #include <sys/eventhandler.h>
+#include <sys/hash.h>
 #include <sys/limits.h>
 #include <sys/linker.h>
 #include <sys/kdb.h>
@@ -226,7 +227,8 @@ static taskq_t		*dtrace_taskq;		/* task queue */
 static struct unrhdr	*dtrace_arena;		/* Probe ID number.     */
 #endif
 static dtrace_probe_t	***dtrace_istc_probes;	/* array of all probes */
-static uint32_t		*dtrace_istc_probecount; /* number of probes */
+static uint32_t		*dtrace_istc_probecount; /* number of probes per instance */
+static char		**dtrace_istc_names;	/* instance names */
 static dtrace_instance_t *dtrace_instance;	/* instance list */
 static dtrace_provider_t *dtrace_provider;	/* DTrace provider */
 static dtrace_meta_t	*dtrace_meta_pid;	/* user-land meta provider */
@@ -236,6 +238,7 @@ static int		dtrace_getf;		/* number of unpriv getf()s */
 #ifdef illumos
 static void		*dtrace_softstate;	/* softstate pointer */
 #endif
+static uint32_t		dtrace_instance_seed;	/* instance specific seed */
 static dtrace_hash_t	*dtrace_byinstance;	/* probes hashed by instance */
 static dtrace_hash_t	*dtrace_bymod;		/* probes hashed by module */
 static dtrace_hash_t	*dtrace_byfunc;		/* probes hashed by function */
@@ -583,7 +586,7 @@ dtrace_load##bits(uintptr_t addr)					\
 
 /* Function prototype definitions: */
 static size_t dtrace_strlen(const char *, size_t);
-static dtrace_probe_t *dtrace_probe_lookup_id(dtrace_id_t id);
+static dtrace_probe_t *dtrace_probe_lookup_id(uint32_t idx, dtrace_id_t id);
 static void dtrace_enabling_provide(dtrace_provider_t *);
 static int dtrace_enabling_match(dtrace_enabling_t *, int *);
 static void dtrace_enabling_matchall(void);
@@ -615,6 +618,8 @@ static int dtrace_canload_remains(uint64_t, size_t, size_t *,
 static int dtrace_canstore_remains(uint64_t, size_t, size_t *,
     dtrace_mstate_t *, dtrace_vstate_t *);
 static dtrace_instance_t *dtrace_instance_lookup(const char *);
+static uint32_t dtrace_instance_lookup_id(const char *);
+static dtrace_probe_t **dtrace_instance_lookup_probes(const char *);
 
 /*
  * DTrace Probe Context Functions
@@ -7305,6 +7310,8 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 
 	cookie = dtrace_interrupt_disable();
 	dtrace_probes = dtrace_instance_lookup_probes(instance);
+	ASSERT(dtrace_probes != NULL);
+
 	probe = dtrace_probes[id - 1];
 	cpuid = curcpu;
 	onintr = CPU_ON_INTR(CPU);
@@ -7967,13 +7974,12 @@ dtrace_probe(dtrace_id_t id, uintptr_t arg0, uintptr_t arg1,
 /*
  * DTrace Probe Hashing Functions
  *
- * The functions in this section (and indeed, the functions in remaining
- * sections) are not _called_ from probe context.  (Any exceptions to this are
- * marked with a "Note:".)  Rather, they are called from elsewhere in the
- * DTrace framework to look-up probes in, add probes to and remove probes from
- * the DTrace probe hashes.  (Each probe is hashed by each element of the
- * probe tuple -- allowing for fast lookups, regardless of what was
- * specified.)
+ * The functions in this section  are not _called_ from probe context.  (Any
+ * exceptions to this are marked with a "Note:".)  Rather, they are called from
+ * elsewhere in the DTrace framework to look-up probes in, add probes to and
+ * remove probes from the DTrace probe hashes.  (Each probe is hashed by each
+ * element of the probe tuple -- allowing for fast lookups, regardless of what
+ * was specified.)
  */
 static uint_t
 dtrace_hash_str(const char *p)
@@ -8174,6 +8180,49 @@ dtrace_hash_remove(dtrace_hash_t *hash, dtrace_probe_t *probe)
 
 	if (*nextp != NULL)
 		*(DTRACE_HASHPREV(hash, *nextp)) = *prevp;
+}
+
+/*
+ * DTrace Probe Hashing Functions
+ *
+ * The functions in this section _are_ called from the probe context and should
+ * be handled with great care. They are used in order to look up which probe
+ * array is to be indexed based on a probe instance.
+ */
+
+static uint32_t
+dtrace_murmur32(const char *s)
+{
+	return (murmur3_32_hash((void *)s, strlen(s),
+	    dtrace_instance_seed));
+}
+
+static uint32_t
+dtrace_instance_lookup_id(const char *s)
+{
+	uint32_t idx;
+	uint32_t hash_res;
+	uint32_t i = 0;
+	const uint32_t c1 = 2;
+	const uint32_t c2 = 2;
+
+	hash_res = dtrace_murmur32(s);
+
+	do {
+		idx = (hash_res + i/c1 + i*i/c2) & DTRACE_INSTANCE_MASK;
+	} while (dtrace_istc_names[idx] && i < DTRACE_MAX_INSTANCES &&
+	         strcmp(s, dtrace_istc_names[idx]) != 0);
+
+	return (idx);
+}
+
+static dtrace_probe_t **
+dtrace_instance_lookup_probes(const char *s)
+{
+	uint32_t idx;
+	idx = dtrace_instance_lookup_id(s);
+
+	return (dtrace_istc_probes[idx]);
 }
 
 /*
@@ -8537,6 +8586,8 @@ dtrace_match(const dtrace_probekey_t *pkp, uint32_t priv, uid_t uid,
 	idx = dtrace_instance_lookup_id(pkp->dtpk_instance);
 	dtrace_nprobes = dtrace_istc_probecount[idx];
 	dtrace_probes = dtrace_istc_probes[idx];
+
+	ASSERT(dtrace_probes != NULL);
 
 	/*
 	 * If the probe ID is specified in the key, just lookup by ID and
@@ -8936,9 +8987,9 @@ dtrace_unregister(dtrace_provider_id_t id)
 	dtrace_instance_t *instance = NULL;
 	int i, self = 0, noreap = 0, error;
 	dtrace_probe_t *probe, *first = NULL;
-	dtrace_probe_t **probes;
+	dtrace_probe_t **dtrace_probes;
 	uint32_t idx;
-	uint32 dtrace_nprobes;
+	uint32_t dtrace_nprobes;
 
 	if (old->dtpv_pops.dtps_enable ==
 	    (void (*)(void *, dtrace_id_t, void *))dtrace_nullop) {
@@ -8954,6 +9005,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 #ifdef illumos
 		ASSERT(dtrace_devi != NULL);
 #endif
+		ASSERT(MUTEX_HELD(&dtrace_instance_lock));
 		ASSERT(MUTEX_HELD(&dtrace_provider_lock));
 		ASSERT(MUTEX_HELD(&dtrace_lock));
 		self = 1;
@@ -9010,6 +9062,8 @@ dtrace_unregister(dtrace_provider_id_t id)
 	idx = dtrace_instance_lookup_id(old->dtpv_instance);
 	dtrace_nprobes = dtrace_istc_probecount[idx];
 	dtrace_probes = dtrace_istc_probes[idx];
+
+	ASSERT(dtrace_probes != NULL);
 
 	/*
 	 * Attempt to destroy the probes associated with this provider.
@@ -9141,6 +9195,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 		if (instance->dtis_next != NULL)
 			instance->dtis_next->dtis_prev = instance->dtis_prev;
 
+		kmem_free(dtrace_probes, DTRACE_MAX_INSTANCES * sizeof(dtrace_probe_t *));
 		kmem_free(instance->dtis_name, strlen(instance->dtis_name) + 1);
 		kmem_free(instance, sizeof (dtrace_instance_t));
 	}
@@ -9229,6 +9284,8 @@ dtrace_condense(dtrace_provider_id_t id)
 	idx = dtrace_instance_lookup_id(prov->dtpv_instance);
 	dtrace_nprobes = dtrace_istc_probecount[idx];
 	dtrace_probes = dtrace_istc_probes[idx];
+
+	ASSERT(dtrace_probes != NULL);
 
 	/*
 	 * Attempt to destroy the probes associated with this provider.
@@ -9328,6 +9385,7 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 	dtrace_hash_add(dtrace_byname, probe);
 
 	idx = dtrace_instance_lookup_id(probe->dtpr_instance);
+
 	dtrace_nprobes = dtrace_istc_probecount[idx];
 	dtrace_probes = dtrace_istc_probes[idx];
 
@@ -9378,6 +9436,8 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 
 	if (provider != dtrace_provider)
 		mutex_exit(&dtrace_lock);
+
+	dtrace_istc_probecount[idx] = dtrace_nprobes;
 
 	return (id);
 }
@@ -9458,7 +9518,7 @@ dtrace_probe_arg(dtrace_provider_id_t id, dtrace_id_t pid)
 
 	mutex_enter(&dtrace_lock);
 
-	idx = dtrace_instance_lookup_probes(id);
+	idx = dtrace_instance_lookup_id(prov->dtpv_instance);
 
 	if ((probe = dtrace_probe_lookup_id(idx, pid)) != NULL &&
 	    (uuidcmp(probe->dtpr_provider->dtpv_uuid, prov->dtpv_uuid)))
@@ -9589,6 +9649,8 @@ dtrace_probe_foreach(uintptr_t offs)
 		idx = dtrace_instance_lookup_id(instance->dtis_name);
 		dtrace_nprobes = dtrace_istc_probecount[idx];
 		dtrace_probes = dtrace_istc_probes[idx];
+
+		ASSERT(dtrace_probes != NULL);
 
 		for (i = 0; i < dtrace_nprobes; i++) {
 			if ((probe = dtrace_probes[i]) == NULL)
@@ -13359,6 +13421,8 @@ dtrace_enabling_reap(void)
 		dtrace_nprobes = dtrace_istc_probecount[idx];
 		dtrace_probes = dtrace_istc_probes[idx];
 
+		ASSERT(dtrace_probes != NULL);
+
 		for (i = 0; i < dtrace_nprobes; i++) {
 			if ((probe = dtrace_probes[i]) == NULL)
 				continue;
@@ -15152,6 +15216,7 @@ dtrace_state_prereserve(dtrace_state_t *state)
 	dtrace_instance_t *instance;
 	dtrace_ecb_t *ecb;
 	dtrace_probe_t *probe;
+	dtrace_probe_t **dtrace_probes;
 
 	state->dts_reserve = 0;
 
@@ -15162,6 +15227,7 @@ dtrace_state_prereserve(dtrace_state_t *state)
 
 	while (instance != NULL) {
 		dtrace_probes = dtrace_instance_lookup_probes(instance->dtis_name);
+		ASSERT(dtrace_probes != NULL);
 
 		/*
 		 * If our buffer policy is a "fill" buffer policy, we need to set the
@@ -15176,6 +15242,8 @@ dtrace_state_prereserve(dtrace_state_t *state)
 
 			state->dts_reserve += ecb->dte_needed + ecb->dte_alignment;
 		}
+
+		instance = instance->dtis_next;
 	}
 }
 
@@ -16981,6 +17049,7 @@ dtrace_module_unloaded(modctl_t *ctl, int *error)
 #endif
 {
 	dtrace_probe_t template, *probe, *first, *next;
+	dtrace_probe_t **dtrace_probes;
 	dtrace_provider_t *prov;
 	dtrace_instance_t *instance;
 #ifndef illumos
@@ -17071,6 +17140,8 @@ dtrace_module_unloaded(modctl_t *ctl, int *error)
 
 	for (first = NULL; probe != NULL; probe = next) {
 		dtrace_probes = dtrace_instance_lookup_probes(probe->dtpr_instance);
+
+		ASSERT(dtrace_probes != NULL);
 		ASSERT(dtrace_probes[probe->dtpr_id - 1] == probe);
 
 		dtrace_probes[probe->dtpr_id - 1] = NULL;
@@ -18064,9 +18135,10 @@ dtrace_ioctl(dev_t dev, int cmd, intptr_t arg, int md, cred_t *cr, int *rv)
 		dtrace_nprobes = dtrace_istc_probecount[idx];
 		dtrace_probes = dtrace_istc_probes[idx];
 
+		ASSERT(dtrace_probes != NULL);
+
 		if (cmd == DTRACEIOC_PROBEMATCH) {
 			for (i = desc.dtpd_id; i <= dtrace_nprobes; i++) {
-				dtrace_probes = dtrace_instance_lookup_probes(desc.dtpd_instance);
 				if ((probe = dtrace_probes[i - 1]) != NULL &&
 				    (m = dtrace_match_probe(probe, &pkey,
 				    priv, uid, zoneid)) != 0)
@@ -18081,7 +18153,6 @@ dtrace_ioctl(dev_t dev, int cmd, intptr_t arg, int md, cred_t *cr, int *rv)
 
 		} else {
 			for (i = desc.dtpd_id; i <= dtrace_nprobes; i++) {
-				dtrace_probes = dtrace_instance_lookup_probes(desc.dtpd_instance);
 				if ((probe = dtrace_probes[i - 1]) != NULL &&
 				    dtrace_match_priv(probe, priv, uid, zoneid))
 					break;
@@ -18129,6 +18200,8 @@ dtrace_ioctl(dev_t dev, int cmd, intptr_t arg, int md, cred_t *cr, int *rv)
 		idx = dtrace_instance_lookup_id(desc.dtpd_instance);
 		dtrace_nprobes = dtrace_istc_probecount[idx];
 		dtrace_probes = dtrace_istc_probes[idx];
+
+		ASSERT(dtrace_probes != NULL);
 
 		if (desc.dtargd_id > dtrace_nprobes) {
 			mutex_exit(&dtrace_lock);

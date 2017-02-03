@@ -31,6 +31,7 @@ dtrace_unload()
 	destroy_dev(dtrace_dev);
 	destroy_dev(helper_dev);
 
+	mutex_enter(&dtrace_instance_lock);
 	mutex_enter(&dtrace_provider_lock);
 	mutex_enter(&dtrace_lock);
 	mutex_enter(&cpu_lock);
@@ -41,6 +42,7 @@ dtrace_unload()
 		mutex_exit(&cpu_lock);
 		mutex_exit(&dtrace_lock);
 		mutex_exit(&dtrace_provider_lock);
+		mutex_exit(&dtrace_instance_lock);
 		return (EBUSY);
 	}
 
@@ -48,10 +50,12 @@ dtrace_unload()
 		mutex_exit(&cpu_lock);
 		mutex_exit(&dtrace_lock);
 		mutex_exit(&dtrace_provider_lock);
+		mutex_exit(&dtrace_instance_lock);
 		return (EBUSY);
 	}
 
 	dtrace_provider = NULL;
+	dtrace_instance = NULL;
 	EVENTHANDLER_DEREGISTER(kld_load, dtrace_kld_load_tag);
 	EVENTHANDLER_DEREGISTER(kld_unload_try, dtrace_kld_unload_try_tag);
 
@@ -69,10 +73,30 @@ dtrace_unload()
 
 	mutex_exit(&cpu_lock);
 
+	/*
 	if (dtrace_probes != NULL) {
 		kmem_free(dtrace_probes, 0);
 		dtrace_probes = NULL;
 		dtrace_nprobes = 0;
+	}
+	*/
+
+	if (dtrace_istc_probes != NULL) {
+		kmem_free(dtrace_istc_probes, DTRACE_MAX_INSTANCES *
+		    sizeof(dtrace_probe_t **));
+		dtrace_istc_probes = NULL;
+	}
+
+	if (dtrace_istc_probecount != NULL) {
+		kmem_free(dtrace_istc_probecount, DTRACE_MAX_INSTANCES *
+		    sizeof(uint32_t));
+		dtrace_istc_probecount = NULL;
+	}
+
+	if (dtrace_istc_names != NULL) {
+		kmem_free(dtrace_istc_names, DTRACE_MAX_INSTANCES *
+		    sizeof(char *));
+		dtrace_istc_names = NULL;
 	}
 
 	dtrace_hash_destroy(dtrace_byinstance);
@@ -101,6 +125,7 @@ dtrace_unload()
 
 	mutex_exit(&dtrace_lock);
 	mutex_exit(&dtrace_provider_lock);
+	mutex_exit(&dtrace_instance_lock);
 
 	mutex_destroy(&dtrace_meta_lock);
 	mutex_destroy(&dtrace_instance_lock);

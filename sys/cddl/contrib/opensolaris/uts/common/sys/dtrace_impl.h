@@ -1176,6 +1176,9 @@ struct dtrace_state {
 	int dts_getf;				/* number of getf() calls */
 };
 
+#define	DTRACE_MAX_INSTANCES	65536
+#define	DTRACE_INSTANCE_MASK	(DTRACE_MAX_INSTANCES - 1)
+
 typedef struct dtrace_instance {
 	char *dtis_name;			/* instance name */
 	struct dtrace_provider *dtis_provhead;	/* first provider in the instance */

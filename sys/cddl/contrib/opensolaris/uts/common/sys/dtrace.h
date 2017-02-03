@@ -1207,11 +1207,12 @@ typedef struct dtrace_conf {
  * to map to multiple args[X] variables.
  */
 typedef struct dtrace_argdesc {
-	dtrace_id_t dtargd_id;			/* probe identifier */
-	int dtargd_ndx;				/* arg number (-1 iff none) */
-	int dtargd_mapping;			/* value mapping */
-	char dtargd_native[DTRACE_ARGTYPELEN];	/* native type name */
-	char dtargd_xlate[DTRACE_ARGTYPELEN];	/* translated type name */
+	dtrace_id_t dtargd_id;				/* probe identifier */
+	int dtargd_ndx;					/* arg number (-1 iff none) */
+	int dtargd_mapping;				/* value mapping */
+	char dtargd_native[DTRACE_ARGTYPELEN];		/* native type name */
+	char dtargd_xlate[DTRACE_ARGTYPELEN];		/* translated type name */
+	char dtargd_instance[DTRACE_INSTANCENAMELEN];	/* instance name */
 } dtrace_argdesc_t;
 
 /*
@@ -2172,6 +2173,8 @@ extern dtrace_id_t dtrace_probe_create(dtrace_provider_id_t, const char *,
 extern void *dtrace_probe_arg(dtrace_provider_id_t, dtrace_id_t);
 extern void dtrace_probe(dtrace_id_t, uintptr_t arg0, uintptr_t arg1,
     uintptr_t arg2, uintptr_t arg3, uintptr_t arg4);
+extern void dtrace_distributed_probe(const char *, dtrace_id_t, uintptr_t arg0,
+    uintptr_t arg1, uintptr_t arg2, uintptr_t arg3, uintptr_t arg4);
 
 /*
  * DTrace Meta Provider API

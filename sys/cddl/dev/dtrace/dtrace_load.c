@@ -98,6 +98,8 @@ dtrace_load(void *dummy)
 	mutex_init(&dtrace_errlock,"dtrace error lock", MUTEX_DEFAULT, NULL);
 #endif
 
+	dtrace_instance_seed = arc4random();
+
 	mutex_enter(&dtrace_instance_lock);
 	mutex_enter(&dtrace_provider_lock);
 	mutex_enter(&dtrace_lock);
@@ -110,6 +112,13 @@ dtrace_load(void *dummy)
 	    NULL, NULL, NULL, NULL, NULL, 0);
 
 	ASSERT(MUTEX_HELD(&cpu_lock));
+
+	dtrace_istc_probes = kmem_zalloc(DTRACE_MAX_INSTANCES *
+	    sizeof(dtrace_probe_t **), KM_SLEEP);
+	dtrace_istc_probecount = kmem_zalloc(DTRACE_MAX_INSTANCES *
+	    sizeof(uint32_t), KM_SLEEP);
+	dtrace_istc_names = kmem_zalloc(DTRACE_MAX_INSTANCES *
+	    sizeof(char *), KM_SLEEP);
 
 	dtrace_byinstance = dtrace_hash_create(offsetof(dtrace_probe_t,
 	    dtpr_instance),

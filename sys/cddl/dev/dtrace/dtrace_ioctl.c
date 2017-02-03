@@ -604,9 +604,11 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 #endif
 		mutex_enter(&dtrace_lock);
 
-		idx = dtrace_instance_lookup_id(desc->dtpd_instance);
+		idx = dtrace_instance_lookup_id(desc->dtargd_instance);
 		dtrace_nprobes = dtrace_istc_probecount[idx];
 		dtrace_probes = dtrace_istc_probes[idx];
+
+		ASSERT(dtrace_probes != NULL);
 
 		if (desc->dtargd_id > dtrace_nprobes) {
 			mutex_exit(&dtrace_lock);
@@ -706,6 +708,8 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		idx = dtrace_instance_lookup_id(p_desc->dtpd_instance);
 		dtrace_nprobes = dtrace_istc_probecount[idx];
 		dtrace_probes = dtrace_istc_probes[idx];
+
+		ASSERT(dtrace_probes != NULL);
 
 		if (cmd == DTRACEIOC_PROBEMATCH) {
 			for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {
