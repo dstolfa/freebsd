@@ -659,6 +659,7 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		dtrace_probedesc_t *p_desc = (dtrace_probedesc_t *) addr;
 		dtrace_probe_t *probe = NULL;
 		dtrace_probe_t **dtrace_probes;
+		dtrace_instance_t *instance;
 		dtrace_probekey_t pkey;
 		dtrace_id_t i;
 		int m = 0;
@@ -706,30 +707,64 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		mutex_enter(&dtrace_lock);
 
 		idx = dtrace_instance_lookup_id(p_desc->dtpd_instance);
-		dtrace_nprobes = dtrace_istc_probecount[idx];
 		dtrace_probes = dtrace_istc_probes[idx];
+		dtrace_nprobes = dtrace_istc_probecount[idx];
 
-		ASSERT(dtrace_probes != NULL);
+		if (dtrace_probes != NULL) {
+			if (cmd == DTRACEIOC_PROBEMATCH) {
+				for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {
+					if ((probe = dtrace_probes[i - 1]) != NULL &&
+					    (m = dtrace_match_probe(probe, &pkey,
+					    priv, uid, zoneid)) != 0)
+						break;
+				}
 
-		if (cmd == DTRACEIOC_PROBEMATCH) {
-			for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {
-				if ((probe = dtrace_probes[i - 1]) != NULL &&
-				    (m = dtrace_match_probe(probe, &pkey,
-				    priv, uid, zoneid)) != 0)
-					break;
+				if (m < 0) {
+					mutex_exit(&dtrace_lock);
+					return (EINVAL);
+				}
+
+			} else {
+				for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {
+					if ((probe = dtrace_probes[i - 1]) != NULL &&
+					    dtrace_match_priv(probe, priv, uid, zoneid))
+						break;
+				}
 			}
-
-			if (m < 0) {
-				mutex_exit(&dtrace_lock);
-				return (EINVAL);
-			}
-
 		} else {
-			for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {
-				if ((probe = dtrace_probes[i - 1]) != NULL &&
-				    dtrace_match_priv(probe, priv, uid, zoneid))
-					break;
+			mutex_enter(&dtrace_instance_lock);
+			instance = dtrace_instance;
+			while (instance != NULL) {
+				idx = dtrace_instance_lookup_id(instance->dtis_name);
+				dtrace_probes = dtrace_istc_probes[idx];
+				dtrace_nprobes = dtrace_istc_probecount[idx];
+
+				if (cmd == DTRACEIOC_PROBEMATCH) {
+					for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {
+						if ((probe = dtrace_probes[i - 1]) != NULL &&
+						    (m = dtrace_match_probe(probe, &pkey,
+						    priv, uid, zoneid)) != 0)
+							break;
+					}
+
+					if (m < 0) {
+						mutex_exit(&dtrace_instance_lock);
+						mutex_exit(&dtrace_lock);
+						return (EINVAL);
+					}
+
+				} else {
+					for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {
+						if ((probe = dtrace_probes[i - 1]) != NULL &&
+						    dtrace_match_priv(probe, priv, uid, zoneid))
+							break;
+					}
+				}
+
+				instance = instance->dtis_next;
 			}
+
+			mutex_exit(&dtrace_instance_lock);
 		}
 
 		if (probe == NULL) {

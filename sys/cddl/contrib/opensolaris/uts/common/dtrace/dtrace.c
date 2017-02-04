@@ -8575,6 +8575,7 @@ dtrace_match(const dtrace_probekey_t *pkp, uint32_t priv, uid_t uid,
 {
 	dtrace_probe_t template, *probe;
 	dtrace_probe_t **dtrace_probes;
+	dtrace_instance_t *instance;
 	dtrace_hash_t *hash = NULL;
 	int len, best = INT_MAX, nmatched = 0;
 	uint32_t dtrace_nprobes;
@@ -8583,11 +8584,6 @@ dtrace_match(const dtrace_probekey_t *pkp, uint32_t priv, uid_t uid,
 
 	ASSERT(MUTEX_HELD(&dtrace_lock));
 
-	idx = dtrace_instance_lookup_id(pkp->dtpk_instance);
-	dtrace_nprobes = dtrace_istc_probecount[idx];
-	dtrace_probes = dtrace_istc_probes[idx];
-
-	ASSERT(dtrace_probes != NULL);
 
 	/*
 	 * If the probe ID is specified in the key, just lookup by ID and
@@ -8643,16 +8639,28 @@ dtrace_match(const dtrace_probekey_t *pkp, uint32_t priv, uid_t uid,
 	 * invoke our callback for each one that matches our input probe key.
 	 */
 	if (hash == NULL) {
-		for (i = 0; i < dtrace_nprobes; i++) {
-			if ((probe = dtrace_probes[i]) == NULL ||
-			    dtrace_match_probe(probe, pkp, priv, uid,
-			    zoneid) <= 0)
-				continue;
+		instance = dtrace_instance;
 
-			nmatched++;
+		while (instance != NULL) {
+			idx = dtrace_instance_lookup_id(instance->dtis_name);
+			dtrace_nprobes = dtrace_istc_probecount[idx];
+			dtrace_probes = dtrace_istc_probes[idx];
 
-			if ((*matched)(probe, arg) != DTRACE_MATCH_NEXT)
-				break;
+			ASSERT(dtrace_probes != NULL);
+
+			for (i = 0; i < dtrace_nprobes; i++) {
+				if ((probe = dtrace_probes[i]) == NULL ||
+				    dtrace_match_probe(probe, pkp, priv, uid,
+				    zoneid) <= 0)
+					continue;
+
+				nmatched++;
+
+				if ((*matched)(probe, arg) != DTRACE_MATCH_NEXT)
+					break;
+			}
+
+			instance = instance->dtis_next;
 		}
 
 		return (nmatched);
@@ -9034,6 +9042,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 			instance = instance->dtis_next;
 		}
 	} else {
+		mutex_enter(&dtrace_instance_lock);
 		mutex_enter(&dtrace_provider_lock);
 #ifdef illumos
 		mutex_enter(&mod_lock);
@@ -9055,6 +9064,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 			mutex_exit(&mod_lock);
 #endif
 			mutex_exit(&dtrace_provider_lock);
+			mutex_exit(&dtrace_instance_lock);
 		}
 		return (EBUSY);
 	}
@@ -9097,6 +9107,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 			mutex_exit(&mod_lock);
 #endif
 			mutex_exit(&dtrace_provider_lock);
+			mutex_exit(&dtrace_instance_lock);
 		}
 
 		if (noreap)
@@ -9159,7 +9170,6 @@ dtrace_unregister(dtrace_provider_id_t id)
 		kmem_free(probe, sizeof (dtrace_probe_t));
 	}
 
-	mutex_enter(&dtrace_instance_lock);
 
 	instance = dtrace_instance_lookup(old->dtpv_instance);
 	ASSERT(instance != NULL);
@@ -9200,13 +9210,13 @@ dtrace_unregister(dtrace_provider_id_t id)
 		kmem_free(instance, sizeof (dtrace_instance_t));
 	}
 
-	mutex_exit(&dtrace_instance_lock);
 	if (!self) {
 		mutex_exit(&dtrace_lock);
 #ifdef illumos
 		mutex_exit(&mod_lock);
 #endif
 		mutex_exit(&dtrace_provider_lock);
+		mutex_exit(&dtrace_instance_lock);
 	}
 	/*
 	 * We only need the UUID to unregister a provider, thus
@@ -9437,6 +9447,7 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 	if (provider != dtrace_provider)
 		mutex_exit(&dtrace_lock);
 
+	dtrace_istc_probes[idx] = dtrace_probes;
 	dtrace_istc_probecount[idx] = dtrace_nprobes;
 
 	return (id);
