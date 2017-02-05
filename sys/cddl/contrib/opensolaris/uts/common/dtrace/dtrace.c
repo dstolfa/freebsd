@@ -9224,6 +9224,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 	 * TODO: Actually implement this.
 	 */
 
+	dtrace_istc_names[idx] = NULL;
 	kmem_free(old->dtpv_name, strlen(old->dtpv_name) + 1);
 	kmem_free(old->dtpv_uuid, sizeof (struct uuid));
 	kmem_free(old->dtpv_advuuid, sizeof (struct uuid));
@@ -9449,6 +9450,7 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 
 	dtrace_istc_probes[idx] = dtrace_probes;
 	dtrace_istc_probecount[idx] = dtrace_nprobes;
+	dtrace_istc_names[idx] = provider->dtpv_instance;
 
 	return (id);
 }
