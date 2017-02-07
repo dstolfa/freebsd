@@ -69,6 +69,7 @@
 #include <sys/errno.h>
 #ifndef illumos
 #include <sys/time.h>
+#include <sys/endian.h>
 #endif
 #include <sys/stat.h>
 #include <sys/modctl.h>
@@ -143,6 +144,8 @@
 #endif
 
 #include "dtrace_xoroshiro128_plus.h"
+
+#define rol32(i32, n) ((i32) << (n) | (i32) >> (32 - (n)))
 
 /*
  * DTrace Tunable Variables
@@ -7298,8 +7301,10 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 	volatile uint16_t *flags;
 	hrtime_t now;
 
-	if (panicstr != NULL)
+	if (panicstr != NULL) {
+		printf("panicstr != NULL\nid = %d\ninstance = %s\n", id, instance);
 		return;
+	}
 
 #ifdef illumos
 	/*
@@ -7316,6 +7321,7 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 	ASSERT(dtrace_probes != NULL);
 
 	probe = dtrace_probes[id - 1];
+	ASSERT(probe != NULL);
 	cpuid = curcpu;
 	onintr = CPU_ON_INTR(CPU);
 
@@ -7333,6 +7339,7 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 	if (panic_quiesce) {
 #else
 	if (panicstr != NULL) {
+		printf("second panicstr != NULL\nid = %d\ninstance = %s\n", id, instance);
 #endif
 		/*
 		 * We don't trace anything if we're panicking.
@@ -7966,7 +7973,7 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 	dtrace_interrupt_enable(cookie);
 }
 
-void
+__inline void
 dtrace_probe(dtrace_id_t id, uintptr_t arg0, uintptr_t arg1,
     uintptr_t arg2, uintptr_t arg3, uintptr_t arg4)
 {
@@ -7985,18 +7992,62 @@ dtrace_probe(dtrace_id_t id, uintptr_t arg0, uintptr_t arg1,
  * was specified.)
  */
 static uint_t
-dtrace_hash_str(const char *p)
+dtrace_hash_str(const char *data)
 {
-	unsigned int g;
-	uint_t hval = 0;
+	const uint8_t *bytes;
+	uint32_t hash, k;
+	size_t res;
+	size_t len;
 
-	while (*p) {
-		hval = (hval << 4) + *p++;
-		if ((g = (hval & 0xf0000000)) != 0)
-			hval ^= g >> 24;
-		hval &= ~g;
+	len = dtrace_strlen(data, DTRACE_FULLNAMELEN);
+
+	/* initialization */
+	bytes = data;
+	res = len;
+	hash = dtrace_instance_seed;
+
+	/* main loop */
+	while (res >= 4) {
+		/* replace with le32toh() if input is aligned */
+		k = le32dec(bytes);
+		bytes += 4;
+		res -= 4;
+		k *= 0xcc9e2d51;
+		k = rol32(k, 15);
+		k *= 0x1b873593;
+		hash ^= k;
+		hash = rol32(hash, 13);
+		hash *= 5;
+		hash += 0xe6546b64;
 	}
-	return (hval);
+
+	/* remainder */
+	/* remove if input length is a multiple of 4 */
+	if (res > 0) {
+		k = 0;
+		switch (res) {
+		case 3:
+			k |= bytes[2] << 16;
+		case 2:
+			k |= bytes[1] << 8;
+		case 1:
+			k |= bytes[0];
+			k *= 0xcc9e2d51;
+			k = rol32(k, 15);
+			k *= 0x1b873593;
+			hash ^= k;
+			break;
+		}
+	}
+
+	/* finalize */
+	hash ^= (uint32_t)len;
+	hash ^= hash >> 16;
+	hash *= 0x85ebca6b;
+	hash ^= hash >> 13;
+	hash *= 0xc2b2ae35;
+	hash ^= hash >> 16;
+	return (hash);
 }
 
 static dtrace_hash_t *
@@ -8194,13 +8245,6 @@ dtrace_hash_remove(dtrace_hash_t *hash, dtrace_probe_t *probe)
  */
 
 static uint32_t
-dtrace_murmur32(const char *s)
-{
-	return (murmur3_32_hash((void *)s, strlen(s),
-	    dtrace_instance_seed));
-}
-
-static uint32_t
 dtrace_instance_lookup_id(const char *s)
 {
 	uint32_t idx;
@@ -8209,12 +8253,13 @@ dtrace_instance_lookup_id(const char *s)
 	const uint32_t c1 = 2;
 	const uint32_t c2 = 2;
 
-	hash_res = dtrace_murmur32(s);
+	hash_res = dtrace_hash_str(s);
+	size_t len = dtrace_strlen(s, DTRACE_INSTANCENAMELEN);
 
 	do {
 		idx = (hash_res + i/c1 + i*i/c2) & DTRACE_INSTANCE_MASK;
 	} while (dtrace_istc_names[idx] && i < DTRACE_MAX_INSTANCES &&
-	         strcmp(s, dtrace_istc_names[idx]) != 0);
+	         dtrace_strncmp((char *)s, dtrace_istc_names[idx], len) != 0);
 
 	return (idx);
 }
