@@ -53,6 +53,8 @@ dtrace_trap_func_t		dtrace_trap_func;
 dtrace_doubletrap_func_t	dtrace_doubletrap_func;
 dtrace_pid_probe_ptr_t		dtrace_pid_probe_ptr;
 dtrace_return_probe_ptr_t	dtrace_return_probe_ptr;
+dtrace_install_probe_ptr_t	dtrace_install_probe_ptr;
+dtrace_uninstall_probe_ptr_t	dtrace_uninstall_probe_ptr;
 
 systrace_probe_func_t		systrace_probe_func;
 

@@ -272,6 +272,12 @@ hypercall_copy_arg(struct vm *, int, uint64_t,
 static int64_t hc_handle_prototype(struct vm *, int,
     uint64_t *, struct vm_guest_paging *);
 
+static int64_t hc_handle_dtrace_install(struct vm *, int,
+    uint64_t *, struct vm_guest_paging *);
+
+static int64_t hc_handle_dtrace_uninstall(struct vm *, int,
+    uint64_t *, struct vm_guest_paging *);
+
 static int64_t hc_handle_dtrace_register(struct vm *, int,
     uint64_t *, struct vm_guest_paging *);
 
@@ -303,6 +309,8 @@ static int64_t hc_handle_dtps_getargdesc(struct vm *, int,
 hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
 		[HYPERCALL_PROTOTYPE]		= hc_handle_prototype,
+		[HYPERCALL_DTRACE_INSTALL]	= hc_handle_dtrace_install,
+		[HYPERCALL_DTRACE_UNINSTALL]	= hc_handle_dtrace_uninstall,
 		[HYPERCALL_DTRACE_REGISTER]	= hc_handle_dtrace_register,
 		[HYPERCALL_DTRACE_UNREGISTER]	= hc_handle_dtrace_unregister,
 		[HYPERCALL_DTRACE_PROBE_CREATE]	= hc_handle_dtrace_probe_create,
@@ -395,7 +403,7 @@ vcpu_cleanup(struct vm *vm, int i, bool destroy)
 
 	VLAPIC_CLEANUP(vm->cookie, vcpu->vlapic);
 	if (destroy) {
-		vmm_stat_free(vcpu->stats);	
+		vmm_stat_free(vcpu->stats);
 		fpu_save_area_free(vcpu->guestfpu);
 	}
 }
@@ -407,7 +415,7 @@ vcpu_init(struct vm *vm, int vcpu_id, bool create)
 
 	KASSERT(vcpu_id >= 0 && vcpu_id < VM_MAXCPU,
 	    ("vcpu_init: invalid vcpu %d", vcpu_id));
-	  
+
 	vcpu = &vm->vcpu[vcpu_id];
 
 	if (create) {
@@ -472,7 +480,7 @@ vmm_init(void)
 	error = vmm_mem_init();
 	if (error)
 		return (error);
-	
+
 	if (vmm_is_intel())
 		ops = &vmm_ops_intel;
 	else if (vmm_is_amd())
@@ -1143,7 +1151,7 @@ is_descriptor_table(int reg)
 static boolean_t
 is_segment_register(int reg)
 {
-	
+
 	switch (reg) {
 	case VM_REG_GUEST_ES:
 	case VM_REG_GUEST_CS:
@@ -1561,7 +1569,7 @@ vm_handle_inst_emul(struct vm *vm, int vcpuid, bool *retu)
 	vcpu->nextrip += vie->num_processed;
 	VCPU_CTR1(vm, vcpuid, "nextrip updated to %#lx after instruction "
 	    "decoding", vcpu->nextrip);
- 
+
 	/* return to userland unless this is an in-kernel emulated device */
 	if (gpa >= DEFAULT_APIC_BASE && gpa < DEFAULT_APIC_BASE + PAGE_SIZE) {
 		mread = lapic_mmio_read;
@@ -1646,6 +1654,20 @@ vm_handle_reqidle(struct vm *vm, int vcpuid, bool *retu)
 	vcpu_unlock(vcpu);
 	*retu = true;
 	return (0);
+}
+
+static __inline int64_t
+hc_handle_dtrace_install(struct vm *vm, int vcpuid,
+    uint64_t *args, struct vm_guest_paging *paging)
+{
+	return (HYPERCALL_RET_SUCCESS);
+}
+
+static __inline int64_t
+hc_handle_dtrace_uninstall(struct vm *vm, int vcpuid,
+    uint64_t *args, struct vm_guest_paging *paging)
+{
+	return (HYPERCALL_RET_SUCCESS);
 }
 
 /*
@@ -1739,7 +1761,7 @@ hc_handle_dtrace_probe(struct vm *vm, int vcpuid,
 static __inline int64_t
 hc_handle_dtps_getargval(struct vm *vm, int vcpuid,
     uint64_t *args, struct vm_guest_paging *paging)
-{	
+{
 	return (HYPERCALL_RET_SUCCESS);
 }
 
@@ -1887,6 +1909,17 @@ hc_handle_prototype(struct vm *vm, int vcpuid,
     uint64_t *args, struct vm_guest_paging *paging)
 {
 	return (HYPERCALL_RET_SUCCESS);
+}
+
+void
+dtrace_install_probe(struct vm *vm, int vcpuid, dtrace_id_t probe_id)
+{
+	int error;
+	error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, id);
+	KASSERT(error == 0, ("%s: error %d setting RAX",
+	    __func__, error));
+
+	vm_inject_bp(vm, vcpuid);
 }
 
 int
@@ -2408,10 +2441,16 @@ vm_inject_pf(void *vmarg, int vcpuid, int error_code, uint64_t cr2)
 	vm_inject_fault(vm, vcpuid, IDT_PF, 1, error_code);
 }
 
-void
-vm_inject_bp(void *vm, int vcpuid, int error_code)
+static __inline void
+vm_inject_bp(void *vm, int vcpuid)
 {
-	vm_inject_exception(vm, vcpuid, IDT_BP, 1, error_code, 0);
+	vm_inject_exception(vm, vcpuid, IDT_BP, 0, 0, 0);
+}
+
+static __inline void
+vm_dtrace_install(void *vm, int vcpuid)
+{
+	vm_inject_exception(vm, vcpuid, IDT_DTRACE_INST, 0, 0, 0);
 }
 
 static VMM_STAT(VCPU_NMI_COUNT, "number of NMIs delivered to vcpu");
@@ -2583,7 +2622,7 @@ vmm_is_pptdev(int bus, int slot, int func)
 				found = 1;
 				break;
 			}
-		
+
 			if (cp2 != NULL)
 				*cp2++ = ' ';
 
@@ -2923,7 +2962,7 @@ vm_copyin(struct vm *vm, int vcpuid, struct vm_copyinfo *copyinfo, void *kaddr,
 {
 	char *dst;
 	int idx;
-	
+
 	dst = kaddr;
 	idx = 0;
 	while (len > 0) {
@@ -2965,7 +3004,7 @@ vm_get_rescnt(struct vm *vm, int vcpu, struct vmm_stat_type *stat)
 	if (vcpu == 0) {
 		vmm_stat_set(vm, vcpu, VMM_MEM_RESIDENT,
 	       	    PAGE_SIZE * vmspace_resident_count(vm->vmspace));
-	}	
+	}
 }
 
 static void
@@ -2975,7 +3014,7 @@ vm_get_wiredcnt(struct vm *vm, int vcpu, struct vmm_stat_type *stat)
 	if (vcpu == 0) {
 		vmm_stat_set(vm, vcpu, VMM_MEM_WIRED,
 	      	    PAGE_SIZE * pmap_wired_count(vmspace_pmap(vm->vmspace)));
-	}	
+	}
 }
 
 VMM_STAT_FUNC(VMM_MEM_RESIDENT, "Resident memory", vm_get_rescnt);

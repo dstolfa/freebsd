@@ -62,6 +62,10 @@ typedef int (*dtrace_pid_probe_ptr_t)(struct reg *);
 extern	dtrace_pid_probe_ptr_t	dtrace_pid_probe_ptr;
 typedef int (*dtrace_return_probe_ptr_t)(struct reg *);
 extern	dtrace_return_probe_ptr_t	dtrace_return_probe_ptr;
+typedef int (*dtrace_install_probe_ptr_t)(struct reg *);
+extern	dtrace_install_probe_ptr_t	dtrace_install_probe_ptr;
+typedef int (*dtrace_uninstall_probe_ptr_t)(struct reg *);
+extern	dtrace_uninstall_probe_ptr_t	dtrace_uninstall_probe_ptr;
 
 /* Virtual time hook function type. */
 typedef	void (*dtrace_vtime_switch_func_t)(struct thread *);
@@ -157,7 +161,7 @@ extern dtrace_nfsclient_nfs23_done_probe_func_t
     dtrace_nfscl_nfs234_done_probe;
 
 /*
- * Functions which allow the dtrace module to check that the kernel 
+ * Functions which allow the dtrace module to check that the kernel
  * hooks have been compiled with sufficient space for it's private
  * structures.
  */

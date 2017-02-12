@@ -4410,8 +4410,8 @@ dtrace_dif_subr(uint_t subr, uint_t rd, uint64_t *regs,
 		DTRACE_CPUFLAG_CLEAR(CPU_DTRACE_NOFAULT);
 		break;
 
-	case DIF_SUBR_RW_READ_HELD: 
-	case DIF_SUBR_SX_SHARED_HELD: 
+	case DIF_SUBR_RW_READ_HELD:
+	case DIF_SUBR_SX_SHARED_HELD:
 		if (!dtrace_canload(tupregs[0].dttk_value, sizeof (uintptr_t),
 		    mstate, vstate)) {
 			regs[rd] = 0;
@@ -7752,7 +7752,7 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 				/*
 				 * Reset to the memory address rather than
 				 * the memref array, then let the BYREF
-				 * code below do the work to store the 
+				 * code below do the work to store the
 				 * memory data in the buffer.
 				 */
 				val = memref[0];
@@ -8632,6 +8632,7 @@ dtrace_match(const dtrace_probekey_t *pkp, uint32_t priv, uid_t uid,
 
 	ASSERT(MUTEX_HELD(&dtrace_lock));
 
+	idx = dtrace_instance_lookup_id(pkp->dtpk_instance);
 
 	/*
 	 * If the probe ID is specified in the key, just lookup by ID and
@@ -8653,9 +8654,9 @@ dtrace_match(const dtrace_probekey_t *pkp, uint32_t priv, uid_t uid,
 
 	/*
 	 * We want to find the most distinct of the instance name,
-	 * module name, function name, and name.  So for each one that 
-	 * is not a glob pattern or empty string, we perform a lookup 
-	 * in the corresponding hash and use the hash table with the 
+	 * module name, function name, and name.  So for each one that
+	 * is not a glob pattern or empty string, we perform a lookup
+	 * in the corresponding hash and use the hash table with the
 	 * fewest collisions to do our search.
 	 */
 	if (pkp->dtpk_imatch == &dtrace_match_string &&
@@ -9547,7 +9548,7 @@ dtrace_probe_lookup(dtrace_provider_id_t prid, char *mod,
 	 * XXX(dstolfa): This might break everything
 	 */
 	pkey.dtpk_instance = prov->dtpv_instance;
-	pkey.dtpk_imatch = prov->dtpv_instance ? 
+	pkey.dtpk_imatch = prov->dtpv_instance ?
 	    &dtrace_match_string : &dtrace_match_nul;
 	pkey.dtpk_mod = mod;
 	pkey.dtpk_mmatch = mod ? &dtrace_match_string : &dtrace_match_nul;
@@ -15034,7 +15035,7 @@ dtrace_state_create(struct cdev *dev, struct ucred *cred __unused)
 		 * subsequence.
 		 */
 		dtrace_xoroshiro128_plus_jump(state->dts_rstate[cpu_it-1],
-		    state->dts_rstate[cpu_it]); 
+		    state->dts_rstate[cpu_it]);
 	}
 
 #ifdef illumos

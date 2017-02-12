@@ -142,6 +142,7 @@ static char *trap_msg[] = {
 	"reserved (unknown) fault",		/* 30 T_RESERVED */
 	"",					/* 31 unused (reserved) */
 	"DTrace pid return trap",		/* 32 T_DTRACE_RET */
+	"DTrace probe installation trap",	/* 32 T_DTRACE_INST */
 };
 
 static int prot_fault_translation;
@@ -409,6 +410,20 @@ trap(struct trapframe *frame)
 			    dtrace_return_probe_ptr(&regs) == 0)
 				goto out;
 			break;
+		case T_DTRACE_INST:
+			enable_intr();
+			fill_frame_regs(frame, &regs);
+			if (dtrace_install_probe_ptr != NULL &&
+			    dtrace_install_probe_ptr(&regs) == 0)
+				goto out;
+			break;
+		case T_DTRACE_UINST:
+			enable_intr();
+			fill_frame_regs(frame, &regs);
+			if (dtrace_uninstall_probe_ptr != NULL &&
+			    dtrace_uninstall_probe_ptr(&regs) == 0)
+				goto out;
+			break;
 #endif
 		}
 	} else {
@@ -620,7 +635,7 @@ trap_pfault(frame, usermode)
 		 * Due to both processor errata and lazy TLB invalidation when
 		 * access restrictions are removed from virtual pages, memory
 		 * accesses that are allowed by the physical mapping layer may
-		 * nonetheless cause one spurious page fault per virtual page. 
+		 * nonetheless cause one spurious page fault per virtual page.
 		 * When the thread is executing a "no faulting" section that
 		 * is bracketed by vm_fault_{disable,enable}_pagefaults(),
 		 * every page fault is treated as a spurious page fault,

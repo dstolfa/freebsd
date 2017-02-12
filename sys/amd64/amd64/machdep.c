@@ -244,7 +244,7 @@ cpu_startup(dummy)
 	 * namely: incorrect CPU frequency detection and failure to
 	 * start the APs.
 	 * We do this by disabling a bit in the SMI_EN (SMI Control and
-	 * Enable register) of the Intel ICH LPC Interface Bridge. 
+	 * Enable register) of the Intel ICH LPC Interface Bridge.
 	 */
 	sysenv = kern_getenv("smbios.system.product");
 	if (sysenv != NULL) {
@@ -567,7 +567,7 @@ sys_sigreturn(td, uap)
 int
 freebsd4_sigreturn(struct thread *td, struct freebsd4_sigreturn_args *uap)
 {
- 
+
 	return sys_sigreturn(td, (struct sigreturn_args *)uap);
 }
 #endif
@@ -586,7 +586,7 @@ exec_setregs(struct thread *td, struct image_params *imgp, u_long stack)
 		user_ldt_free(td);
 	else
 		mtx_unlock(&dt_lock);
-	
+
 	pcb->pcb_fsbase = 0;
 	pcb->pcb_gsbase = 0;
 	clear_pcb_flags(pcb, PCB_32BIT);
@@ -808,7 +808,7 @@ setidt(int idx, inthand_t *func, int typ, int dpl, int ist)
 	ip->gd_type = typ;
 	ip->gd_dpl = dpl;
 	ip->gd_p = 1;
-	ip->gd_hioffset = ((uintptr_t)func)>>16 ;
+	ip->gd_hioffset = ((uintptr_t)func)>>16;
 }
 
 extern inthand_t
@@ -818,7 +818,7 @@ extern inthand_t
 	IDTVEC(page), IDTVEC(mchk), IDTVEC(rsvd), IDTVEC(fpu), IDTVEC(align),
 	IDTVEC(xmm), IDTVEC(dblfault),
 #ifdef KDTRACE_HOOKS
-	IDTVEC(dtrace_ret),
+	IDTVEC(dtrace_ret), IDTVEC(dtrace_install),
 #endif
 #ifdef XENHVM
 	IDTVEC(xen_intr_upcall),
@@ -890,7 +890,7 @@ DB_SHOW_COMMAND(dbregs, db_show_dbregs)
 	db_printf("dr2\t0x%016lx\n", rdr2());
 	db_printf("dr3\t0x%016lx\n", rdr3());
 	db_printf("dr6\t0x%016lx\n", rdr6());
-	db_printf("dr7\t0x%016lx\n", rdr7());	
+	db_printf("dr7\t0x%016lx\n", rdr7());
 }
 #endif
 
@@ -1616,6 +1616,8 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	setidt(IDT_XF, &IDTVEC(xmm), SDT_SYSIGT, SEL_KPL, 0);
 #ifdef KDTRACE_HOOKS
 	setidt(IDT_DTRACE_RET, &IDTVEC(dtrace_ret), SDT_SYSIGT, SEL_UPL, 0);
+	setidt(IDT_DTRACE_INST, &IDTVEC(dtrace_install), SDT_SYSIGT, SEL_KPL, 0);
+	setidt(IDT_DTRACE_UINST, &IDTVEC(dtrace_uninstall), SDT_SYSIGT, SEL_KPL, 0);
 #endif
 #ifdef XENHVM
 	setidt(IDT_EVTCHN, &IDTVEC(xen_intr_upcall), SDT_SYSIGT, SEL_UPL, 0);
@@ -2420,7 +2422,7 @@ user_dbreg_trap(void)
         int nbp;            /* number of breakpoints that triggered */
         caddr_t addr[4];    /* breakpoint addresses */
         int i;
-        
+
         dr7 = rdr7();
         if ((dr7 & 0x000000ff) == 0) {
                 /*

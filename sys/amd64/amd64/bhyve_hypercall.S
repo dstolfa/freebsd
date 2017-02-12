@@ -109,6 +109,24 @@ hc_dtps_getargdesc:
 	ret
 END(hypercall_dtps_getargdesc)
 
+ENTRY(hypercall_dtrace_install)
+	VENTER
+	movq $HYPERCALL_DTRACE_INSTALL, %rax
+hc_dtrace_install:
+	.byte 0x0f,0x01,0xc1
+	VLEAVE
+	ret
+END(hypercall_dtrace_install)
+
+ENTRY(hypercall_dtrace_uninstall)
+	VENTER
+	movq $HYPERCALL_DTRACE_UNINSTALL, %rax
+hc_dtrace_uninstall:
+	.byte 0x0f,0x01,0xc1
+	VLEAVE
+	ret
+END(hypercall_dtrace_uninstall)
+
 .type __set_hypercall_prototype, @object
 .type __set_hypercall_dtrace_probe_create, @object
 .type __set_hypercall_dtrace_probe, @object
@@ -116,6 +134,8 @@ END(hypercall_dtps_getargdesc)
 .type __set_hypercall_dtrace_unregister, @object
 .type __set_hypercall_dtps_getargval, @object
 .type __set_hypercall_dtps_getargdesc, @object
+.type __set_hypercall_dtrace_install, @object
+.type __set_hypercall_dtrace_uninstall, @object
 .section set_hypercall, "a", @progbits
 .align 8
 __set_hypercall_prototype:
@@ -139,4 +159,10 @@ __set_hypercall_dtps_getargval:
 __set_hypercall_dtps_getargdesc:
 	.quad hc_dtps_getargdesc
 	.size __set_hypercall_dtps_getargdesc, 3
+__set_hypercall_dtrace_install:
+	.quad hc_dtrace_install
+	.size __set_hypercall_dtrace_install, 3
+__set_hypercall_dtrace_uninstall:
+	.quad hc_dtrace_uninstall
+	.size __set_hypercall_dtrace_uninstall, 3
 
