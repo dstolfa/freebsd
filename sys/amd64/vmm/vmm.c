@@ -1656,20 +1656,6 @@ vm_handle_reqidle(struct vm *vm, int vcpuid, bool *retu)
 	return (0);
 }
 
-static __inline int64_t
-hc_handle_dtrace_install(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
-{
-	return (HYPERCALL_RET_SUCCESS);
-}
-
-static __inline int64_t
-hc_handle_dtrace_uninstall(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
-{
-	return (HYPERCALL_RET_SUCCESS);
-}
-
 /*
  * XXX: When probes are created, we need a provider ID.
  * This is where one is acquired. The problem is that
@@ -1734,41 +1720,6 @@ hc_handle_dtrace_register(struct vm *vm, int vcpuid,
 	 * -- shouldn't be?
 	 */
 
-	return (HYPERCALL_RET_SUCCESS);
-}
-
-static __inline int64_t
-hc_handle_dtrace_unregister(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
-{
-	return (HYPERCALL_RET_SUCCESS);
-}
-
-static __inline int64_t
-hc_handle_dtrace_probe_create(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
-{
-	return (HYPERCALL_RET_SUCCESS);
-}
-
-static __inline int64_t
-hc_handle_dtrace_probe(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
-{
-	return (HYPERCALL_RET_SUCCESS);
-}
-
-static __inline int64_t
-hc_handle_dtps_getargval(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
-{
-	return (HYPERCALL_RET_SUCCESS);
-}
-
-static __inline int64_t
-hc_handle_dtps_getargdesc(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
-{
 	return (HYPERCALL_RET_SUCCESS);
 }
 
@@ -1911,15 +1862,53 @@ hc_handle_prototype(struct vm *vm, int vcpuid,
 	return (HYPERCALL_RET_SUCCESS);
 }
 
-void
-dtrace_install_probe(struct vm *vm, int vcpuid, dtrace_id_t probe_id)
+static __inline int64_t
+hc_handle_dtrace_install(struct vm *vm, int vcpuid,
+    uint64_t *args, struct vm_guest_paging *paging)
 {
-	int error;
-	error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, id);
-	KASSERT(error == 0, ("%s: error %d setting RAX",
-	    __func__, error));
+	return (HYPERCALL_RET_SUCCESS);
+}
 
-	vm_inject_bp(vm, vcpuid);
+static __inline int64_t
+hc_handle_dtrace_uninstall(struct vm *vm, int vcpuid,
+    uint64_t *args, struct vm_guest_paging *paging)
+{
+	return (HYPERCALL_RET_SUCCESS);
+}
+
+static __inline int64_t
+hc_handle_dtrace_unregister(struct vm *vm, int vcpuid,
+    uint64_t *args, struct vm_guest_paging *paging)
+{
+	return (HYPERCALL_RET_SUCCESS);
+}
+
+static __inline int64_t
+hc_handle_dtrace_probe_create(struct vm *vm, int vcpuid,
+    uint64_t *args, struct vm_guest_paging *paging)
+{
+	return (HYPERCALL_RET_SUCCESS);
+}
+
+static __inline int64_t
+hc_handle_dtrace_probe(struct vm *vm, int vcpuid,
+    uint64_t *args, struct vm_guest_paging *paging)
+{
+	return (HYPERCALL_RET_SUCCESS);
+}
+
+static __inline int64_t
+hc_handle_dtps_getargval(struct vm *vm, int vcpuid,
+    uint64_t *args, struct vm_guest_paging *paging)
+{
+	return (HYPERCALL_RET_SUCCESS);
+}
+
+static __inline int64_t
+hc_handle_dtps_getargdesc(struct vm *vm, int vcpuid,
+    uint64_t *args, struct vm_guest_paging *paging)
+{
+	return (HYPERCALL_RET_SUCCESS);
 }
 
 int
@@ -2439,18 +2428,6 @@ vm_inject_pf(void *vmarg, int vcpuid, int error_code, uint64_t cr2)
 	KASSERT(error == 0, ("vm_set_register(cr2) error %d", error));
 
 	vm_inject_fault(vm, vcpuid, IDT_PF, 1, error_code);
-}
-
-static __inline void
-vm_inject_bp(void *vm, int vcpuid)
-{
-	vm_inject_exception(vm, vcpuid, IDT_BP, 0, 0, 0);
-}
-
-static __inline void
-vm_dtrace_install(void *vm, int vcpuid)
-{
-	vm_inject_exception(vm, vcpuid, IDT_DTRACE_INST, 0, 0, 0);
 }
 
 static VMM_STAT(VCPU_NMI_COUNT, "number of NMIs delivered to vcpu");

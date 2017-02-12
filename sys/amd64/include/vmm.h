@@ -382,7 +382,7 @@ struct vm_copyinfo {
 /*
  * Set up 'copyinfo[]' to copy to/from guest linear address space starting
  * at 'gla' and 'len' bytes long. The 'prot' should be set to PROT_READ for
- * a copyin or PROT_WRITE for a copyout. 
+ * a copyin or PROT_WRITE for a copyout.
  *
  * retval	is_fault	Interpretation
  *   0		   0		Success
@@ -424,7 +424,7 @@ enum vm_intr_trigger {
 	EDGE_TRIGGER,
 	LEVEL_TRIGGER
 };
-	
+
 /*
  * The 'access' field has the format specified in Table 21-2 of the Intel
  * Architecture Manual vol 3b.
@@ -656,6 +656,24 @@ struct vm_exit {
 /* APIs to inject faults into the guest */
 void vm_inject_fault(void *vm, int vcpuid, int vector, int errcode_valid,
     int errcode);
+
+static __inline void
+vm_inject_bp(void *vm, int vcpuid)
+{
+	vm_inject_exception(vm, vcpuid, IDT_BP, 0, 0, 0);
+}
+
+__inline void
+vm_dtrace_init_install(void *vm, int vcpuid)
+{
+	vm_inject_exception(vm, vcpuid, IDT_DTRACE_INST, 0, 0, 0);
+}
+
+__inline void
+vm_dtrace_init_uninstall(void *vm, int vcpuid)
+{
+	vm_inject_exception(vm, vcpuid, IDT_DTRACE_UINST, 0, 0, 0);
+}
 
 static __inline void
 vm_inject_ud(void *vm, int vcpuid)
