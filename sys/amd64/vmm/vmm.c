@@ -2430,6 +2430,31 @@ vm_inject_pf(void *vmarg, int vcpuid, int error_code, uint64_t cr2)
 	vm_inject_fault(vm, vcpuid, IDT_PF, 1, error_code);
 }
 
+static __inline void
+vm_inject_bp(void *vm, int vcpuid)
+{
+	int error;
+	error = vm_inject_exception(vm, vcpuid, IDT_BP, 0, 0, 0);
+	KASSERT(error == 0, ("vm_inject_bp error %d", error));
+
+}
+
+__inline void
+vm_dtrace_init_install(void *vm, int vcpuid)
+{
+	int error;
+	error = vm_inject_exception(vm, vcpuid, IDT_DTRACE_INST, 0, 0, 0);
+	KASSERT(error == 0, ("vm_dtrace_init_install error %d", error));
+}
+
+__inline void
+vm_dtrace_init_uninstall(void *vm, int vcpuid)
+{
+	int error;
+	error =vm_inject_exception(vm, vcpuid, IDT_DTRACE_UINST, 0, 0, 0);
+	KASSERT(error == 0, ("vm_dtrace_init_uninstall error %d", error));
+}
+
 static VMM_STAT(VCPU_NMI_COUNT, "number of NMIs delivered to vcpu");
 
 int

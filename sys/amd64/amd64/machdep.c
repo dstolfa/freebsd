@@ -818,7 +818,7 @@ extern inthand_t
 	IDTVEC(page), IDTVEC(mchk), IDTVEC(rsvd), IDTVEC(fpu), IDTVEC(align),
 	IDTVEC(xmm), IDTVEC(dblfault),
 #ifdef KDTRACE_HOOKS
-	IDTVEC(dtrace_ret), IDTVEC(dtrace_install),
+	IDTVEC(dtrace_ret), IDTVEC(dtrace_install), IDTVEC(dtrace_uninstall),
 #endif
 #ifdef XENHVM
 	IDTVEC(xen_intr_upcall),

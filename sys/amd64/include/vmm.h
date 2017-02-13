@@ -658,24 +658,6 @@ void vm_inject_fault(void *vm, int vcpuid, int vector, int errcode_valid,
     int errcode);
 
 static __inline void
-vm_inject_bp(void *vm, int vcpuid)
-{
-	vm_inject_exception(vm, vcpuid, IDT_BP, 0, 0, 0);
-}
-
-__inline void
-vm_dtrace_init_install(void *vm, int vcpuid)
-{
-	vm_inject_exception(vm, vcpuid, IDT_DTRACE_INST, 0, 0, 0);
-}
-
-__inline void
-vm_dtrace_init_uninstall(void *vm, int vcpuid)
-{
-	vm_inject_exception(vm, vcpuid, IDT_DTRACE_UINST, 0, 0, 0);
-}
-
-static __inline void
 vm_inject_ud(void *vm, int vcpuid)
 {
 	vm_inject_fault(vm, vcpuid, IDT_UD, 0, 0);
@@ -700,7 +682,8 @@ vm_inject_ss(void *vm, int vcpuid, int errcode)
 }
 
 void vm_inject_pf(void *vm, int vcpuid, int error_code, uint64_t cr2);
-void vm_inject_bp(void *vm, int vcpuid, int error_code);
+void vm_dtrace_init_install(void *vm, int vcpuid);
+void vm_dtrace_init_uninstall(void *vm, int vcpuid);
 
 int vm_restart_instruction(void *vm, int vcpuid);
 
