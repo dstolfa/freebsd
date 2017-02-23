@@ -1330,8 +1330,8 @@ extern uint8_t dtrace_fuword8(void *);
 extern uint16_t dtrace_fuword16(void *);
 extern uint32_t dtrace_fuword32(void *);
 extern uint64_t dtrace_fuword64(void *);
-extern void dtrace_probe_error(dtrace_state_t *, dtrace_epid_t, int, int,
-    int, uintptr_t);
+extern void dtrace_probe_error(const char *, dtrace_state_t *, dtrace_epid_t,
+    int, int, int, uintptr_t);
 extern int dtrace_assfail(const char *, const char *, int);
 extern int dtrace_attached(void);
 #ifdef illumos

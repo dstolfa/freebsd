@@ -2193,7 +2193,7 @@ dt_node_t *
 dt_node_pdesc_by_id(uintmax_t id)
 {
 	static const char *const names[] = {
-		"providers", "modules", "functions"
+		"instances", "providers", "modules", "functions"
 	};
 
 	dtrace_hdl_t *dtp = yypcb->pcb_hdl;
@@ -4759,12 +4759,12 @@ dt_printd(dt_node_t *dnp, FILE *fp, int depth)
 		if (strcmp(dnp->dn_desc->dtpd_instance, "host") == 0) {
 			(void) fprintf(fp, "%s:%s:%s:%s",
 			    dnp->dn_desc->dtpd_provider, dnp->dn_desc->dtpd_mod,
-			    dnp->dn_desc->dtpd_func, dnp->dn_desc->dtpd_name); 
+			    dnp->dn_desc->dtpd_func, dnp->dn_desc->dtpd_name);
 		} else {
 			(void) fprintf(fp, "%s:%s:%s:%s:%s",
 			    dnp->dn_desc->dtpd_instance, dnp->dn_desc->dtpd_provider,
 			    dnp->dn_desc->dtpd_mod, dnp->dn_desc->dtpd_func,
-			    dnp->dn_desc->dtpd_name); 
+			    dnp->dn_desc->dtpd_name);
 		}
 		break;
 

@@ -304,21 +304,37 @@ dtrace_fuword64_nocheck(void *addr)
 
 /*
 void
-dtrace_probe_error(dtrace_state_t *state, dtrace_epid_t epid, int which,
-    int fault, int fltoffs, uintptr_t illval)
+dtrace_probe_error(const char *instance, dtrace_state_t *state,
+    dtrace_epid_t epid, int which, int fault, int fltoffs, uintptr_t illval)
 */
 	ENTRY(dtrace_probe_error)
 	pushq	%rbp
 	movq	%rsp, %rbp
+/*
+	fltoffs(r9)
+	fault(r8)
+	which(rcx)
+	epid(rdx)
+	state(rsi)
+	instance(rdi)
+	--------------
+	fltoffs(stack)
+	fault(r9)
+	which(r8)
+	epid(rcx)
+	state(rdx)
+	probe_id(rsi)
+	instance(rdi)
+*/
 	subq	$0x8, %rsp
-	movq	%r9, (%rsp)
-	movq	%r8, %r9
-	movq	%rcx, %r8
-	movq	%rdx, %rcx
-	movq	%rsi, %rdx
-	movq	%rdi, %rsi
-	movl	dtrace_probeid_error(%rip), %edi
-	call	dtrace_probe
+	movq	%r9, (%rsp) /* fltoffs(second on stack) */
+	movq	%r8, %r9 /* fault(r9) */
+	movq	%rcx, %r8 /* which(r8) */
+	movq	%rdx, %rcx /* epid(rcx) */
+	movq	%rsi, %rdx /* state(rdx) */
+	movl	dtrace_probeid_error(%rip), %esi /* dtrace_probeid_error(rsi) */
+	/* movq %rdi, %rdi -- for the instance string */
+	call	dtrace_distributed_probe
 	addq	$0x8, %rsp
 	leave
 	ret

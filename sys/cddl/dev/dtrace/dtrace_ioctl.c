@@ -674,6 +674,7 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		    cmd == DTRACEIOC_PROBEMATCH ?
 		    "DTRACEIOC_PROBEMATCH":"DTRACEIOC_PROBES");
 
+		p_desc->dtpd_instance[DTRACE_INSTANCENAMELEN - 1] = '\0';
 		p_desc->dtpd_provider[DTRACE_PROVNAMELEN - 1] = '\0';
 		p_desc->dtpd_mod[DTRACE_MODNAMELEN - 1] = '\0';
 		p_desc->dtpd_func[DTRACE_FUNCNAMELEN - 1] = '\0';

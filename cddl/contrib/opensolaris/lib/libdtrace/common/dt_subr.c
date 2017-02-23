@@ -68,6 +68,7 @@ dtrace_xstr2desc(dtrace_hdl_t *dtp, dtrace_probespec_t spec,
 {
 	size_t off, len, vlen, wlen;
 	const char *p, *q, *v, *w;
+	int8_t cnt;
 
 	char buf[32]; /* for id_t as %d (see below) */
 
@@ -76,6 +77,7 @@ dtrace_xstr2desc(dtrace_hdl_t *dtp, dtrace_probespec_t spec,
 
 	bzero(pdp, sizeof (dtrace_probedesc_t));
 	p = s + strlen(s) - 1;
+	cnt = 0;
 
 	do {
 		for (len = 0; p >= s && *p != ':'; len++)
@@ -153,7 +155,13 @@ dtrace_xstr2desc(dtrace_hdl_t *dtp, dtrace_probespec_t spec,
 		bcopy(q, (char *)pdp + off, len);
 		bcopy(v, (char *)pdp + off + len, vlen);
 		bcopy(w, (char *)pdp + off + len + vlen, wlen);
+		cnt++;
 	} while (--p >= s);
+
+	if (cnt <= 4) {
+		printf("cnt <= 4, %d\n", cnt);
+		(void) strcpy(pdp->dtpd_instance, "host");
+	}
 
 	pdp->dtpd_id = DTRACE_IDNONE;
 	return (0);
@@ -618,7 +626,7 @@ dt_printf(dtrace_hdl_t *dtp, FILE *fp, const char *format, ...)
 
 		va_end(ap2);
 		va_end(ap);
-		
+
 		return (n);
 	}
 

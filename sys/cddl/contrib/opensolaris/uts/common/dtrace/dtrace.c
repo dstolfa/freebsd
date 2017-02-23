@@ -7301,10 +7301,8 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 	volatile uint16_t *flags;
 	hrtime_t now;
 
-	if (panicstr != NULL) {
-		printf("panicstr != NULL\nid = %d\ninstance = %s\n", id, instance);
+	if (panicstr != NULL)
 		return;
-	}
 
 #ifdef illumos
 	/*
@@ -7316,6 +7314,8 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 		return;
 #endif
 
+	printf("instance = %s\nid = %d\narg0 = %p\narg1 = %p\narg2 = %p\narg3 = %p\narg4 = %p\n",
+	    instance, id, (void *)arg0, (void *)arg1, (void *)arg2, (void *)arg3, (void *)arg4);
 	cookie = dtrace_interrupt_disable();
 	dtrace_probes = dtrace_instance_lookup_probes(instance);
 	ASSERT(dtrace_probes != NULL);
@@ -7339,7 +7339,6 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 	if (panic_quiesce) {
 #else
 	if (panicstr != NULL) {
-		printf("second panicstr != NULL\nid = %d\ninstance = %s\n", id, instance);
 #endif
 		/*
 		 * We don't trace anything if we're panicking.
@@ -7955,7 +7954,7 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 			    err != act; err = err->dta_next, ndx++)
 				continue;
 
-			dtrace_probe_error(state, ecb->dte_epid, ndx,
+			dtrace_probe_error(instance, state, ecb->dte_epid, ndx,
 			    (mstate.dtms_present & DTRACE_MSTATE_FLTOFFS) ?
 			    mstate.dtms_fltoffs : -1, DTRACE_FLAGS2FLT(*flags),
 			    cpu_core[cpuid].cpuc_dtrace_illval);
@@ -8252,14 +8251,35 @@ dtrace_instance_lookup_id(const char *s)
 	uint32_t i = 0;
 	const uint32_t c1 = 2;
 	const uint32_t c2 = 2;
+	/*printf("s in id lookup = %s\n", s);
+	if (s) {
+		if (strcmp(s, "host") == 0) {
+			printf("THEY ARE EQUAL FFS\n");
+		} else {
+			printf("NOT EQUAL IN LOOKUP\n");
+		}
+	} else {
+		printf("NULL IN THE LOOKUP\n");
+	}
+	*/
 
 	hash_res = dtrace_hash_str(s);
+/*	printf("hash_res = %u\n", hash_res); */
 	size_t len = dtrace_strlen(s, DTRACE_INSTANCENAMELEN);
 
 	do {
 		idx = (hash_res + i/c1 + i*i/c2) & DTRACE_INSTANCE_MASK;
+		i++;
 	} while (dtrace_istc_names[idx] && i < DTRACE_MAX_INSTANCES &&
-	         dtrace_strncmp((char *)s, dtrace_istc_names[idx], len) != 0);
+	    dtrace_strncmp((char *)s, dtrace_istc_names[idx], len) != 0);
+/*
+	printf("idx in id lookup = %u\n", idx);
+	if (dtrace_istc_names[idx] != NULL) {
+		printf("dtrace_istc_names[%u] = %s\n", idx, dtrace_istc_names[idx]);
+	} else {
+		printf("dtrace_istc_names[%u] = NULL\n", idx);
+	}
+	*/
 
 	return (idx);
 }
@@ -8268,8 +8288,22 @@ static dtrace_probe_t **
 dtrace_instance_lookup_probes(const char *s)
 {
 	uint32_t idx;
+	/*
+	if (s) {
+		printf("s = %s\n", s);
+		if (strcmp(s, "host") != 0) {
+			printf("NOT EQUAL!!\n");
+		} else {
+			printf("EQUAL!!!\n");
+		}
+	} else {
+		printf("NULL!\n");
+	}
+	*/
 	idx = dtrace_instance_lookup_id(s);
-
+	/*printf("idx = %u\n", idx);
+	printf("dtrace_istc_probes[idx] = %p\n", dtrace_istc_probes[idx]);
+*/
 	return (dtrace_istc_probes[idx]);
 }
 
