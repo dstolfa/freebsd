@@ -590,6 +590,7 @@ dtrace_load##bits(uintptr_t addr)					\
 	(act)->dta_difo->dtdo_rtype.dtdt_kind == DIF_TYPE_STRING)
 
 /* Function prototype definitions: */
+static size_t dtrace_strlen_pc(const char *, size_t);
 static size_t dtrace_strlen(const char *, size_t);
 static dtrace_probe_t *dtrace_probe_lookup_id(uint32_t idx, dtrace_id_t id);
 static void dtrace_enabling_provide(dtrace_provider_t *);
@@ -7314,8 +7315,6 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 		return;
 #endif
 
-	printf("instance = %s\nid = %d\narg0 = %p\narg1 = %p\narg2 = %p\narg3 = %p\narg4 = %p\n",
-	    instance, id, (void *)arg0, (void *)arg1, (void *)arg2, (void *)arg3, (void *)arg4);
 	cookie = dtrace_interrupt_disable();
 	dtrace_probes = dtrace_instance_lookup_probes(instance);
 	ASSERT(dtrace_probes != NULL);
@@ -7981,14 +7980,23 @@ dtrace_probe(dtrace_id_t id, uintptr_t arg0, uintptr_t arg1,
 }
 
 /*
+ * The DTrace strlen function used from the probe context
+ */
+static size_t
+dtrace_strlen_pc(const char *s, size_t lim)
+{
+	uint_t len;
+
+	for (len = 0; len != lim; len++) {
+		if (*s++ == '\0')
+			break;
+	}
+
+	return (len);
+}
+
+/*
  * DTrace Probe Hashing Functions
- *
- * The functions in this section  are not _called_ from probe context.  (Any
- * exceptions to this are marked with a "Note:".)  Rather, they are called from
- * elsewhere in the DTrace framework to look-up probes in, add probes to and
- * remove probes from the DTrace probe hashes.  (Each probe is hashed by each
- * element of the probe tuple -- allowing for fast lookups, regardless of what
- * was specified.)
  */
 static uint_t
 dtrace_hash_str(const char *data)
@@ -7998,7 +8006,7 @@ dtrace_hash_str(const char *data)
 	size_t res;
 	size_t len;
 
-	len = dtrace_strlen(data, DTRACE_FULLNAMELEN);
+	len = dtrace_strlen_pc(data, DTRACE_FULLNAMELEN);
 
 	/* initialization */
 	bytes = data;
@@ -8049,6 +8057,14 @@ dtrace_hash_str(const char *data)
 	return (hash);
 }
 
+/*
+ * The following functions in this section  are not _called_ from probe context.
+ * (Any exceptions to this are marked with a "Note:".)  Rather, they are called
+ * from elsewhere in the DTrace framework to look-up probes in, add probes to
+ * and remove probes from the DTrace probe hashes.  (Each probe is hashed by
+ * each element of the probe tuple -- allowing for fast lookups, regardless of
+ * what was specified.)
+ */
 static dtrace_hash_t *
 dtrace_hash_create(uintptr_t stroffs, uintptr_t nextoffs, uintptr_t prevoffs)
 {
@@ -8236,13 +8252,23 @@ dtrace_hash_remove(dtrace_hash_t *hash, dtrace_probe_t *probe)
 }
 
 /*
+ * DTrace strcmp function called from the probe context
+ */
+static int
+dtrace_strcmp_pc(const char *s, const char *p)
+{
+	while (*s && (*s == *p))
+		s++, p++;
+	return ((*s < *p) ? -1 : *s > *p);
+}
+
+/*
  * DTrace Probe Hashing Functions
  *
  * The functions in this section _are_ called from the probe context and should
  * be handled with great care. They are used in order to look up which probe
  * array is to be indexed based on a probe instance.
  */
-
 static uint32_t
 dtrace_instance_lookup_id(const char *s)
 {
@@ -8251,35 +8277,15 @@ dtrace_instance_lookup_id(const char *s)
 	uint32_t i = 0;
 	const uint32_t c1 = 2;
 	const uint32_t c2 = 2;
-	/*printf("s in id lookup = %s\n", s);
-	if (s) {
-		if (strcmp(s, "host") == 0) {
-			printf("THEY ARE EQUAL FFS\n");
-		} else {
-			printf("NOT EQUAL IN LOOKUP\n");
-		}
-	} else {
-		printf("NULL IN THE LOOKUP\n");
-	}
-	*/
 
 	hash_res = dtrace_hash_str(s);
-/*	printf("hash_res = %u\n", hash_res); */
 	size_t len = dtrace_strlen(s, DTRACE_INSTANCENAMELEN);
 
 	do {
 		idx = (hash_res + i/c1 + i*i/c2) & DTRACE_INSTANCE_MASK;
 		i++;
 	} while (dtrace_istc_names[idx] && i < DTRACE_MAX_INSTANCES &&
-	    dtrace_strncmp((char *)s, dtrace_istc_names[idx], len) != 0);
-/*
-	printf("idx in id lookup = %u\n", idx);
-	if (dtrace_istc_names[idx] != NULL) {
-		printf("dtrace_istc_names[%u] = %s\n", idx, dtrace_istc_names[idx]);
-	} else {
-		printf("dtrace_istc_names[%u] = NULL\n", idx);
-	}
-	*/
+	    dtrace_strcmp_pc(s, dtrace_istc_names[idx]) != 0);
 
 	return (idx);
 }
@@ -8288,22 +8294,7 @@ static dtrace_probe_t **
 dtrace_instance_lookup_probes(const char *s)
 {
 	uint32_t idx;
-	/*
-	if (s) {
-		printf("s = %s\n", s);
-		if (strcmp(s, "host") != 0) {
-			printf("NOT EQUAL!!\n");
-		} else {
-			printf("EQUAL!!!\n");
-		}
-	} else {
-		printf("NULL!\n");
-	}
-	*/
 	idx = dtrace_instance_lookup_id(s);
-	/*printf("idx = %u\n", idx);
-	printf("dtrace_istc_probes[idx] = %p\n", dtrace_istc_probes[idx]);
-*/
 	return (dtrace_istc_probes[idx]);
 }
 

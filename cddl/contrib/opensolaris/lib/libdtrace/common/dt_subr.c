@@ -158,11 +158,6 @@ dtrace_xstr2desc(dtrace_hdl_t *dtp, dtrace_probespec_t spec,
 		cnt++;
 	} while (--p >= s);
 
-	if (cnt <= 4) {
-		printf("cnt <= 4, %d\n", cnt);
-		(void) strcpy(pdp->dtpd_instance, "host");
-	}
-
 	pdp->dtpd_id = DTRACE_IDNONE;
 	return (0);
 }

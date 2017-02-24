@@ -311,6 +311,7 @@ dtrace_probe_error(const char *instance, dtrace_state_t *state,
 	pushq	%rbp
 	movq	%rsp, %rbp
 /*
+	illval(stack first)
 	fltoffs(r9)
 	fault(r8)
 	which(rcx)
@@ -318,7 +319,8 @@ dtrace_probe_error(const char *instance, dtrace_state_t *state,
 	state(rsi)
 	instance(rdi)
 	--------------
-	fltoffs(stack)
+	illval(stack second)
+	fltoffs(stack first)
 	fault(r9)
 	which(r8)
 	epid(rcx)
@@ -327,13 +329,13 @@ dtrace_probe_error(const char *instance, dtrace_state_t *state,
 	instance(rdi)
 */
 	subq	$0x8, %rsp
-	movq	%r9, (%rsp) /* fltoffs(second on stack) */
+	movq	%r9, (%rsp) /* fltoffs(first on the stack) */
 	movq	%r8, %r9 /* fault(r9) */
 	movq	%rcx, %r8 /* which(r8) */
 	movq	%rdx, %rcx /* epid(rcx) */
 	movq	%rsi, %rdx /* state(rdx) */
 	movl	dtrace_probeid_error(%rip), %esi /* dtrace_probeid_error(rsi) */
-	/* movq %rdi, %rdi -- for the instance string */
+	/* The instance string is already in the correct register */
 	call	dtrace_distributed_probe
 	addq	$0x8, %rsp
 	leave

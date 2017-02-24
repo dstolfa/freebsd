@@ -160,7 +160,6 @@ dtrace_load(void *dummy)
 
 	ASSERT(dtrace_provider != NULL);
 	ASSERT((dtrace_provider_id_t)dtrace_provider == id);
-	printf("dtrace_provider->dtpv_instance = %s\n", dtrace_provider->dtpv_instance);
 
 	dtrace_provider->dtpv_next = NULL;
 	dtrace_probeid_begin = dtrace_probe_create((dtrace_provider_id_t)
