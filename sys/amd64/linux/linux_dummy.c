@@ -45,7 +45,6 @@ LIN_SDT_PROVIDER_DECLARE(LINUX_DTRACE);
 
 DUMMY(mincore);
 DUMMY(sendfile);
-DUMMY(ptrace);
 DUMMY(syslog);
 DUMMY(setfsuid);
 DUMMY(setfsgid);
@@ -115,7 +114,6 @@ DUMMY(inotify_init1);
 DUMMY(preadv);
 DUMMY(pwritev);
 /* linux 2.6.31: */
-DUMMY(rt_tgsigqueueinfo);
 DUMMY(perf_event_open);
 /* linux 2.6.38: */
 DUMMY(fanotify_init);
