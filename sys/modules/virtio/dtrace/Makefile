@@ -23,6 +23,11 @@
 # SUCH DAMAGE.
 #
 
-SUBDIR=	virtio pci network block balloon scsi random console dtrace
+.PATH: ${.CURDIR}/../../../dev/virtio/dtrace
 
-.include <bsd.subdir.mk>
+KMOD=	virtio_dtrace
+SRCS=	virtio_dtrace.c
+SRCS+=	virtio_bus_if.h virtio_if.h
+SRCS+=	bus_if.h device_if.h
+
+.include <bsd.kmod.mk>

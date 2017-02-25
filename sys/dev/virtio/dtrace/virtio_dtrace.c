@@ -29,19 +29,40 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/kernel.h>
+#include <sys/malloc.h>
 #include <sys/module.h>
+#include <sys/lock.h>
+#include <sys/mutex.h>
 #include <sys/taskqueue.h>
+#include <sys/queue.h>
 
-#include <sys/dtrace.h>
+#include <sys/conf.h>
+
+
+#include <machine/bus.h>
+#include <machine/resource.h>
+#include <sys/bus.h>
+
+/*
+ * DTrace communication layer
+ */
+#include <sys/dtvirt.h>
 
 #include <dev/virtio/virtio.h>
-#include <dev/virtio/virqueue.h>
+#include <dev/virtio/virtqueue.h>
 #include <dev/virtio/dtrace/virtio_dtrace.h>
+
+#include "virtio_if.h"
+
+#define	VTDTR_BULK_BUFSZ	128
 
 struct vtdtr_probe {
 	uint32_t			vtdprobe_id;
 	SLIST_ENTRY(vtdtr_probe)	vtdprobe_next;
-}
+};
 
 struct vtdtr_softc {
 	device_t			vtdtr_dev;
@@ -67,6 +88,54 @@ struct vtdtr_softc {
 	struct mtx			vtdtr_probe_list_mtx;
 };
 
+/*
+ * TODO:
+ *  - Event handler
+ *  - Bidirectional flow
+ *  - Routines to interact(read and write to virtqueues)
+ */
+
+#define	VTDTR_LOCK(__sc)		(mtx_lock(&((__sc)->vtdtr_mtx)))
+#define	VTDTR_UNLOCK(__sc)		(mtx_unlock(&((__sc)->vtdtr_mtx)))
+#define	VTDTR_LOCK_ASSERT(__sc) \
+    (mtx_assert(&((__sc)->vtdtr_mtx), MA_OWNED))
+#define	VTDTR_LOCK_ASSERT_NOTOWNED(__sc) \
+    (mtx_assert(&((__sc)->vtdtr_mtx), MA_NOTOWNED))
+#define	VTDTR_CTRL_TX_LOCK(__sc)	(mtx_lock(&((__sc)->vtdtr_ctrl_tx_mtx)))
+#define	VTDTR_CTRL_TX_UNLOCK(__sc)	(mtx_unlock(&((__sc)->vtdtr_ctrl_tx_mtx)))
+#define	VTDTR_CTRL_TX_LOCK_ASSERT(__sc) \
+    (mtx_assert(&((__sc)->vtdtr_ctrl_tx_mtx), MA_OWNED))
+#define	VTDTR_CTRL_TX_LOCK_ASSERT_NOTOWNED(__sc) \
+    (mtx_assert(&((__sc)->vtdtr_ctrl_tx_mtx), MA_NOTOWNED))
+
+static int	vtdtr_modevent(module_t, int, void *);
+static void	vtdtr_cleanup(void);
+
+static int	vtdtr_probe(device_t);
+static int	vtdtr_attach(device_t);
+static int	vtdtr_detach(device_t);
+static int	vtdtr_config_change(device_t);
+static void	vtdtr_negotiate_features(struct vtdtr_softc *);
+static void	vtdtr_setup_features(struct vtdtr_softc *);
+static int	vtdtr_alloc_probelist(struct vtdtr_softc *);
+static int	vtdtr_alloc_virtqueues(struct vtdtr_softc *);
+static void	vtdtr_stop(struct vtdtr_softc *);
+static int	vtdtr_ctrl_event_enqueue(struct vtdtr_softc *,
+         	    struct virtio_dtrace_control *);
+static int	vtdtr_ctrl_event_create(struct vtdtr_softc *);
+static int	vtdtr_ctrl_event_requeue(struct vtdtr_softc *,
+         	    struct virtio_dtrace_control *);
+static void	vtdtr_ctrl_event_populate(struct vtdtr_softc *);
+static void	vtdtr_ctrl_event_drain(struct vtdtr_softc *);
+static int	vtdtr_ctrl_init(struct vtdtr_softc *);
+static void	vtdtr_ctrl_deinit(struct vtdtr_softc *);
+static void	vtdtr_ctrl_task_act(void *, int);
+static void	vtdtr_enable_interrupts(struct vtdtr_softc *);
+static void 	vtdtr_ctrl_send_control(struct vtdtr_softc *, uint32_t,
+          	    uint16_t, uint16_t);
+static void	vtdtr_stop(struct vtdtr_softc *);
+static void	vtdtr_destroy_probelist(struct vtdtr_softc *);
+
 static device_method_t vtdtr_methods[] = {
 	/* Device methods. */
 	DEVMETHOD(device_probe,		vtdtr_probe),
@@ -81,7 +150,7 @@ static device_method_t vtdtr_methods[] = {
 
 #define	VTDTR_FEATURES	VIRTIO_DTRACE_F_PROBE
 
-static driver_t vtcon_driver = {
+static driver_t vtdtr_driver = {
 	"vtdtr",
 	vtdtr_methods,
 	sizeof(struct vtdtr_softc)
@@ -100,27 +169,6 @@ static struct virtio_feature_desc vtdtr_feature_desc[] = {
 
 	{ 0, NULL }
 };
-
-static int	vtdtr_modevent(module_t, int, void *);
-static void	vtdtr_cleanup(void);
-
-static int	vtdtr_probe(device_t);
-static int	vtdtr_attach(device_t);
-static int	vtdtr_detach(device_t);
-static int	vtdtr_config_change(device_t);
-static void	vtdtr_negotiate_features(struct vtdtr_softc *);
-static void	vtdtr_setup_features(struct vtdtr_softc *);
-static int	vtdtr_alloc_probelist(struct vtdtr_softc *);
-static int	vtdtr_alloc_virtqueues(struct vtdtr_softc *);
-static void	vtdtr_ctrl_task_act(void *, int);
-static int	vtdtr_ctrl_init(struct vtdtr_softc *);
-static void	vtdtr_enable_interrupts(struct vtdtr_softc *);
-static void 	vtdtr_ctrl_send_control(struct vtdtr_softc *, uint32_t,
-    uint16_t, uint16_t);
-static void	vtdtr_detach(device_t);
-static void	vtdtr_stop(struct softc *);
-static void	vtdtr_ctrl_deinit(struct softc *);
-static void	vtdtr_destroy_probelist(struct softc *);
 
 static int
 vtdtr_modevent(module_t mod, int type, void *unused)
@@ -184,11 +232,7 @@ vtdtr_attach(device_t dev)
 	virtio_set_feature_desc(dev, vtdtr_feature_desc);
 	vtdtr_setup_features(sc);
 
-	error = vtdtr_alloc_probelist(sc);
-	if (error) {
-		device_printf(dev, "cannot allocate softc probe list\n");
-		goto fail;
-	}
+	vtdtr_alloc_probelist(sc);
 
 	error = vtdtr_alloc_virtqueues(sc);
 	if (error) {
@@ -284,12 +328,147 @@ vtdtr_setup_features(struct vtdtr_softc *sc)
 		sc->vtdtr_flags |= VTDTR_FLAG_PROVACTION;
 }
 
-static void
-vtdtr_alloc_probelist(struct softc *sc)
+static __inline void
+vtdtr_alloc_probelist(struct vtdtr_softc *sc)
 {
-	/*
-	 * Initialize the list here
-	 * SLIST_INIT
-	 */
-	return (0);
+	SLIST_INIT(&sc->vtdtr_enabled_probes);
+}
+
+static int
+vtdtr_alloc_virtqueues(struct vtdtr_softc *sc)
+{
+	device_t dev;
+	struct vq_alloc_info *info;
+	int i, idx, error;
+
+	dev = sc->vtdtr_dev;
+
+	info = malloc(sizeof(struct vq_alloc_info), M_TEMP, M_NOWAIT);
+	if (info == NULL)
+		return (ENOMEM);
+
+	VQ_ALLOC_INFO_INIT(&info[0], 0, vtdtr_ctrl_event_intr, sc, &sc->vtdtr_ctrl_rxvq,
+	    "%s-control RX", device_get_nameunit(dev));
+	VQ_ALLOC_INFO_INIT(&info[1], 0, NULL, sc, &sc->vtdtr_ctrl_txvq,
+	    "%s-control TX", device_get_nameunit(dev));
+
+	error = virtio_alloc_virtqueues(dev, 0, 2, info);
+	free(info, M_TEMP);
+
+	return (error);
+}
+
+static void
+vtdtr_stop(struct vtdtr_softc *sc)
+{
+	vtdtr_disable_interrupts(sc);
+	virtio_stop(sc->vtdtr_dev);
+}
+
+static int
+vtdtr_ctrl_event_enqueue(struct vtdtr_softc *sc,
+    struct virtio_dtrace_control *ctrl)
+{
+	struct sglist_seg segs[2];
+	struct sglist sg;
+	struct virtqueue *vq;
+	int error;
+
+	vq = sc->vtdtr_ctrl_rxvq;
+
+	sglist_init(&sg, 2, segs);
+	error = sglist_append(&sg, ctrl,
+	    sizeof(struct virtio_dtrace_control) + VTDTR_BULK_BUFSZ);
+	KASSERT(error == 0, ("%s: error %d adding control to sglist",
+	    __func__, error));
+
+	return (virtqueue_enqueue(vq, ctrl, &sg, 0, sg.sg_nseg));
+}
+
+static int
+vtdtr_ctrl_event_create(struct vtdtr_softc *sc)
+{
+	struct virtio_dtrace_control *ctrl;
+	int error;
+
+	ctrl = malloc(sizeof(struct virtio_dtrace_control) + VTDTR_BULK_BUFSZ,
+	    M_DEVBUF, M_ZERO | M_NOWAIT);
+
+	if (ctrl == NULL)
+		return (ENOMEM);
+
+	error = vtdtr_ctrl_event_enqueue(sc, ctrl);
+	if (error)
+		free(ctrl, M_DEVBUF);
+
+	return (error);
+}
+
+static int
+vtdtr_ctrl_event_requeue(struct vtdtr_softc *sc,
+    struct virtio_dtrace_control *ctrl)
+{
+	int error;
+
+	bzero(ctrl, sizeof(struct virtio_dtrace_control) + VTDTR_BULK_BUFSZ);
+	error = vtdtr_ctrl_event_enqueue(sc, ctrl);
+	KASSERT(error == 0,
+	    ("%s: cannot requeue control buffer %d", __func__, error));
+
+}
+
+static int
+vtdtr_ctrl_event_populate(struct vtdtr_softc *sc)
+{
+	struct virtqueue *vq;
+	int nbufs, error;
+
+	vq = sc->vtdtr_ctrl_rxvq;
+	error = ENOSPC;
+
+	for (nbufs = 0; virtqueue_full(vq) == 0; nbufs++) {
+		error = vtdtr_ctrl_event_create(sc);
+		if (error)
+			break;
+	}
+
+	if (nbufs > 0) {
+		virtqueue_notify(vq);
+		error = 0;
+	}
+
+	return (error);
+}
+
+static void
+vtdtr_ctrl_event_drain(struct vtdtr_softc *sc)
+{
+	struct virtio_dtrace_control *ctrl;
+	struct virtqueue *vq;
+	int last;
+
+	vq = sc->vtdtr_ctrl_rxvq;
+	last = 0;
+
+	if (vq == NULL)
+		return;
+
+	VTDTR_LOCK(sc);
+
+	while ((ctrl = virtqueue_drain(vq, &last)) != NULL)
+		free(ctrl, M_DEVBUF);
+
+	VTDTR_UNLOCK(sc);
+}
+
+static __inline int
+vtdtr_ctrl_init(struct vtdtr_softc *sc)
+{
+	return (vtdtr_ctrl_event_populate(sc));
+}
+
+static __inline void
+vtdtr_ctrl_deinit(struct vtdtr_softc *sc)
+{
+	vtdtr_ctrl_event_drain(sc);
 }
