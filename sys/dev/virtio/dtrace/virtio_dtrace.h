@@ -41,12 +41,15 @@
  * the virtual machine name and there is no implicity trust being placed in the
  * userspace to handle things properly(bhyve).
  */
+#define	VIRTIO_DTRACE_DEVICE_READY	0x00	/* The device is ready */
 #define	VIRTIO_DTRACE_REGISTER		0x01	/* Provider Registration */
 #define	VIRTIO_DTRACE_UNREGISTER	0x02	/* Provider Unregistration */
 #define	VIRTIO_DTRACE_DESTROY		0x03	/* Instance Destruction */
 #define	VIRTIO_PROBE_CREATE		0x04	/* Probe Creation */
 #define	VIRTIO_DTRACE_PROBE_INSTALL	0x05	/* Probe Installation */
 #define	VIRTIO_DTRACE_PROBE_UNINSTALL	0x06	/* Probe Uninstallation */
+
+#define	VIRTIO_DTRACE_BAD_ID (~(uint32_t)0)
 
 struct virtio_dtrace_control {
 	uint32_t	event;

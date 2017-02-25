@@ -125,7 +125,7 @@ static int	vtdtr_ctrl_event_enqueue(struct vtdtr_softc *,
 static int	vtdtr_ctrl_event_create(struct vtdtr_softc *);
 static int	vtdtr_ctrl_event_requeue(struct vtdtr_softc *,
          	    struct virtio_dtrace_control *);
-static void	vtdtr_ctrl_event_populate(struct vtdtr_softc *);
+static int	vtdtr_ctrl_event_populate(struct vtdtr_softc *);
 static void	vtdtr_ctrl_event_drain(struct vtdtr_softc *);
 static int	vtdtr_ctrl_init(struct vtdtr_softc *);
 static void	vtdtr_ctrl_deinit(struct vtdtr_softc *);
@@ -281,7 +281,8 @@ vtdtr_detach(device_t dev)
 		vtdtr_stop(sc);
 	VTDTR_UNLOCK(sc);
 
-	if (sc->vtdtr_flags & VTDTR_FLAG_DTRACEACTION) {
+	if (sc->vtdtr_flags & VTDTR_FLAG_PROBEACTION ||
+	    sc->vtdtr_flags & VTDTR_FLAG_PROVACTION) {
 		taskqueue_drain(taskqueue_thread, &sc->vtdtr_ctrl_task);
 		vtdtr_ctrl_deinit(sc);
 	}
