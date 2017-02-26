@@ -36,11 +36,11 @@ __FBSDID("$FreeBSD$");
 #include <sys/module.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
+#include <sys/sglist.h>
 #include <sys/taskqueue.h>
 #include <sys/queue.h>
 
 #include <sys/conf.h>
-
 
 #include <machine/bus.h>
 #include <machine/resource.h>
@@ -108,6 +108,8 @@ struct vtdtr_softc {
 #define	VTDTR_CTRL_TX_LOCK_ASSERT_NOTOWNED(__sc) \
     (mtx_assert(&((__sc)->vtdtr_ctrl_tx_mtx), MA_NOTOWNED))
 
+static MALLOC_DEFINE(M_VIRTIO_DTRACE, "dtvirtio", "DTrace VirtIO");
+
 static int	vtdtr_modevent(module_t, int, void *);
 static void	vtdtr_cleanup(void);
 
@@ -117,23 +119,31 @@ static int	vtdtr_detach(device_t);
 static int	vtdtr_config_change(device_t);
 static void	vtdtr_negotiate_features(struct vtdtr_softc *);
 static void	vtdtr_setup_features(struct vtdtr_softc *);
-static int	vtdtr_alloc_probelist(struct vtdtr_softc *);
+static void	vtdtr_alloc_probelist(struct vtdtr_softc *);
 static int	vtdtr_alloc_virtqueues(struct vtdtr_softc *);
 static void	vtdtr_stop(struct vtdtr_softc *);
 static int	vtdtr_ctrl_event_enqueue(struct vtdtr_softc *,
          	    struct virtio_dtrace_control *);
 static int	vtdtr_ctrl_event_create(struct vtdtr_softc *);
-static int	vtdtr_ctrl_event_requeue(struct vtdtr_softc *,
+static void	vtdtr_ctrl_event_requeue(struct vtdtr_softc *,
          	    struct virtio_dtrace_control *);
 static int	vtdtr_ctrl_event_populate(struct vtdtr_softc *);
 static void	vtdtr_ctrl_event_drain(struct vtdtr_softc *);
 static int	vtdtr_ctrl_init(struct vtdtr_softc *);
 static void	vtdtr_ctrl_deinit(struct vtdtr_softc *);
+static void	vtdtr_ctrl_event_intr(void *);
 static void	vtdtr_ctrl_task_act(void *, int);
 static void	vtdtr_enable_interrupts(struct vtdtr_softc *);
-static void 	vtdtr_ctrl_send_control(struct vtdtr_softc *, uint32_t,
-          	    uint16_t, uint16_t);
-static void	vtdtr_stop(struct vtdtr_softc *);
+static void	vtdtr_disable_interrupts(struct vtdtr_softc *);
+static void	vtdtr_ctrl_process_event(struct vtdtr_softc *,
+           	    struct virtio_dtrace_control *, void *, size_t);
+static void	vtdtr_ctrl_process_provaction(struct vtdtr_softc *,
+           	    struct virtio_dtrace_control *, void *, size_t);
+static void	vtdtr_ctrl_process_selfdestroy(struct vtdtr_softc *,
+           	    struct virtio_dtrace_control *, void *, size_t);
+static void	vtdtr_ctrl_process_probeaction(struct vtdtr_softc *,
+           	    struct virtio_dtrace_control *, void *, size_t);
+static void 	vtdtr_ctrl_send_control(struct vtdtr_softc *, uint32_t, uint32_t);
 static void	vtdtr_destroy_probelist(struct vtdtr_softc *);
 
 static device_method_t vtdtr_methods[] = {
@@ -259,8 +269,7 @@ vtdtr_attach(device_t dev)
 	}
 
 	vtdtr_enable_interrupts(sc);
-	vtdtr_ctrl_send_control(sc, VIRTIO_DTRACE_BAD_ID,
-	    VIRTIO_DTRACE_DEVICE_READY, 1);
+	vtdtr_ctrl_send_control(sc, VIRTIO_DTRACE_DEVICE_READY, 1);
 fail:
 	if (error)
 		vtdtr_detach(dev);
@@ -300,6 +309,7 @@ vtdtr_config_change(device_t dev)
 	/*
 	 * There is no reason to change the configuration yet.
 	 */
+	return (0);
 }
 
 static void
@@ -340,7 +350,7 @@ vtdtr_alloc_virtqueues(struct vtdtr_softc *sc)
 {
 	device_t dev;
 	struct vq_alloc_info *info;
-	int i, idx, error;
+	int error;
 
 	dev = sc->vtdtr_dev;
 
@@ -380,8 +390,8 @@ vtdtr_ctrl_event_enqueue(struct vtdtr_softc *sc,
 	sglist_init(&sg, 2, segs);
 	error = sglist_append(&sg, ctrl,
 	    sizeof(struct virtio_dtrace_control) + VTDTR_BULK_BUFSZ);
-	KASSERT(error == 0, ("%s: error %d adding control to sglist",
-	    __func__, error));
+	KASSERT(error == 0,
+	    ("%s: error %d adding control to sglist", __func__, error));
 
 	return (virtqueue_enqueue(vq, ctrl, &sg, 0, sg.sg_nseg));
 }
@@ -405,7 +415,7 @@ vtdtr_ctrl_event_create(struct vtdtr_softc *sc)
 	return (error);
 }
 
-static int
+static void
 vtdtr_ctrl_event_requeue(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
 {
@@ -413,21 +423,20 @@ vtdtr_ctrl_event_requeue(struct vtdtr_softc *sc,
 
 	bzero(ctrl, sizeof(struct virtio_dtrace_control) + VTDTR_BULK_BUFSZ);
 	error = vtdtr_ctrl_event_enqueue(sc, ctrl);
-	KASSERT(error == 0,
-	    ("%s: cannot requeue control buffer %d", __func__, error));
-
+	KASSERT(error == 0, ("%s: cannot requeue control buffer %d",
+	    __func__, error));
 }
 
 static int
 vtdtr_ctrl_event_populate(struct vtdtr_softc *sc)
 {
 	struct virtqueue *vq;
-	int nbufs, error;
+	int error, nbufs;
 
 	vq = sc->vtdtr_ctrl_rxvq;
 	error = ENOSPC;
 
-	for (nbufs = 0; virtqueue_full(vq) == 0; nbufs++) {
+	for (nbufs = 0; !virtqueue_full(vq); nbufs++) {
 		error = vtdtr_ctrl_event_create(sc);
 		if (error)
 			break;
@@ -472,4 +481,188 @@ static __inline void
 vtdtr_ctrl_deinit(struct vtdtr_softc *sc)
 {
 	vtdtr_ctrl_event_drain(sc);
+}
+
+static void
+vtdtr_ctrl_event_intr(void *xsc)
+{
+	struct vtdtr_softc *sc;
+	sc = xsc;
+
+	/*
+	 * XXX: It might be a good idea to use the DTrace taskqueue here, but it
+	 * would require intertwining between the virtio driver and the DTrace
+	 * framework itself
+	 */
+	taskqueue_enqueue(taskqueue_thread, &sc->vtdtr_ctrl_task);
+}
+
+static void
+vtdtr_ctrl_task_act(void *xsc, int nprobes)
+{
+	struct vtdtr_softc *sc;
+	struct virtqueue *vq;
+	struct virtio_dtrace_control *ctrl;
+	uint32_t len;
+	size_t plen;
+	void *payload;
+
+	sc = xsc;
+	vq = sc->vtdtr_ctrl_rxvq;
+	payload = NULL;
+	plen = 0;
+	len = 0;
+
+	VTDTR_LOCK(sc);
+
+	while (nprobes-- > 0) {
+		ctrl = virtqueue_dequeue(vq, &len);
+		if (ctrl == NULL)
+			break;
+
+		if (len > sizeof(*ctrl)) {
+			payload = (void *)(ctrl + 1);
+			plen = len - sizeof(*ctrl);
+		}
+
+		VTDTR_UNLOCK(sc);
+		vtdtr_ctrl_process_event(sc, ctrl, payload, plen);
+		VTDTR_LOCK(sc);
+
+		vtdtr_ctrl_event_requeue(sc, ctrl);
+	}
+
+	VTDTR_UNLOCK(sc);
+}
+
+static __inline void
+vtdtr_enable_interrupts(struct vtdtr_softc *sc)
+{
+	VTDTR_LOCK(sc);
+	virtqueue_enable_intr(sc->vtdtr_ctrl_rxvq);
+	VTDTR_UNLOCK(sc);
+}
+
+static __inline void
+vtdtr_disable_interrupts(struct vtdtr_softc *sc)
+{
+	VTDTR_LOCK_ASSERT(sc);
+	virtqueue_disable_intr(sc->vtdtr_ctrl_rxvq);
+}
+
+static void
+vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
+    struct virtio_dtrace_control *ctrl, void *payload, size_t plen)
+{
+	device_t dev;
+
+	dev = sc->vtdtr_dev;
+
+	/*
+	 * XXX: Double switch statement... meh.
+	 */
+	switch (ctrl->event) {
+	case VIRTIO_DTRACE_REGISTER:
+	case VIRTIO_DTRACE_UNREGISTER:
+		if (sc->vtdtr_flags & VTDTR_FLAG_PROVACTION)
+			vtdtr_ctrl_process_provaction(sc, ctrl, payload, plen);
+		break;
+	case VIRTIO_DTRACE_DESTROY:
+		vtdtr_ctrl_process_selfdestroy(sc, ctrl, payload, plen);
+		break;
+	case VIRTIO_DTRACE_PROBE_CREATE:
+	case VIRTIO_DTRACE_PROBE_INSTALL:
+	case VIRTIO_DTRACE_PROBE_UNINSTALL:
+		if (sc->vtdtr_flags & VTDTR_FLAG_PROBEACTION)
+			vtdtr_ctrl_process_probeaction(sc, ctrl, payload, plen);
+		break;
+	}
+}
+
+static void
+vtdtr_ctrl_process_provaction(struct vtdtr_softc *sc,
+    struct virtio_dtrace_control *ctrl, void *payload, size_t plen)
+{
+	/*
+	 * TODO: Implement the functionality
+	 */
+	switch (ctrl->event) {
+	case VIRTIO_DTRACE_REGISTER:
+		break;
+	case VIRTIO_DTRACE_UNREGISTER:
+		break;
+	}
+}
+
+static void
+vtdtr_ctrl_process_selfdestroy(struct vtdtr_softc *sc,
+    struct virtio_dtrace_control *ctrl, void *payload, size_t plen)
+{
+	/*
+	 * TODO: Implement the functionality
+	 */
+}
+
+static void
+vtdtr_ctrl_process_probeaction(struct vtdtr_softc *sc,
+    struct virtio_dtrace_control *ctrl, void *payload, size_t plen)
+{
+	/*
+	 * TODO: Implement the functionality
+	 */
+	switch (ctrl->event) {
+	case VIRTIO_DTRACE_PROBE_CREATE:
+		break;
+	case VIRTIO_DTRACE_PROBE_INSTALL:
+		break;
+	case VIRTIO_DTRACE_PROBE_UNINSTALL:
+		break;
+	}
+}
+
+static void
+vtdtr_ctrl_poll(struct vtdtr_softc *sc,
+    struct virtio_dtrace_control *ctrl)
+{
+	struct sglist_seg segs[2];
+	struct sglist sg;
+	struct virtqueue *vq;
+	int error;
+
+	vq = sc->vtdtr_ctrl_txvq;
+
+	sglist_init(&sg, 2, segs);
+	error = sglist_append(&sg, ctrl, sizeof(struct virtio_dtrace_control));
+	KASSERT(error == 0,
+	    ("%s: error %d adding control to sglist", __func__, error));
+
+	/*
+	 * TODO: actually add the stuff in there
+	 */
+}
+
+static void
+vtdtr_ctrl_send_control(struct vtdtr_softc *sc, uint32_t event, uint32_t value)
+{
+	struct virtio_dtrace_control ctrl;
+
+	if (((sc->vtdtr_flags & VTDTR_FLAG_PROBEACTION) |
+	     (sc->vtdtr_flags & VTDTR_FLAG_PROVACTION)) == 0)
+		return;
+
+	ctrl.event = event;
+	ctrl.value = value;
+
+	vtdtr_ctrl_poll(sc, &ctrl);
+}
+
+static void
+vtdtr_destroy_probelist(struct vtdtr_softc *sc)
+{
+	struct vtdtr_probe *tmp = NULL;
+	while (!SLIST_EMPTY(&sc->vtdtr_enabled_probes)) {
+		tmp = SLIST_FIRST(&sc->vtdtr_enabled_probes);
+		SLIST_REMOVE_HEAD(&sc->vtdtr_enabled_probes, vtdprobe_next);
+		free(tmp, M_VIRTIO_DTRACE);
+	}
 }

@@ -45,11 +45,9 @@
 #define	VIRTIO_DTRACE_REGISTER		0x01	/* Provider Registration */
 #define	VIRTIO_DTRACE_UNREGISTER	0x02	/* Provider Unregistration */
 #define	VIRTIO_DTRACE_DESTROY		0x03	/* Instance Destruction */
-#define	VIRTIO_PROBE_CREATE		0x04	/* Probe Creation */
+#define	VIRTIO_DTRACE_PROBE_CREATE	0x04	/* Probe Creation */
 #define	VIRTIO_DTRACE_PROBE_INSTALL	0x05	/* Probe Installation */
 #define	VIRTIO_DTRACE_PROBE_UNINSTALL	0x06	/* Probe Uninstallation */
-
-#define	VIRTIO_DTRACE_BAD_ID (~(uint32_t)0)
 
 struct virtio_dtrace_control {
 	uint32_t	event;
