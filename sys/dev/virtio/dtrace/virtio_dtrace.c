@@ -139,10 +139,9 @@ static void	vtdtr_ctrl_process_event(struct vtdtr_softc *,
            	    struct virtio_dtrace_control *, void *, size_t);
 static void	vtdtr_ctrl_process_provaction(struct vtdtr_softc *,
            	    struct virtio_dtrace_control *, void *, size_t);
-static void	vtdtr_ctrl_process_selfdestroy(struct vtdtr_softc *,
-           	    struct virtio_dtrace_control *, void *, size_t);
+static void	vtdtr_ctrl_process_selfdestroy();
 static void	vtdtr_ctrl_process_probeaction(struct vtdtr_softc *,
-           	    struct virtio_dtrace_control *, void *, size_t);
+           	    struct virtio_dtrace_control *);
 static void 	vtdtr_ctrl_send_control(struct vtdtr_softc *, uint32_t, uint32_t);
 static void	vtdtr_destroy_probelist(struct vtdtr_softc *);
 
@@ -588,24 +587,31 @@ vtdtr_ctrl_process_provaction(struct vtdtr_softc *sc,
 	 */
 	switch (ctrl->event) {
 	case VIRTIO_DTRACE_REGISTER:
+		error = dtvirt_register(ctrl->value, payload, plen);
+		KASSERT(error == 0,
+		    ("%s: error %d registering provider in dtvirt",
+		    __func__, error));
 		break;
 	case VIRTIO_DTRACE_UNREGISTER:
+		error = dtvirt_unregister(ctrl->value, payload, plen);
+		KASSERT(error == 0,
+		    ("%s: error %d unregistering provider in dtvirt",
+		    __func__, error));
 		break;
 	}
 }
 
 static void
-vtdtr_ctrl_process_selfdestroy(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl, void *payload, size_t plen)
+vtdtr_ctrl_process_selfdestroy()
 {
-	/*
-	 * TODO: Implement the functionality
-	 */
+	error = dtvirt_selfdestroy();
+	KASSERT(error == 0, ("%s: error %s self-destroying",
+	    __func__, error));
 }
 
 static void
 vtdtr_ctrl_process_probeaction(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl, void *payload, size_t plen)
+    struct virtio_dtrace_control *ctrl)
 {
 	/*
 	 * TODO: Implement the functionality
@@ -637,8 +643,28 @@ vtdtr_ctrl_poll(struct vtdtr_softc *sc,
 	    ("%s: error %d adding control to sglist", __func__, error));
 
 	/*
-	 * TODO: actually add the stuff in there
+	 * XXX: Is this correct?
+	 *
+	 * There does not seem to be a good reason to lock the entire device,
+	 * only the TX virtqueue. The reasoning is that we do not care whether
+	 * we delegate processing requests, such as probe installing or
+	 * uninstalling, provider registration and similar operations to DTrace
+	 * while we are responding to a message or when we notify that we are
+	 * shutting down.
 	 */
+	VTDTR_CTRL_TX_LOCK(sc);
+	KASSERT(sc->vtdtr_flags & VTDTR_FLAG_PROBEACTION ||
+	    sc->vtdtr_flags & VTDTR_FLAG_PROVACTION,
+	    ("%s: PROBEACTION || PROVACTION is not negotiated", __func__));
+
+	if (!virtqueue_empty(vq))
+		return;
+	if (virtqueue_enqueue(vq, ctrl, &sg, sg.sg_nseg, 0) != 0)
+		return;
+
+	virtqueue_notify(vq);
+	virtqueue_poll(vq, NULL);
+	VTDTR_CTRL_TX_UNLOCK(sc);
 }
 
 static void
