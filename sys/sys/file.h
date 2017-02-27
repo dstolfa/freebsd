@@ -53,6 +53,7 @@ struct vnode;
 
 #endif /* _KERNEL */
 
+#define	DTYPE_NONE	0	/* not yet initialized */
 #define	DTYPE_VNODE	1	/* file */
 #define	DTYPE_SOCKET	2	/* communications endpoint */
 #define	DTYPE_PIPE	3	/* pipe */
@@ -66,6 +67,7 @@ struct vnode;
 #define	DTYPE_DEV	11	/* Device specific fd type */
 #define	DTYPE_PROCDESC	12	/* process descriptor */
 #define	DTYPE_LINUXEFD	13	/* emulation eventfd type */
+#define	DTYPE_LINUXTFD	14	/* emulation timerfd type */
 
 #ifdef _KERNEL
 

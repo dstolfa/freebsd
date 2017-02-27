@@ -104,6 +104,7 @@ static pci_vendor_info_t em_vendor_info_array[] =
 	PVID(0x8086, E1000_DEV_ID_82571EB_QUAD_COPPER_LP, "Intel(R) PRO/1000 Network Connection"),
 	PVID(0x8086, E1000_DEV_ID_82571EB_QUAD_FIBER, "Intel(R) PRO/1000 Network Connection"), 
 	PVID(0x8086, E1000_DEV_ID_82571PT_QUAD_COPPER, "Intel(R) PRO/1000 Network Connection"),
+	PVID(0x8086, E1000_DEV_ID_82572EI,		"Intel(R) PRO/1000 Network Connection"),
 	PVID(0x8086, E1000_DEV_ID_82572EI_COPPER,	"Intel(R) PRO/1000 Network Connection"),
 	PVID(0x8086, E1000_DEV_ID_82572EI_FIBER,	"Intel(R) PRO/1000 Network Connection"), 
 	PVID(0x8086, E1000_DEV_ID_82572EI_SERDES,	"Intel(R) PRO/1000 Network Connection"), 
@@ -919,7 +920,7 @@ em_if_attach_pre(if_ctx_t ctx)
 	 * Set the frame limits assuming
 	 * standard ethernet sized frames.
 	 */
-	adapter->hw.mac.max_frame_size =
+	scctx->isc_max_frame_size = adapter->hw.mac.max_frame_size =
 	    ETHERMTU + ETHER_HDR_LEN + ETHERNET_FCS_SIZE;
 
 	/*
@@ -1116,6 +1117,7 @@ em_if_mtu_set(if_ctx_t ctx, uint32_t mtu)
   int max_frame_size;
   struct adapter *adapter = iflib_get_softc(ctx);
   struct ifnet *ifp = iflib_get_ifp(ctx); 
+  if_softc_ctx_t scctx = iflib_get_softc_ctx(ctx);
   
   IOCTL_DEBUGOUT("ioctl rcv'd: SIOCSIFMTU (Set Interface MTU)");
   
@@ -1146,7 +1148,8 @@ em_if_mtu_set(if_ctx_t ctx, uint32_t mtu)
 	  return (EINVAL);
   }
   
-  adapter->hw.mac.max_frame_size = if_getmtu(ifp) + ETHER_HDR_LEN + ETHER_CRC_LEN;
+  scctx->isc_max_frame_size = adapter->hw.mac.max_frame_size =
+      if_getmtu(ifp) + ETHER_HDR_LEN + ETHER_CRC_LEN;
   return (0);
 }
 
@@ -1623,6 +1626,11 @@ em_if_timer(if_ctx_t ctx, uint16_t qid)
 	struct em_rx_queue *que;
 	int i;
 	int trigger = 0; 
+
+	if (qid != 0) {
+		/* XXX all this stuff is per-adapter */
+		return;
+	}
 
 	em_if_update_admin_status(ctx); 
 	em_update_stats_counters(adapter);
@@ -2230,13 +2238,62 @@ em_reset(if_ctx_t ctx)
 	case e1000_pch_spt:
 		pba = E1000_PBA_26K;
 		break;
+	case e1000_82575:
+  		pba = E1000_PBA_32K;
+		break;
+	case e1000_82576:
+	case e1000_vfadapt:
+		pba = E1000_READ_REG(hw, E1000_RXPBS);
+		pba &= E1000_RXPBS_SIZE_MASK_82576;
+		break;
+	case e1000_82580:
+	case e1000_i350:
+	case e1000_i354:
+	case e1000_vfadapt_i350:
+		pba = E1000_READ_REG(hw, E1000_RXPBS);
+		pba = e1000_rxpbs_adjust_82580(pba);
+		break;
+	case e1000_i210:
+	case e1000_i211:
+		pba = E1000_PBA_34K;
+		break;
 	default:
 		if (adapter->hw.mac.max_frame_size > 8192)
 			pba = E1000_PBA_40K; /* 40K for Rx, 24K for Tx */
 		else
 			pba = E1000_PBA_48K; /* 48K for Rx, 16K for Tx */
 	}
-	E1000_WRITE_REG(&adapter->hw, E1000_PBA, pba);
+
+        /* Special needs in case of Jumbo frames */
+        if ((hw->mac.type == e1000_82575) && (ifp->if_mtu > ETHERMTU)) {
+                u32 tx_space, min_tx, min_rx;
+                pba = E1000_READ_REG(hw, E1000_PBA);
+                tx_space = pba >> 16;
+                pba &= 0xffff;
+                min_tx = (adapter->hw.mac.max_frame_size +
+                    sizeof(struct e1000_tx_desc) - ETHERNET_FCS_SIZE) * 2;
+                min_tx = roundup2(min_tx, 1024);
+                min_tx >>= 10;
+                min_rx = adapter->hw.mac.max_frame_size;
+                min_rx = roundup2(min_rx, 1024);
+                min_rx >>= 10;
+                if (tx_space < min_tx &&
+                    ((min_tx - tx_space) < pba)) {
+                        pba = pba - (min_tx - tx_space);
+                        /*
+                         * if short on rx space, rx wins
+                         * and must trump tx adjustment
+                         */
+                        if (pba < min_rx)
+                                pba = min_rx;
+                }
+                E1000_WRITE_REG(hw, E1000_PBA, pba);
+        }
+
+	if (hw->mac.type < igb_mac_min)
+		E1000_WRITE_REG(&adapter->hw, E1000_PBA, pba);
+	
+	INIT_DEBUGOUT1("em_reset: pba=%dK",pba);
 
 	/*
 	 * These parameters control the automatic generation (Tx) and
@@ -2252,7 +2309,7 @@ em_reset(if_ctx_t ctx)
 	 *   by 1500.
 	 * - The pause time is fairly large at 1000 x 512ns = 512 usec.
 	 */
-	rx_buffer_size = ((E1000_READ_REG(hw, E1000_PBA) & 0xffff) << 10 );
+	rx_buffer_size = (pba & 0xffff) << 10;
 	hw->fc.high_water = rx_buffer_size -
 	    roundup2(adapter->hw.mac.max_frame_size, 1024);
 	hw->fc.low_water = hw->fc.high_water - 1500;
@@ -2297,6 +2354,21 @@ em_reset(if_ctx_t ctx)
 		else
 			E1000_WRITE_REG(hw, E1000_PBA, 26);
 		break;
+	case e1000_82575:
+	case e1000_82576:
+		/* 8-byte granularity */
+		hw->fc.low_water = hw->fc.high_water - 8;
+		break;
+	case e1000_82580:
+	case e1000_i350:
+	case e1000_i354:
+	case e1000_i210:
+	case e1000_i211:
+	case e1000_vfadapt:
+	case e1000_vfadapt_i350:
+		/* 16-byte granularity */
+		hw->fc.low_water = hw->fc.high_water - 16;
+		break; 
         case e1000_ich9lan:
         case e1000_ich10lan:
 		if (if_getmtu(ifp) > ETHERMTU) {
@@ -2481,10 +2553,10 @@ em_setup_interface(if_ctx_t ctx)
 	INIT_DEBUGOUT("em_setup_interface: begin");
 
 	/* TSO parameters */
-	ifp->if_hw_tsomax = IP_MAXPACKET;
+	if_sethwtsomax(ifp, IP_MAXPACKET);
 	/* Take m_pullup(9)'s in em_xmit() w/ TSO into acount. */
-	ifp->if_hw_tsomaxsegcount = EM_MAX_SCATTER - 5;
-	ifp->if_hw_tsomaxsegsize = EM_TSO_SEG_SIZE;
+	if_sethwtsomaxsegcount(ifp, EM_MAX_SCATTER - 5);
+	if_sethwtsomaxsegsize(ifp, EM_TSO_SEG_SIZE);
 
 	/* Single Queue */
         if (adapter->tx_num_queues == 1) {
@@ -2967,9 +3039,7 @@ em_initialize_receive_unit(if_ctx_t ctx)
 	} else if (adapter->hw.mac.type >= igb_mac_min) {
 		u32 psize, srrctl = 0;
 
-		if (ifp->if_mtu > ETHERMTU) {
-			rctl |= E1000_RCTL_LPE;
-
+		if (if_getmtu(ifp) > ETHERMTU) {
 			/* Set maximum packet len */
 			psize = scctx->isc_max_frame_size;
 			if (psize <= 4096) {
@@ -2985,7 +3055,6 @@ em_initialize_receive_unit(if_ctx_t ctx)
 				psize += VLAN_TAG_SIZE;
 			E1000_WRITE_REG(&adapter->hw, E1000_RLPML, psize);
 		} else {
-			rctl &= ~E1000_RCTL_LPE;
 			srrctl |= 2048 >> E1000_SRRCTL_BSIZEPKT_SHIFT;
 			rctl |= E1000_RCTL_SZ_2048;
 		}
@@ -3031,8 +3100,7 @@ em_initialize_receive_unit(if_ctx_t ctx)
 			rxdctl |= IGB_RX_WTHRESH << 16; 
 			E1000_WRITE_REG(hw, E1000_RXDCTL(i), rxdctl);
 		}		
-	}
-	if (adapter->hw.mac.type >= e1000_pch2lan) {
+	} else if (adapter->hw.mac.type >= e1000_pch2lan) {
 		if (if_getmtu(ifp) > ETHERMTU)
 			e1000_lv_jumbo_workaround_ich8lan(hw, TRUE);
 		else
@@ -3042,15 +3110,18 @@ em_initialize_receive_unit(if_ctx_t ctx)
         /* Make sure VLAN Filters are off */
         rctl &= ~E1000_RCTL_VFE;
 
-	if (adapter->rx_mbuf_sz == MCLBYTES)
-		rctl |= E1000_RCTL_SZ_2048;
-	else if (adapter->rx_mbuf_sz == MJUMPAGESIZE)
-		rctl |= E1000_RCTL_SZ_4096 | E1000_RCTL_BSEX;
-	else if (adapter->rx_mbuf_sz > MJUMPAGESIZE)
-		rctl |= E1000_RCTL_SZ_8192 | E1000_RCTL_BSEX;
+	if (adapter->hw.mac.type < igb_mac_min) {
+		if (adapter->rx_mbuf_sz == MCLBYTES)
+			rctl |= E1000_RCTL_SZ_2048;
+		else if (adapter->rx_mbuf_sz == MJUMPAGESIZE)
+			rctl |= E1000_RCTL_SZ_4096 | E1000_RCTL_BSEX;
+		else if (adapter->rx_mbuf_sz > MJUMPAGESIZE)
+			rctl |= E1000_RCTL_SZ_8192 | E1000_RCTL_BSEX;
 
-	/* ensure we clear use DTYPE of 00 here */
-	rctl &= ~0x00000C00;
+		/* ensure we clear use DTYPE of 00 here */
+		rctl &= ~0x00000C00;
+	}
+
 	/* Write out the settings */
 	E1000_WRITE_REG(hw, E1000_RCTL, rctl);
 

@@ -27,7 +27,6 @@ SUBDIR=	\
 	age \
 	${_agp} \
 	aha \
-	${_ahb} \
 	ahci \
 	${_aic} \
 	aic7xxx \
@@ -51,7 +50,6 @@ SUBDIR=	\
 	${_auxio} \
 	${_bce} \
 	bfe \
-	bhnd \
 	bge \
 	bhnd \
 	${_bxe} \
@@ -65,8 +63,6 @@ SUBDIR=	\
 	bwn_pci \
 	${_bytgpio} \
 	cam \
-	${_canbepm} \
-	${_canbus} \
 	${_cardbus} \
 	${_carp} \
 	cas \
@@ -92,7 +88,6 @@ SUBDIR=	\
 	${_crypto} \
 	${_cryptodev} \
 	${_cs} \
-	${_ct} \
 	${_ctau} \
 	ctl \
 	${_cxgb} \
@@ -142,6 +137,8 @@ SUBDIR=	\
 	${_hptnr} \
 	${_hptrr} \
 	hwpmc \
+	${_hwpmc_mips24k} \
+	${_hwpmc_mips74k} \
 	${_hyperv} \
 	i2c \
         ${_ibcore} \
@@ -179,6 +176,7 @@ SUBDIR=	\
 	ip6_mroute_mod \
 	ip_mroute_mod \
 	${_ips} \
+	${_ipsec} \
 	${_ipw} \
 	${_ipwfw} \
 	${_isci} \
@@ -296,7 +294,6 @@ SUBDIR=	\
 	${_pflog} \
 	${_pfsync} \
 	plip \
-	${_pmc} \
 	${_pms} \
 	ppbus \
 	ppc \
@@ -345,7 +342,6 @@ SUBDIR=	\
 	sk \
 	smbfs \
 	sn \
-	${_snc} \
 	snp \
 	sound \
 	${_speaker} \
@@ -361,6 +357,7 @@ SUBDIR=	\
 	sysvipc \
 	${_ti} \
 	${_tcp_fastpath} \
+	${_tcpmd5} \
 	tests/framework \
 	tests/callout_test \
 	tl \
@@ -451,6 +448,10 @@ _toecore=	toecore
 _if_enc=	if_enc
 _if_gif=	if_gif
 _if_gre=	if_gre
+.if ${MK_IPSEC_SUPPORT} != "no"
+_ipsec=		ipsec
+_tcpmd5=	tcp/tcpmd5
+.endif
 .endif
 
 .if (${MK_INET_SUPPORT} != "no" && ${MK_INET6_SUPPORT} != "no") || \
@@ -524,6 +525,11 @@ _cxgbe=		cxgbe
 
 .if ${MK_ZFS} != "no" || defined(ALL_MODULES)
 SUBDIR+=	zfs
+.endif
+
+.if (${MACHINE_CPUARCH} == "mips" && ${MACHINE_ARCH:Mmips64} == "")
+_hwpmc_mips24k=	hwpmc_mips24k
+_hwpmc_mips74k=	hwpmc_mips74k
 .endif
 
 .if ${MACHINE_CPUARCH} != "aarch64" && ${MACHINE_CPUARCH} != "arm" && \
@@ -729,9 +735,6 @@ _sbni=		sbni
 _streams=	streams
 _stg=		stg
 _svr4=		svr4
-.if ${MK_EISA} != "no"
-_ahb=		ahb
-.endif
 _cm=		cm
 .if ${MK_SOURCELESS_UCODE} != "no"
 _ctau=		ctau
