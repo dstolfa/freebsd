@@ -51,7 +51,8 @@
 
 struct virtio_dtrace_control {
 	uint32_t	event;
-	uint32_t	value;
+	uint32_t	value; /* XXX: UUID? */
+	char		*info; /* XXX: Stack? */
 };
 
 #endif

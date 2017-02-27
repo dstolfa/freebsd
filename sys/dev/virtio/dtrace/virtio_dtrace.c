@@ -136,13 +136,13 @@ static void	vtdtr_ctrl_task_act(void *, int);
 static void	vtdtr_enable_interrupts(struct vtdtr_softc *);
 static void	vtdtr_disable_interrupts(struct vtdtr_softc *);
 static void	vtdtr_ctrl_process_event(struct vtdtr_softc *,
-           	    struct virtio_dtrace_control *, void *, size_t);
+           	    struct virtio_dtrace_control *);
 static void	vtdtr_ctrl_process_provaction(struct vtdtr_softc *,
-           	    struct virtio_dtrace_control *, void *, size_t);
+           	    struct virtio_dtrace_control *);
 static void	vtdtr_ctrl_process_selfdestroy();
 static void	vtdtr_ctrl_process_probeaction(struct vtdtr_softc *,
            	    struct virtio_dtrace_control *);
-static void 	vtdtr_ctrl_send_control(struct vtdtr_softc *, uint32_t, uint32_t);
+static void	vtdtr_ctrl_send_control(struct vtdtr_softc *, uint32_t, uint32_t);
 static void	vtdtr_destroy_probelist(struct vtdtr_softc *);
 
 static device_method_t vtdtr_methods[] = {
@@ -503,13 +503,9 @@ vtdtr_ctrl_task_act(void *xsc, int nprobes)
 	struct virtqueue *vq;
 	struct virtio_dtrace_control *ctrl;
 	uint32_t len;
-	size_t plen;
-	void *payload;
 
 	sc = xsc;
 	vq = sc->vtdtr_ctrl_rxvq;
-	payload = NULL;
-	plen = 0;
 	len = 0;
 
 	VTDTR_LOCK(sc);
@@ -519,13 +515,8 @@ vtdtr_ctrl_task_act(void *xsc, int nprobes)
 		if (ctrl == NULL)
 			break;
 
-		if (len > sizeof(*ctrl)) {
-			payload = (void *)(ctrl + 1);
-			plen = len - sizeof(*ctrl);
-		}
-
 		VTDTR_UNLOCK(sc);
-		vtdtr_ctrl_process_event(sc, ctrl, payload, plen);
+		vtdtr_ctrl_process_event(sc, ctrl);
 		VTDTR_LOCK(sc);
 
 		vtdtr_ctrl_event_requeue(sc, ctrl);
@@ -551,7 +542,7 @@ vtdtr_disable_interrupts(struct vtdtr_softc *sc)
 
 static void
 vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl, void *payload, size_t plen)
+    struct virtio_dtrace_control *ctrl)
 {
 	device_t dev;
 
@@ -564,36 +555,37 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 	case VIRTIO_DTRACE_REGISTER:
 	case VIRTIO_DTRACE_UNREGISTER:
 		if (sc->vtdtr_flags & VTDTR_FLAG_PROVACTION)
-			vtdtr_ctrl_process_provaction(sc, ctrl, payload, plen);
+			vtdtr_ctrl_process_provaction(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_DESTROY:
-		vtdtr_ctrl_process_selfdestroy(sc, ctrl, payload, plen);
+		vtdtr_ctrl_process_selfdestroy(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_PROBE_CREATE:
 	case VIRTIO_DTRACE_PROBE_INSTALL:
 	case VIRTIO_DTRACE_PROBE_UNINSTALL:
 		if (sc->vtdtr_flags & VTDTR_FLAG_PROBEACTION)
-			vtdtr_ctrl_process_probeaction(sc, ctrl, payload, plen);
+			vtdtr_ctrl_process_probeaction(sc, ctrl);
 		break;
 	}
 }
 
 static void
 vtdtr_ctrl_process_provaction(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl, void *payload, size_t plen)
+    struct virtio_dtrace_control *ctrl)
 {
+	int error;
 	/*
-	 * TODO: Implement the functionality
+	 * XXX: What is the "value" parameter in this context?
 	 */
 	switch (ctrl->event) {
 	case VIRTIO_DTRACE_REGISTER:
-		error = dtvirt_register(ctrl->value, payload, plen);
+		error = dtvirt_register(ctrl->value, ctrl->info);
 		KASSERT(error == 0,
 		    ("%s: error %d registering provider in dtvirt",
 		    __func__, error));
 		break;
 	case VIRTIO_DTRACE_UNREGISTER:
-		error = dtvirt_unregister(ctrl->value, payload, plen);
+		error = dtvirt_unregister(ctrl->value);
 		KASSERT(error == 0,
 		    ("%s: error %d unregistering provider in dtvirt",
 		    __func__, error));
@@ -604,8 +596,9 @@ vtdtr_ctrl_process_provaction(struct vtdtr_softc *sc,
 static void
 vtdtr_ctrl_process_selfdestroy()
 {
+	int error;
 	error = dtvirt_selfdestroy();
-	KASSERT(error == 0, ("%s: error %s self-destroying",
+	KASSERT(error == 0, ("%s: error %d self-destroying",
 	    __func__, error));
 }
 
@@ -613,15 +606,32 @@ static void
 vtdtr_ctrl_process_probeaction(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
 {
+	int error;
 	/*
 	 * TODO: Implement the functionality
 	 */
 	switch (ctrl->event) {
 	case VIRTIO_DTRACE_PROBE_CREATE:
+		/*
+		 * The info here relates to the probe specification
+		 */
+		error = dtvirt_probe_create(ctrl->value, ctrl->info);
+		KASSERT(error == 0, ("%s: error %d creating probe",
+		    __func__, error));
 		break;
 	case VIRTIO_DTRACE_PROBE_INSTALL:
+		/*
+		 * The ctrl->info here related to the DIF that might want
+		 * to be uploaded in the future.
+		 */
+		error = dtvirt_probe_install(ctrl->value, ctrl->info);
+		KASSERT(error == 0, ("%s: error %d installing probe",
+		    __func__, error));
 		break;
 	case VIRTIO_DTRACE_PROBE_UNINSTALL:
+		error = dtvirt_probe_uninstall(ctrl->value);
+		KASSERT(error == 0, ("%s: error %d uninstalling probe",
+		    __func__, error));
 		break;
 	}
 }

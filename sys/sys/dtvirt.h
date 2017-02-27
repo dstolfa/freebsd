@@ -34,4 +34,19 @@
  *  - Routines to interact with DTrace from a generic hypervisor layer
  */
 
+/*
+ * Provider related functions
+ */
+int	dtvirt_register(uint32_t, char *);
+int	dtvirt_unregister(uint32_t);
+int	dtvirt_selfdestroy();
+
+/*
+ * Probe related functions
+ * This are _not_ used for handling the probe context
+ */
+int	dtvirt_probe_create(uint32_t, char *);
+int	dtvirt_probe_install(uint32_t, char *);
+int	dtvirt_probe_uninstall(uint32_t);
+
 #endif
