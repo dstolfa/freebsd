@@ -111,6 +111,7 @@ typedef uint64_t dtrace_genid_t;
  */
 struct dtrace_probe {
 	dtrace_id_t dtpr_id;			/* probe identifier */
+	uint8_t dtpr_mode;			/* probe mode; see below */
 	dtrace_ecb_t *dtpr_ecb;			/* ECB list; see below */
 	dtrace_ecb_t *dtpr_ecb_last;		/* last ECB in list */
 	void *dtpr_arg;				/* provider argument */
@@ -131,6 +132,11 @@ struct dtrace_probe {
 	dtrace_probe_t *dtpr_prevname;		/* previous in name hash */
 	dtrace_genid_t dtpr_gen;		/* probe generation ID */
 };
+
+#define	DTRACE_PROBE_MODE_DISABLED		0
+#define	DTRACE_PROBE_MODE_LOCAL			1
+#define	DTRACE_PROBE_MODE_VIRT			2
+#define	DTRACE_PROBE_MODE_BOTH			3
 
 typedef int dtrace_probekey_f(const char *, const char *, int);
 

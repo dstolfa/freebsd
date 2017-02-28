@@ -23,11 +23,19 @@
 # SUCH DAMAGE.
 #
 
+KMOD=	virtio_dtrace
+
+#CFLAGS_INCLUDE_SOLARIS= -I${.CURDIR}/../../../cddl/compat/opensolaris
+#CFLAGS_INCLUDE_SOLARIS+= -I${.CURDIR}/../../../cddl/contrib/opensolaris/uts/common
+
 .PATH: ${.CURDIR}/../../../dev/virtio/dtrace
 
-KMOD=	virtio_dtrace
 SRCS=	virtio_dtrace.c
 SRCS+=	virtio_bus_if.h virtio_if.h
 SRCS+=	bus_if.h device_if.h
+
+#virtio_dtrace.o:
+#	${CC} -c ${CFLAGS_INCLUDE_SOLARIS} ${CFLAGS} \
+#		${.IMPSRC} -o ${.TARGET}
 
 .include <bsd.kmod.mk>

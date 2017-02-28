@@ -11517,7 +11517,13 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 		return;
 	}
 
+
 	if (probe->dtpr_ecb == NULL) {
+		if (probe->dtpr_mode == DTRACE_PROBE_MODE_VIRT)
+			probe->dtpr_mode = DTRACE_PROBE_MODE_BOTH;
+		else if (probe->dtpr_mode == DTRACE_PROBE_MODE_DISABLED)
+			probe->dtpr_mode = DTRACE_PROBE_MODE_LOCAL;
+
 		dtrace_provider_t *prov = probe->dtpr_provider;
 
 		/*
@@ -11528,8 +11534,10 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 		if (ecb->dte_predicate != NULL)
 			probe->dtpr_predcache = ecb->dte_predicate->dtp_cacheid;
 
-		prov->dtpv_pops.dtps_enable(prov->dtpv_arg,
-		    probe->dtpr_id, probe->dtpr_arg);
+		if (probe->dtpr_mode == DTRACE_PROBE_MODE_LOCAL) {
+			prov->dtpv_pops.dtps_enable(prov->dtpv_arg,
+			    probe->dtpr_id, probe->dtpr_arg);
+		}
 	} else {
 		/*
 		 * This probe is already active.  Swing the last pointer to
@@ -11543,6 +11551,74 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 
 		dtrace_sync();
 	}
+}
+
+/*
+ * Temporary enabling function for the purpose of hypercalling
+ * back to the host operating system
+ */
+void
+dtrace_probeid_enable(dtrace_id_t id)
+{
+	dtrace_provider_t *prov;
+	dtrace_probe_t **dtrace_probes;
+	dtrace_probe_t *probe;
+
+	mutex_enter(&cpu_lock);
+	mutex_enter(&dtrace_lock);
+
+	dtrace_probes = dtrace_instance_lookup_probes("host");
+	ASSERT(dtrace_probes != NULL);
+
+	probe = dtrace_probes[id];
+	if (probe == NULL)
+		return;
+
+	if (probe->dtpr_mode == DTRACE_PROBE_MODE_LOCAL)
+		probe->dtpr_mode = DTRACE_PROBE_MODE_BOTH;
+	else if (probe->dtpr_mode == DTRACE_PROBE_MODE_DISABLED)
+		probe->dtpr_mode = DTRACE_PROBE_MODE_VIRT;
+
+	if (probe->dtpr_mode == DTRACE_PROBE_MODE_VIRT) {
+		prov = probe->dtpr_provider;
+		prov->dtpv_pops.dtps_enable(prov->dtpv_arg,
+		    probe->dtpr_id, probe->dtpr_arg);
+	}
+
+	mutex_exit(&dtrace_lock);
+	mutex_exit(&cpu_lock);
+}
+
+void
+dtrace_probeid_disable(dtrace_id_t id)
+{
+	dtrace_provider_t *prov;
+	dtrace_probe_t **dtrace_probes;
+	dtrace_probe_t *probe;
+
+	mutex_enter(&cpu_lock);
+	mutex_enter(&dtrace_lock);
+
+	dtrace_probes = dtrace_instance_lookup_probes("host");
+	ASSERT(dtrace_probes != NULL);
+
+	probe = dtrace_probes[id];
+	if (probe == NULL)
+		return;
+
+	if (probe->dtpr_mode == DTRACE_PROBE_MODE_BOTH)
+		probe->dtpr_mode = DTRACE_PROBE_MODE_LOCAL;
+	else if (probe->dtpr_mode == DTRACE_PROBE_MODE_VIRT)
+		probe->dtpr_mode = DTRACE_PROBE_MODE_DISABLED;
+
+	if (probe->dtpr_mode == DTRACE_PROBE_MODE_DISABLED) {
+		prov = probe->dtpr_provider;
+		prov->dtpv_pops.dtps_disable(prov->dtpv_arg,
+		    probe->dtpr_id, probe->dtpr_arg);
+	}
+
+	mutex_exit(&dtrace_lock);
+	mutex_exit(&cpu_lock);
 }
 
 static int
@@ -12180,19 +12256,27 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 	 */
 	dtrace_sync();
 
+
 	if (probe->dtpr_ecb == NULL) {
 		/*
 		 * That was the last ECB on the probe; clear the predicate
 		 * cache ID for the probe, disable it and sync one more time
 		 * to assure that we'll never hit it again.
 		 */
+		if (probe->dtpr_mode == DTRACE_PROBE_MODE_BOTH)
+			probe->dtpr_mode = DTRACE_PROBE_MODE_VIRT;
+		else if (probe->dtpr_mode == DTRACE_PROBE_MODE_LOCAL)
+			probe->dtpr_mode = DTRACE_PROBE_MODE_DISABLED;
+
 		dtrace_provider_t *prov = probe->dtpr_provider;
 
 		ASSERT(ecb->dte_next == NULL);
 		ASSERT(probe->dtpr_ecb_last == NULL);
 		probe->dtpr_predcache = DTRACE_CACHEIDNONE;
-		prov->dtpv_pops.dtps_disable(prov->dtpv_arg,
-		    probe->dtpr_id, probe->dtpr_arg);
+		if (probe->dtpr_mode == DTRACE_PROBE_MODE_DISABLED) {
+			prov->dtpv_pops.dtps_disable(prov->dtpv_arg,
+			    probe->dtpr_id, probe->dtpr_arg);
+		}
 		dtrace_sync();
 	} else {
 		/*
