@@ -26,33 +26,49 @@
  * $FreeBSD$
  */
 
-#ifndef _VIRTIO_DTRACE_H_
-#define _VIRTIO_DTRACE_H_
+#include <sys/cdefs.h>
+__FBSDID("$FreeBSD$");
 
-#define	VIRTIO_DTRACE_F_PROBE	0x01
-#define	VIRTIO_DTRACE_F_PROV	0x02
-
-/*
- * The only ones used presently are:
- * 	VIRTIO_DTRACE_PROBE_INSTALL
- * 	VIRTIO_DTRACE_PROBE_UNINSTALL
- *
- * The rest is simpler handled through the hypervisor itself due to it handling
- * the virtual machine name and there is no implicity trust being placed in the
- * userspace to handle things properly(bhyve).
- */
-#define	VIRTIO_DTRACE_DEVICE_READY	0x00	/* The device is ready */
-#define	VIRTIO_DTRACE_REGISTER		0x01	/* Provider Registration */
-#define	VIRTIO_DTRACE_UNREGISTER	0x02	/* Provider Unregistration */
-#define	VIRTIO_DTRACE_DESTROY		0x03	/* Instance Destruction */
-#define	VIRTIO_DTRACE_PROBE_CREATE	0x04	/* Probe Creation */
-#define	VIRTIO_DTRACE_PROBE_INSTALL	0x05	/* Probe Installation */
-#define	VIRTIO_DTRACE_PROBE_UNINSTALL	0x06	/* Probe Uninstallation */
-
-struct virtio_dtrace_control {
-	uint32_t	 event;
-	uint32_t	 value; /* XXX: UUID? */
-	char		*info;  /* XXX: Stack? */
-};
-
+#include <sys/param.h>
+#ifndef WITHOUT_CAPSICUM
+#include <sys/capsicum.h>
 #endif
+#include <sys/linker_set.h>
+#include <sys/uio.h>
+#include <sys/types.h>
+
+#include <err.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <assert.h>
+#include <pthread.h>
+#include <libgen.h>
+#include <sysexits.h>
+
+#include "bhyverun.h"
+#include "pci_emul.h"
+#include "virtio.h"
+#include "mevent.h"
+#include "sockstream.h"
+
+#define	VTDTR_DEVICE_READY		0x00
+#define	VTDTR_DEVICE_REGISTER		0x01
+#define	VTDTR_DEVICE_UNREGISTER		0x02
+#define	VTDTR_DEVICE_DESTROY		0x03
+#define	VTDTR_DEVICE_PROBE_CREATE	0x04
+#define	VTDTR_DEVICE_PROBE_INSTALL	0x05
+#define	VTDTR_DEVICE_PROBE_UNINSTALL	0x06
+
+static int pci_vtdtr_debug;
+#define	DPRINTF(params)		if (pci_vtdtr_debug) printf params
+#define	WPRINTF(params)		printf params
+
+struct pci_vtdtr_control {
+	uint32_t	 event;
+	uint32_t	 value;
+	char		*info;
+} __attribute__((packed));
