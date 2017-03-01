@@ -55,6 +55,9 @@ __FBSDID("$FreeBSD$");
 #include "mevent.h"
 #include "sockstream.h"
 
+#define	VTDTR_RINGSZ			512
+#define	VTDTR_MAXQ			2
+
 #define	VTDTR_DEVICE_READY		0x00
 #define	VTDTR_DEVICE_REGISTER		0x01
 #define	VTDTR_DEVICE_UNREGISTER		0x02
@@ -83,10 +86,10 @@ struct pci_vtdtr_control {
 
 struct pci_vtdtr_softc {
 	struct virtio_softc		vsd_vs;
-	struct vqueue_info		vsd_ctrl_rx;
-	struct vqueue_info		vsd_ctrl_tx;
+	struct vqueue_info		vsd_queues[VTDTR_MAXQ];
 	pthread_mutex_t			vsd_mtx;
 	uint64_t			vsd_features;
+	uint64_t			vsd_cfg;
 	int				vsd_ready;
 };
 
@@ -121,8 +124,7 @@ pci_vtdtr_neg_features(void *vsc, uint64_t negotiated_features)
 }
 
 static void
-pci_vtdtr_control_tx(struct pci_vtdtr_softc *sc, void *arg, struct iovec *iov,
-    int niov)
+pci_vtdtr_control_tx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 {
 	struct pci_vtdtr_control  resp;
 	struct pci_vtdtr_control *ctrl;
@@ -148,6 +150,24 @@ pci_vtdtr_control_tx(struct pci_vtdtr_softc *sc, void *arg, struct iovec *iov,
 			pci_vtdtr_process_probe_evt(sc, ctrl);
 		break;
 	}
+}
+
+static void
+pci_vtdtr_process_prov_evt(struct pci_vtdtr_softc *sc,
+    struct pci_vtdtr_control *ctrl)
+{
+	/*
+	 * XXX: The processing functions... are the actually
+	 * necessary, or do we want a layer that DTrace talks
+	 * to and simply delegates it towards the virtio driver?
+	 */
+}
+
+static void
+pci_vtdtr_process_probe_evt(struct pci_vtdtr_softc *sc,
+    struct pci_vtdtr_control *ctrl)
+{
+
 }
 
 static void
@@ -177,6 +197,83 @@ pci_vtdtr_control_send(struct pci_vtdtr_softc *sc,
 
 	vq_relchain(vq, idx, len);
 	vq_endchains(vq, 1);
+}
+
+/*
+ * XXX: These two routines are practically the same, is TX
+ * really necessary here? We don't really need to do anything
+ */
+static void
+pci_vtdtr_notify_tx(void *vsc, struct vqueue_info *vq)
+{
+	struct pci_vtdtr_softc *sc;
+	struct iovec iov[1];
+	uint16_t idx;
+	uint16_t n;
+	uint16_t flags[8];
+
+	sc = vsc;
+
+	while (vq_has_descs(vq)) {
+		n = vq_getchain(vq, &idx, iov, 1, flags);
+		pci_vtdtr_control_tx(sc, iov, 1);
+		vq_relchain(vq, idx, 0);
+	}
+
+	vq_endchains(vq, 1);
+}
+
+static void
+pci_vtdtr_notify_rx(void *vsc, struct vqueue_info *vq)
+{
+	struct pci_vtdtr_softc *sc;
+	struct iovec iov[1];
+	uint16_t idx;
+	uint16_t n;
+	uint16_t flags[8];
+
+	sc = vsc;
+
+	while (vq_has_descs(vq)) {
+		n = vq_getchain(vq, &idx, iov, 1, flags);
+		pci_vtdtr_control_rx(sc, iov, 1);
+		vq_relchain(vq, idx, 0);
+	}
+
+	vq_endchains(vq, 1);
+}
+
+static int
+pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
+{
+	struct pci_vtdtr_softc *sc;
+	char *opt;
+
+	sc = calloc(1, sizeof(struct pci_vtdtr_softc));
+
+	vi_softc_linkup(&sc->vsd_vs, &vtdtr_vi_consts, sc, pci_inst, sc->vsd_queues);
+	sc->vsd_vs.vs_mtx = &sc->vsd_mtx;
+
+	/*
+	 * XXX: We might be able to get away with a device-wide notify
+	 */
+	sc->vsd_queues[0].vq_qsize = VTDTR_RINGSZ;
+	sc->vsd_queues[0].vq_notify = pci_vtdtr_notify_rx;
+	sc->vsd_queues[1].vq_qsize = VTDTR_RINGSZ;
+	sc->vsd_queues[1].vq_notify = pci_vtdtr_notify_tx;
+
+	pci_set_cfgdata16(pci_inst, PCIR_DEVICE, VIRTIO_DEV_DTRACE);
+	pci_set_cfgdata16(pci_inst, PCIR_VENDOR, VIRTIO_VENDOR);
+	pci_set_cfgdata8(pci_inst, PCIR_CLASS, PCIC_OTHER);
+	pci_set_cfgdata16(pci_inst, PCIR_SUBDEV_0, VIRTIO_TYPE_DTRACE);
+	pci_set_cfgdata16(pci_inst, PCIR_SUBVEND_0, VIRTIO_VENDOR);
+
+	if (vi_intr_init(&sc->vsd_vs, 1, vbsdrun_virtio_msix()))
+		return (1);
+
+	vi_set_io_bar(&sc->vsd_vs, 0);
+
+	return (0);
 }
 
 struct pci_devemu pci_de_vdtr = {

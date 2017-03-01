@@ -48,7 +48,6 @@ __FBSDID("$FreeBSD$");
 
 /*
  * DTrace communication layer
-/
 #include <sys/dtrace.h>
 #include <sys/dtrace_bsd.h>
 */
