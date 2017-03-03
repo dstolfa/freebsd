@@ -140,7 +140,8 @@ static void	vtdtr_ctrl_process_event(struct vtdtr_softc *,
            	    struct virtio_dtrace_control *);
 static void	vtdtr_ctrl_process_provaction(struct vtdtr_softc *,
            	    struct virtio_dtrace_control *);
-static void	vtdtr_ctrl_process_selfdestroy();
+static void	vtdtr_ctrl_process_selfdestroy(struct vtdtr_softc *,
+           	    struct virtio_dtrace_control *);
 static void	vtdtr_ctrl_process_probeaction(struct vtdtr_softc *,
            	    struct virtio_dtrace_control *);
 static int	vtdtr_ctrl_process_prov_register(struct vtdtr_softc *,
@@ -617,7 +618,8 @@ vtdtr_ctrl_process_provaction(struct vtdtr_softc *sc,
 }
 
 static void
-vtdtr_ctrl_process_selfdestroy()
+vtdtr_ctrl_process_selfdestroy(struct vtdtr_softc *sc,
+    struct virtio_dtrace_control *ctrl)
 {
 	int error;
 	error = 0;
