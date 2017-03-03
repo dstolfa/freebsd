@@ -93,6 +93,20 @@ struct pci_vtdtr_softc {
 	int				vsd_ready;
 };
 
+static void	pci_vtdtr_reset(void *);
+static void	pci_vtdtr_neg_features(void *, uint64_t);
+static void	pci_vtdtr_control_tx(struct pci_vtdtr_softc *,
+           	    struct iovec *, int);
+static void	pci_vtdtr_process_prov_evt(struct pci_vtdtr_softc *,
+           	    struct pci_vtdtr_control *);
+static void	pci_vtdtr_process_probe_evt(struct pci_vtdtr_softc *,
+           	    struct pci_vtdtr_control *);
+static void	pci_vtdtr_control_send(struct pci_vtdtr_softc *,
+           	    struct pci_vtdtr_control *);
+static void	pci_vtdtr_notify_tx(void *, struct vqueue_info *);
+static void	pci_vtdtr_notify_rx(void *, struct vqueue_info *);
+static int	pci_vtdtr_init(struct vmctx *, struct pci_devinst *, char *);
+
 static struct virtio_consts vtdtr_vi_consts = {
 	"vtdtr",			/* name */
 	VTDTR_MAXQ,			/* maximum virtqueues */
@@ -126,7 +140,15 @@ pci_vtdtr_neg_features(void *vsc, uint64_t negotiated_features)
 static void
 pci_vtdtr_control_tx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 {
-	struct pci_vtdtr_control  resp;
+	/*
+	 * TODO
+	 */
+}
+
+static void
+pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
+{
+	/*struct pci_vtdtr_control  resp;*/
 	struct pci_vtdtr_control *ctrl;
 
 	assert(niov == 1);
@@ -140,13 +162,13 @@ pci_vtdtr_control_tx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 	case VTDTR_DEVICE_REGISTER:
 	case VTDTR_DEVICE_UNREGISTER:
 	case VTDTR_DEVICE_DESTROY:
-		if (sc->vtd_features & VTDTR_F_PROV)
+		if (sc->vsd_features & VTDTR_F_PROV)
 			pci_vtdtr_process_prov_evt(sc, ctrl);
 		break;
 	case VTDTR_DEVICE_PROBE_CREATE:
 	case VTDTR_DEVICE_PROBE_INSTALL:
 	case VTDTR_DEVICE_PROBE_UNINSTALL:
-		if (sc->vtd_features & VTDTR_F_PROBE)
+		if (sc->vsd_features & VTDTR_F_PROBE)
 			pci_vtdtr_process_probe_evt(sc, ctrl);
 		break;
 	}
@@ -183,7 +205,7 @@ pci_vtdtr_control_send(struct pci_vtdtr_softc *sc,
 	uint16_t idx;
 	int n;
 
-	vq = sc->vsd_ctrl_tx;
+	vq = &sc->vsd_queues[1];
 
 	if (!vq_has_descs(vq))
 		return;
@@ -247,7 +269,6 @@ static int
 pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 {
 	struct pci_vtdtr_softc *sc;
-	char *opt;
 
 	sc = calloc(1, sizeof(struct pci_vtdtr_softc));
 
@@ -268,7 +289,7 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 	pci_set_cfgdata16(pci_inst, PCIR_SUBDEV_0, VIRTIO_TYPE_DTRACE);
 	pci_set_cfgdata16(pci_inst, PCIR_SUBVEND_0, VIRTIO_VENDOR);
 
-	if (vi_intr_init(&sc->vsd_vs, 1, vbsdrun_virtio_msix()))
+	if (vi_intr_init(&sc->vsd_vs, 1, fbsdrun_virtio_msix()))
 		return (1);
 
 	vi_set_io_bar(&sc->vsd_vs, 0);
