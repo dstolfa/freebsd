@@ -52,7 +52,7 @@
  * file as the convention used is the SystemV ABI
  * calling convention.
  */
-int	hypercall_prototype(/* args */);
+int	hypercall_prototype(void /* args */);
 int	hypercall_dtrace_register(uintptr_t /* dtrace_provider_t */);
 int	hypercall_dtrace_unregister(uintptr_t /* dtrace_provider_t */);
 int	hypercall_dtrace_probe_create(uintptr_t /* dtrace_probe_t */);
