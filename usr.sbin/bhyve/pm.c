@@ -199,7 +199,7 @@ INOUT_PORT(pm1_status, PM1A_EVT_ADDR, IOPORT_F_INOUT, pm1_status_handler);
 INOUT_PORT(pm1_enable, PM1A_EVT_ADDR + 2, IOPORT_F_INOUT, pm1_enable_handler);
 
 static void
-power_button_handler(int signal, enum ev_type type, void *arg)
+power_button_handler(int signal, enum ev_type type, int ne __unused, void *arg)
 {
 	struct vmctx *ctx;
 

@@ -33,6 +33,7 @@ __FBSDID("$FreeBSD$");
 #ifndef WITHOUT_CAPSICUM
 #include <sys/capsicum.h>
 #endif
+#include <sys/event.h>
 #include <sys/linker_set.h>
 #include <sys/uio.h>
 #include <sys/types.h>
@@ -59,12 +60,15 @@ __FBSDID("$FreeBSD$");
 #define	VTDTR_MAXQ			2
 
 #define	VTDTR_DEVICE_READY		0x00
-#define	VTDTR_DEVICE_REGISTER		0x01
-#define	VTDTR_DEVICE_UNREGISTER		0x02
-#define	VTDTR_DEVICE_DESTROY		0x03
+#define	VTDTR_DEVICE_DESTROY		0x01
+#define	VTDTR_DEVICE_REGISTER		0x02
+#define	VTDTR_DEVICE_UNREGISTER		0x03
 #define	VTDTR_DEVICE_PROBE_CREATE	0x04
 #define	VTDTR_DEVICE_PROBE_INSTALL	0x05
 #define	VTDTR_DEVICE_PROBE_UNINSTALL	0x06
+#define	VTDTR_MAXEV			0x05 /* 0x02 - 0x06 */
+
+#define	VTDTR_INDEX(x) ((x) - 2)
 
 #define	VTDTR_F_PROBE			0x01
 #define	VTDTR_F_PROV			0x02
@@ -77,6 +81,8 @@ __FBSDID("$FreeBSD$");
 static int pci_vtdtr_debug;
 #define	DPRINTF(params)		if (pci_vtdtr_debug) printf params
 #define	WPRINTF(params)		printf params
+
+struct mevent	*vtdtr_mev;
 
 struct pci_vtdtr_control {
 	uint32_t	 event;
@@ -105,6 +111,7 @@ static void	pci_vtdtr_control_send(struct pci_vtdtr_softc *,
            	    struct pci_vtdtr_control *);
 static void	pci_vtdtr_notify_tx(void *, struct vqueue_info *);
 static void	pci_vtdtr_notify_rx(void *, struct vqueue_info *);
+static void	pci_vtdtr_handle_mev(int, enum ev_type, int, void *);
 static int	pci_vtdtr_init(struct vmctx *, struct pci_devinst *, char *);
 
 static struct virtio_consts vtdtr_vi_consts = {
@@ -265,6 +272,25 @@ pci_vtdtr_notify_rx(void *vsc, struct vqueue_info *vq)
 	vq_endchains(vq, 1);
 }
 
+static void
+pci_vtdtr_handle_mev(int pb, enum ev_type et __unused, int ne, void *vsc)
+{
+	struct pci_vtdtr_softc *sc;
+	struct pci_vtdtr_control ctrl;
+
+	sc = vsc;
+
+	if (ne & NOTE_PROBE_INSTALL)
+		ctrl.event = VTDTR_DEVICE_PROBE_INSTALL;
+	else if (ne & NOTE_PROBE_UNINSTALL)
+		ctrl.event = VTDTR_DEVICE_PROBE_UNINSTALL;
+	else
+		return;
+	ctrl.value = pb;
+
+	pci_vtdtr_control_send(sc, &ctrl);
+}
+
 static int
 pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 {
@@ -293,6 +319,8 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 		return (1);
 
 	vi_set_io_bar(&sc->vsd_vs, 0);
+
+	vtdtr_mev = mevent_add(0, EVF_DTRACE, pci_vtdtr_handle_mev, sc);
 
 	return (0);
 }

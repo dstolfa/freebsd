@@ -70,8 +70,9 @@ static int mevent_pipefd[2];
 static pthread_mutex_t mevent_lmutex = PTHREAD_MUTEX_INITIALIZER;
 
 struct mevent {	
-	void	(*me_func)(int, enum ev_type, void *);
+	void	(*me_func)(int, enum ev_type, int, void *);
 #define me_msecs me_fd
+#define me_dtpb me_fd
 	int	me_fd;
 	int	me_timid;
 	enum ev_type me_type;
@@ -97,7 +98,7 @@ mevent_qunlock(void)
 }
 
 static void
-mevent_pipe_read(int fd, enum ev_type type, void *param)
+mevent_pipe_read(int fd, enum ev_type type, int ne __unused, void *param)
 {
 	char buf[MEVENT_MAX];
 	int status;
@@ -144,6 +145,9 @@ mevent_kq_filter(struct mevent *mevp)
 	if (mevp->me_type == EVF_SIGNAL)
 		retval = EVFILT_SIGNAL;
 
+	if (mevp->me_type == EVF_DTRACE)
+		retval = EVFILT_DTRACE;
+
 	return (retval);
 }
 
@@ -176,7 +180,10 @@ mevent_kq_flags(struct mevent *mevp)
 static int
 mevent_kq_fflags(struct mevent *mevp)
 {
-	/* XXX nothing yet, perhaps EV_EOF for reads ? */
+	if (mevp->me_type == EVF_DTRACE) {
+		return (NOTE_PROBE_INSTALL | NOTE_PROBE_UNINSTALL);
+	}
+
 	return (0);
 }
 
@@ -240,13 +247,13 @@ mevent_handle(struct kevent *kev, int numev)
 
 		/* XXX check for EV_ERROR ? */
 
-		(*mevp->me_func)(mevp->me_fd, mevp->me_type, mevp->me_param);
+		(*mevp->me_func)(mevp->me_fd, mevp->me_type, kev[i].fflags, mevp->me_param);
 	}
 }
 
 struct mevent *
 mevent_add(int tfd, enum ev_type type,
-	   void (*func)(int, enum ev_type, void *), void *param)
+	   void (*func)(int, enum ev_type, int, void *), void *param)
 {
 	struct mevent *lp, *mevp;
 

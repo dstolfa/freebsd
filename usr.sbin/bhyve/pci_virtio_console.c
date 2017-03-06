@@ -153,8 +153,8 @@ static void pci_vtcon_notify_tx(void *, struct vqueue_info *);
 static int pci_vtcon_cfgread(void *, int, int, uint32_t *);
 static int pci_vtcon_cfgwrite(void *, int, int, uint32_t);
 static void pci_vtcon_neg_features(void *, uint64_t);
-static void pci_vtcon_sock_accept(int, enum ev_type,  void *);
-static void pci_vtcon_sock_rx(int, enum ev_type, void *);
+static void pci_vtcon_sock_accept(int, enum ev_type, int, void *);
+static void pci_vtcon_sock_rx(int, enum ev_type, int, void *);
 static void pci_vtcon_sock_tx(struct pci_vtcon_port *, void *, struct iovec *,
     int);
 static void pci_vtcon_control_send(struct pci_vtcon_softc *,
@@ -358,7 +358,7 @@ out:
 }
 
 static void
-pci_vtcon_sock_accept(int fd __unused, enum ev_type t __unused, void *arg)
+pci_vtcon_sock_accept(int fd __unused, enum ev_type t __unused, int en __unused, void *arg)
 {
 	struct pci_vtcon_sock *sock = (struct pci_vtcon_sock *)arg;
 	int s;
@@ -380,7 +380,7 @@ pci_vtcon_sock_accept(int fd __unused, enum ev_type t __unused, void *arg)
 }
 
 static void
-pci_vtcon_sock_rx(int fd __unused, enum ev_type t __unused, void *arg)
+pci_vtcon_sock_rx(int fd __unused, enum ev_type t __unused, int en __unused, void *arg)
 {
 	struct pci_vtcon_port *port;
 	struct pci_vtcon_sock *sock = (struct pci_vtcon_sock *)arg;

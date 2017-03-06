@@ -127,7 +127,7 @@ struct uart_softc {
 	uart_intr_func_t intr_deassert;
 };
 
-static void uart_drain(int fd, enum ev_type ev, void *arg);
+static void uart_drain(int fd, enum ev_type ev, int en, void *arg);
 
 static void
 ttyclose(void)
@@ -365,7 +365,7 @@ uart_toggle_intr(struct uart_softc *sc)
 }
 
 static void
-uart_drain(int fd, enum ev_type ev, void *arg)
+uart_drain(int fd, enum ev_type ev, int en __unused, void *arg)
 {
 	struct uart_softc *sc;
 	int ch;

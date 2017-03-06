@@ -361,7 +361,7 @@ blockif_thr(void *arg)
 }
 
 static void
-blockif_sigcont_handler(int signal, enum ev_type type, void *arg)
+blockif_sigcont_handler(int signal, enum ev_type type, int ne __unused, void *arg)
 {
 	struct blockif_sig_elem *bse;
 

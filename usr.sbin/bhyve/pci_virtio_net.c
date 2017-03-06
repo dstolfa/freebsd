@@ -584,7 +584,7 @@ pci_vtnet_netmap_rx(struct pci_vtnet_softc *sc)
 }
 
 static void
-pci_vtnet_rx_callback(int fd, enum ev_type type, void *param)
+pci_vtnet_rx_callback(int fd, enum ev_type type, int ne __unused, void *param)
 {
 	struct pci_vtnet_softc *sc = param;
 

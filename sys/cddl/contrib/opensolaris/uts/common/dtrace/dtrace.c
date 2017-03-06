@@ -144,6 +144,7 @@
 #endif
 
 #include "dtrace_xoroshiro128_plus.h"
+#include "dtrace_event.h"
 
 #define rol32(i32, n) ((i32) << (n) | (i32) >> (32 - (n)))
 

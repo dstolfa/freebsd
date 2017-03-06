@@ -45,7 +45,8 @@
 #define EVFILT_USER		(-11)	/* User events */
 #define EVFILT_SENDFILE		(-12)	/* attached to sendfile requests */
 #define EVFILT_EMPTY		(-13)	/* empty send socket buf */
-#define EVFILT_SYSCOUNT		13
+#define EVFILT_DTRACE		(-14)	/* dtrace related events */
+#define EVFILT_SYSCOUNT		14
 
 #define EV_SET(kevp_, a, b, c, d, e, f) do {	\
 	struct kevent *kevp = (kevp_);		\
@@ -149,6 +150,13 @@ struct kevent {
 #define NOTE_MSECONDS		0x00000002	/* data is milliseconds */
 #define NOTE_USECONDS		0x00000004	/* data is microseconds */
 #define NOTE_NSECONDS		0x00000008	/* data is nanoseconds */
+
+/* additional flags for EVFILT_DTRACE */
+#define	NOTE_REGISTER		0x00000001	/* register provider */
+#define	NOTE_UNREGISTER		0x00000002	/* unregister provider */
+#define	NOTE_PROBE_CREATE	0x00000004	/* create probe */
+#define	NOTE_PROBE_INSTALL	0x00000008	/* install probe */
+#define	NOTE_PROBE_UNINSTALL	0x00000010	/* uninstall probe */
 
 struct knote;
 SLIST_HEAD(klist, knote);

@@ -349,7 +349,7 @@ struct e82545_softc {
 static void e82545_reset(struct e82545_softc *sc, int dev);
 static void e82545_rx_enable(struct e82545_softc *sc);
 static void e82545_rx_disable(struct e82545_softc *sc);
-static void e82545_tap_callback(int fd, enum ev_type type, void *param);
+static void e82545_tap_callback(int fd, enum ev_type type, int ne, void *param);
 static void e82545_tx_start(struct e82545_softc *sc);
 static void e82545_tx_enable(struct e82545_softc *sc);
 static void e82545_tx_disable(struct e82545_softc *sc);
@@ -544,7 +544,7 @@ e82545_eecd_strobe(struct e82545_softc *sc)
 }
 
 static void
-e82545_itr_callback(int fd, enum ev_type type, void *param)
+e82545_itr_callback(int fd, enum ev_type type, int ne __unused, void *param)
 {
 	uint32_t new;
 	struct e82545_softc *sc = param;
@@ -822,7 +822,7 @@ static uint8_t dummybuf[2048];
 
 /* XXX one packet at a time until this is debugged */
 static void
-e82545_tap_callback(int fd, enum ev_type type, void *param)
+e82545_tap_callback(int fd, enum ev_type type, int ne __unused, void *param)
 {
 	struct e82545_softc *sc = param;
 	struct e1000_rx_desc *rxd;
