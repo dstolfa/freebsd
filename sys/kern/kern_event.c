@@ -158,6 +158,11 @@ static void	filt_userdetach(struct knote *kn);
 static int	filt_user(struct knote *kn, long hint);
 static void	filt_usertouch(struct knote *kn, struct kevent *kev,
 		    u_long type);
+static int	filt_dtraceattach(struct knote *kn);
+static void	filt_dtracedetach(struct knote *kn);
+static int	filt_dtrace(struct knote *kn, long hint);
+static void	filt_dtracetouch(struct knote *kn, struct kevent *kev,
+		    u_long type);
 
 static struct filterops file_filtops = {
 	.f_isfd = 1,
@@ -186,6 +191,12 @@ static struct filterops user_filtops = {
 	.f_detach = filt_userdetach,
 	.f_event = filt_user,
 	.f_touch = filt_usertouch,
+};
+static struct filterops dtrace_filtops = {
+	.f_attach = filt_dtraceattach,
+	.f_detach = filt_dtracedetach,
+	.f_event  = filt_dtrace,
+	.f_touch  = filt_dtracetouch,
 };
 
 static uma_zone_t	knote_zone;
@@ -344,7 +355,7 @@ static struct {
 	{ &null_filtops },			/* EVFILT_LIO */
 	{ &user_filtops, 1 },			/* EVFILT_USER */
 	{ &null_filtops },			/* EVFILT_SENDFILE */
-	{ &null_filtops },			/* TODO: EVFILT_DTRACE */
+	{ &dtrace_filtops },			/* TODO: EVFILT_DTRACE */
 	{ &file_filtops, 1 },                   /* EVFILT_EMPTY */
 };
 
@@ -832,6 +843,44 @@ filt_usertouch(struct knote *kn, struct kevent *kev, u_long type)
 		panic("filt_usertouch() - invalid type (%ld)", type);
 		break;
 	}
+}
+
+static int
+filt_dtraceattach(struct knote *kn)
+{
+	/*
+	 * TODO: Not sure if this is even necessary
+	 */
+/*	knlist_add(kn->kn_ptr.p_v, kn); */
+	return (0);
+}
+
+static void
+filt_dtracedetach(struct knote *kn)
+{
+	/*
+	 * TODO: Not sure if this is even necessary
+	 */
+}
+
+static int
+filt_dtrace(struct knote *kn, long hint)
+{
+	/*
+	 * TODO: Set up the events with the proper hint:
+	 * NOTE_PROBE_INSTALL
+	 * NOTE_PROBE_UNINSTALL
+	 */
+	return (0);
+}
+
+static void
+filt_dtracetouch(struct knote *kn, struct kevent *kev,
+    u_long type)
+{
+	/*
+	 * TODO: Probably not necessary either
+	 */
 }
 
 int
