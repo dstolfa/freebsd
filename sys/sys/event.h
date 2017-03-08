@@ -246,9 +246,14 @@ struct knote {
 		struct		proc *p_proc;	/* proc pointer */
 		struct		kaiocb *p_aio;	/* AIO job pointer */
 		struct		aioliojob *p_lio;	/* LIO job pointer */
+		struct		dtrace_pb_data *p_dt;	/* DTrace probe pointer */
 		void		*p_v;		/* generic other pointer */
 	} kn_ptr;
 	struct			filterops *kn_fop;
+	/*
+	 * XXX: Probably not necessary
+	 */
+	struct			thread *ctx_thread; /* Current thread */
 
 #define kn_id		kn_kevent.ident
 #define kn_filter	kn_kevent.filter

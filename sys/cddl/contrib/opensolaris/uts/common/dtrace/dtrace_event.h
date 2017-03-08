@@ -29,6 +29,18 @@
 #ifndef _DTRACE_EVENT_H_
 #define _DTRACE_EVENT_H_
 
-void	dtrace_knote(void /* TODO */);
+#include <sys/event.h>
+
+#define	DT_KNLIST_EMPTY(kn) (KNLIST_EMPTY(&kn))
+
+#define	DT_KNOTE(kn, b, a)					\
+	do {							\
+		if (!DT_KNLIST_EMPTY(kn))			\
+			KNOTE(&kn, (b), (a) | KNF_NOKQLOCK);	\
+	} while (0)
+#define	DT_KNOTE_LOCKED(kn, b)		DT_KNOTE(kn, b, KNF_LISTLOCKED);
+#define	DT_KNOTE_UNLOCKED(kn, b)	DT_KNOTE(kn, b, 0);
+
+void	dtrace_knote(struct knlist *kn_list, long hint);
 
 #endif

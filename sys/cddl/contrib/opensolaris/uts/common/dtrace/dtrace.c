@@ -266,6 +266,7 @@ static dtrace_dynvar_t	dtrace_dynhash_sink;	/* end of dynamic hash chains */
 static int		dtrace_dynvar_failclean; /* dynvars failed to clean */
 #ifndef illumos
 static struct mtx	dtrace_unr_mtx;
+static struct knlist	dtrace_knlist;
 MTX_SYSINIT(dtrace_unr_mtx, &dtrace_unr_mtx, "Unique resource identifier", MTX_DEF);
 static eventhandler_tag	dtrace_kld_load_tag;
 static eventhandler_tag	dtrace_kld_unload_try_tag;
@@ -9774,6 +9775,7 @@ dtrace_probe_enable(dtrace_probedesc_t *desc, dtrace_enabling_t *enab)
 	zoneid_t zoneid;
 
 	ASSERT(MUTEX_HELD(&dtrace_lock));
+	dtrace_knote(dtrace_knlist, NOTE_PROBE_INSTALL);
 	dtrace_ecb_create_cache = NULL;
 
 	if (desc == NULL) {
@@ -11602,6 +11604,8 @@ dtrace_probeid_disable(dtrace_id_t id)
 
 	dtrace_probes = dtrace_instance_lookup_probes("host");
 	ASSERT(dtrace_probes != NULL);
+
+	dtrace_knote(dtrace_knlist, NOTE_PROBE_UNINSTALL);
 
 	probe = dtrace_probes[id];
 	if (probe == NULL)

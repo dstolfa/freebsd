@@ -196,7 +196,6 @@ static struct filterops dtrace_filtops = {
 	.f_attach = filt_dtraceattach,
 	.f_detach = filt_dtracedetach,
 	.f_event  = filt_dtrace,
-	.f_touch  = filt_dtracetouch,
 };
 
 static uma_zone_t	knote_zone;
@@ -848,19 +847,24 @@ filt_usertouch(struct knote *kn, struct kevent *kev, u_long type)
 static int
 filt_dtraceattach(struct knote *kn)
 {
-	/*
-	 * TODO: Not sure if this is even necessary
-	 */
-/*	knlist_add(kn->kn_ptr.p_v, kn); */
+	struct kqueue *kq = kn->kn_fp->f_data;
+
+	if (kn->kn_filter != EVFILT_DTRACE)
+		return (EINVAL);
+
+	kn->kn_status |= KN_KQUEUE;
+	kn->kn_fop = &dtrace_filtops;
+	knlist_add(&kq->kq_sel.si_note, kn, 0);
+
 	return (0);
 }
 
 static void
 filt_dtracedetach(struct knote *kn)
 {
-	/*
-	 * TODO: Not sure if this is even necessary
-	 */
+	struct kqueue *kq = kn->kn_fp->f_data;
+
+	knlist_remove(&kq->kq_sel.si_note, kn, 0);
 }
 
 static int
@@ -871,16 +875,7 @@ filt_dtrace(struct knote *kn, long hint)
 	 * NOTE_PROBE_INSTALL
 	 * NOTE_PROBE_UNINSTALL
 	 */
-	return (0);
-}
-
-static void
-filt_dtracetouch(struct knote *kn, struct kevent *kev,
-    u_long type)
-{
-	/*
-	 * TODO: Probably not necessary either
-	 */
+	return (kn->hookid);
 }
 
 int
