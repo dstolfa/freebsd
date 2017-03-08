@@ -7984,7 +7984,7 @@ dtrace_probe(dtrace_id_t id, uintptr_t arg0, uintptr_t arg1,
 /*
  * The DTrace strlen function used from the probe context
  */
-static size_t
+static __inline size_t
 dtrace_strlen_pc(const char *s, size_t lim)
 {
 	uint_t len;
@@ -8256,7 +8256,7 @@ dtrace_hash_remove(dtrace_hash_t *hash, dtrace_probe_t *probe)
 /*
  * DTrace strcmp function called from the probe context
  */
-static int
+static __inline int
 dtrace_strcmp_pc(const char *s, const char *p)
 {
 	while (*s && (*s == *p))
@@ -9775,7 +9775,7 @@ dtrace_probe_enable(dtrace_probedesc_t *desc, dtrace_enabling_t *enab)
 	zoneid_t zoneid;
 
 	ASSERT(MUTEX_HELD(&dtrace_lock));
-	dtrace_knote(dtrace_knlist, NOTE_PROBE_INSTALL);
+	/*dtrace_knote(dtrace_knlist, NOTE_PROBE_INSTALL);*/
 	dtrace_ecb_create_cache = NULL;
 
 	if (desc == NULL) {
@@ -11605,7 +11605,7 @@ dtrace_probeid_disable(dtrace_id_t id)
 	dtrace_probes = dtrace_instance_lookup_probes("host");
 	ASSERT(dtrace_probes != NULL);
 
-	dtrace_knote(dtrace_knlist, NOTE_PROBE_UNINSTALL);
+	/*dtrace_knote(dtrace_knlist, NOTE_PROBE_UNINSTALL);*/
 
 	probe = dtrace_probes[id];
 	if (probe == NULL)

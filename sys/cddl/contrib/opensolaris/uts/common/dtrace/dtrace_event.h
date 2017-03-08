@@ -28,7 +28,7 @@
 
 #ifndef _DTRACE_EVENT_H_
 #define _DTRACE_EVENT_H_
-
+/*
 #include <sys/event.h>
 
 #define	DT_KNLIST_EMPTY(kn) (KNLIST_EMPTY(&kn))
@@ -40,7 +40,7 @@
 	} while (0)
 #define	DT_KNOTE_LOCKED(kn, b)		DT_KNOTE(kn, b, KNF_LISTLOCKED);
 #define	DT_KNOTE_UNLOCKED(kn, b)	DT_KNOTE(kn, b, 0);
-
-void	dtrace_knote(struct knlist *kn_list, long hint);
+*/
+/*void	dtrace_knote(struct knlist *kn_list, long hint);*/
 
 #endif

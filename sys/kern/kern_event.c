@@ -847,6 +847,7 @@ filt_usertouch(struct knote *kn, struct kevent *kev, u_long type)
 static int
 filt_dtraceattach(struct knote *kn)
 {
+	/*
 	struct kqueue *kq = kn->kn_fp->f_data;
 
 	if (kn->kn_filter != EVFILT_DTRACE)
@@ -855,6 +856,7 @@ filt_dtraceattach(struct knote *kn)
 	kn->kn_status |= KN_KQUEUE;
 	kn->kn_fop = &dtrace_filtops;
 	knlist_add(&kq->kq_sel.si_note, kn, 0);
+	*/
 
 	return (0);
 }
@@ -862,9 +864,11 @@ filt_dtraceattach(struct knote *kn)
 static void
 filt_dtracedetach(struct knote *kn)
 {
+	/*
 	struct kqueue *kq = kn->kn_fp->f_data;
 
 	knlist_remove(&kq->kq_sel.si_note, kn, 0);
+	*/
 }
 
 static int
@@ -875,7 +879,7 @@ filt_dtrace(struct knote *kn, long hint)
 	 * NOTE_PROBE_INSTALL
 	 * NOTE_PROBE_UNINSTALL
 	 */
-	return (kn->hookid);
+	return (0);
 }
 
 int

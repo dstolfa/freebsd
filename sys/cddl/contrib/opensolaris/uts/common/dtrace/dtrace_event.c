@@ -28,8 +28,10 @@
 
 #include "dtrace_event.h"
 
+/*
 void
 dtrace_knote(struct knlist *kn_list, long hint)
 {
 	DT_KNOTE_LOCKED(kn_list, hint);
 }
+*/
