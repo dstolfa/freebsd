@@ -39,6 +39,15 @@ struct vattr;
 struct vnode;
 struct reg;
 
+#define	DTRACE_KNOTE(list, hist, flags)		KNOTE(knlist, hist, flags)
+#define	DTRACE_KNOTE_LOCKED(list, hint)		KNOTE_LOCKED(list, hint)
+#define	DTRACE_KNOTE_UNLOCKED(list, hint)	KNOTE_UNLOCKED(list, hint);
+
+struct dtrace_probeinfo {
+	int		 id;		/* ID of the probe to install */
+	char		*instance;	/* instance to install it on */
+};
+
 int dtrace_trap(struct trapframe *, u_int);
 
 /*

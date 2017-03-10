@@ -85,6 +85,8 @@ struct kevent {
 #define EV_FLAG1	0x2000		/* filter-specific flag */
 #define EV_FLAG2	0x4000		/* filter-specific flag */
 
+#define	EV_MODIFY_UDATA	0x0200		/* modify the udata values */
+
 /* returned values */
 #define EV_EOF		0x8000		/* EOF detected */
 #define EV_ERROR	0x4000		/* error, data contains errno */
@@ -246,7 +248,6 @@ struct knote {
 		struct		proc *p_proc;	/* proc pointer */
 		struct		kaiocb *p_aio;	/* AIO job pointer */
 		struct		aioliojob *p_lio;	/* LIO job pointer */
-		struct		dtrace_pb_data *p_dt;	/* DTrace probe pointer */
 		void		*p_v;		/* generic other pointer */
 	} kn_ptr;
 	struct			filterops *kn_fop;
@@ -260,6 +261,7 @@ struct knote {
 #define kn_flags	kn_kevent.flags
 #define kn_fflags	kn_kevent.fflags
 #define kn_data		kn_kevent.data
+#define	kn_udata	kn_kevent.udata
 #define kn_fp		kn_ptr.p_fp
 };
 struct kevent_copyops {

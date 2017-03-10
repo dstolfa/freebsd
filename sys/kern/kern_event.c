@@ -65,6 +65,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/taskqueue.h>
 #include <sys/uio.h>
 #include <sys/user.h>
+#include <sys/dtrace_bsd.h>
 #ifdef KTRACE
 #include <sys/ktrace.h>
 #endif
@@ -95,6 +96,7 @@ TASKQUEUE_DEFINE_THREAD(kqueue_ctx);
 
 static int	kevent_copyout(void *arg, struct kevent *kevp, int count);
 static int	kevent_copyin(void *arg, struct kevent *kevp, int count);
+static int	kevent_data_copyout(struct kevent *kevp, int nbytes);
 static int	kqueue_register(struct kqueue *kq, struct kevent *kev,
 		    struct thread *td, int waitok);
 static int	kqueue_acquire(struct file *fp, struct kqueue **kqp);
@@ -1034,6 +1036,12 @@ kevent_copyin(void *arg, struct kevent *kevp, int count)
 	return (error);
 }
 
+static __inline int
+kevent_data_copyout(struct kevent *kevp, int nbytes)
+{
+	return (copyout((void *)kevp->data, kevp->udata, nbytes));
+}
+
 int
 kern_kevent(struct thread *td, int fd, int nchanges, int nevents,
     struct kevent_copyops *k_ops, const struct timespec *timeout)
@@ -1790,6 +1798,18 @@ retry:
 				kq->kq_count--;
 			} else
 				TAILQ_INSERT_TAIL(&kq->kq_head, kn, kn_tqe);
+
+			if (kn->kn_flags & EV_MODIFY_UDATA) {
+				size_t nbytes;
+				switch(kn->kn_filter) {
+				case EVFILT_DTRACE:
+					nbytes = sizeof(struct dtrace_probeinfo);
+				default:
+					nbytes = 0;
+				}
+
+				(void) kevent_data_copyout(kevp, nbytes);
+			}
 			
 			kn->kn_status &= ~KN_SCAN;
 			kn_leave_flux(kn);
