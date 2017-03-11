@@ -11519,15 +11519,14 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 		 */
 		return;
 	}
-
-	mtx_lock(dtrace_knlist_mtx);
+	mtx_lock(&dtrace_knlist_mtx);
 	probe_info.id = probe->dtpr_id;
 	probe_info.instance = probe->dtpr_instance;
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist->kl_list, kn_selnext, tkn) {
 		kn->kn_data = (__intptr_t) &probe_info;
 	}
 	DTRACE_KNOTE_LOCKED(dtrace_knlist, NOTE_PROBE_INSTALL);
-	mtx_unlock(dtrace_knlist_mtx);
+	mtx_unlock(&dtrace_knlist_mtx);
 
 	if (probe->dtpr_ecb == NULL) {
 		if (probe->dtpr_mode == DTRACE_PROBE_MODE_VIRT)
@@ -11612,8 +11611,6 @@ dtrace_probeid_disable(dtrace_id_t id)
 
 	dtrace_probes = dtrace_instance_lookup_probes("host");
 	ASSERT(dtrace_probes != NULL);
-
-	/*dtrace_knote(dtrace_knlist, NOTE_PROBE_UNINSTALL);*/
 
 	probe = dtrace_probes[id];
 	if (probe == NULL)
@@ -12246,14 +12243,14 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 		return;
 	}
 
-	mtx_lock(dtrace_knlist_mtx);
+	mtx_lock(&dtrace_knlist_mtx);
 	probe_info.id = probe->dtpr_id;
 	probe_info.instance = probe->dtpr_instance;
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist->kl_list, kn_selnext, tkn) {
 		kn->kn_data = (__intptr_t) &probe_info;
 	}
 	DTRACE_KNOTE_LOCKED(dtrace_knlist, NOTE_PROBE_UNINSTALL);
-	mtx_unlock(dtrace_knlist_mtx);
+	mtx_unlock(&dtrace_knlist_mtx);
 
 	for (pecb = probe->dtpr_ecb; pecb != NULL; pecb = pecb->dte_next) {
 		if (pecb == ecb)

@@ -59,8 +59,18 @@ dtrace_uninstall_probe_ptr_t	dtrace_uninstall_probe_ptr;
 
 systrace_probe_func_t		systrace_probe_func;
 
+static int filt_dtraceattach(struct knote *);
+static void filt_dtracedetach(struct knote *);
+static int filt_dtrace(struct knote *, long);
+
 struct knlist *dtrace_knlist;
-struct mtx *dtrace_knlist_mtx;
+struct mtx dtrace_knlist_mtx;
+
+struct filterops dtrace_filtops = {
+	.f_attach = filt_dtraceattach,
+	.f_detach = filt_dtracedetach,
+	.f_event = filt_dtrace,
+};
 
 /* Return the DTrace process data size compiled in the kernel hooks. */
 size_t
@@ -127,18 +137,9 @@ init_dtrace(void *dummy __unused)
 	    EVENTHANDLER_PRI_ANY);
 	EVENTHANDLER_REGISTER(thread_dtor, kdtrace_thread_dtor, NULL,
 	    EVENTHANDLER_PRI_ANY);
-	dtrace_knlist_mtx = malloc(sizeof(struct mtx), M_KDTRACE, M_WAITOK | M_ZERO);
-	dtrace_knlist = knlist_alloc(dtrace_knlist_mtx);
 }
 
-static void
-uninit_dtrace(void *dummy __unused)
-{
-	knlist_detach(dtrace_knlist);
-	free(dtrace_knlist_mtx, M_KDTRACE);
-}
-
-int
+static int
 filt_dtraceattach(struct knote *kn)
 {
 	if ((kn->kn_flags & EV_MODIFY_UDATA) == 0)
@@ -155,13 +156,13 @@ filt_dtraceattach(struct knote *kn)
 	return (0);
 }
 
-void
+static __inline void
 filt_dtracedetach(struct knote *kn)
 {
 	knlist_remove(dtrace_knlist, kn, 0);
 }
 
-int
+static __inline int
 filt_dtrace(struct knote *kn, long hint)
 {
 	return !(kn->kn_sfflags & hint);
@@ -169,4 +170,3 @@ filt_dtrace(struct knote *kn, long hint)
 
 
 SYSINIT(kdtrace, SI_SUB_KDTRACE, SI_ORDER_FIRST, init_dtrace, NULL);
-SYSUNINIT(kdtrace, SI_SUB_KDTRACE, SI_ORDER_FIRST, uninit_dtrace, NULL);

@@ -189,11 +189,6 @@ static struct filterops user_filtops = {
 	.f_event = filt_user,
 	.f_touch = filt_usertouch,
 };
-static struct filterops dtrace_filtops = {
-	.f_attach = filt_dtraceattach,
-	.f_detach = filt_dtracedetach,
-	.f_event  = filt_dtrace,
-};
 
 static uma_zone_t	knote_zone;
 static unsigned int	kq_ncallouts = 0;
@@ -325,6 +320,7 @@ struct filterops null_filtops = {
 };
 
 /* XXX - make SYSINIT to add these, and move into respective modules. */
+extern struct filterops dtrace_filtops;
 extern struct filterops sig_filtops;
 extern struct filterops fs_filtops;
 
@@ -351,8 +347,8 @@ static struct {
 	{ &null_filtops },			/* EVFILT_LIO */
 	{ &user_filtops, 1 },			/* EVFILT_USER */
 	{ &null_filtops },			/* EVFILT_SENDFILE */
-	{ &dtrace_filtops },			/* TODO: EVFILT_DTRACE */
 	{ &file_filtops, 1 },                   /* EVFILT_EMPTY */
+	{ &dtrace_filtops, 1 },			/* EVFILT_DTRACE */
 };
 
 /*
@@ -1107,7 +1103,7 @@ kqueue_add_filteropts(int filt, struct filterops *filtops)
 		printf(
 "trying to add a filterop that is out of range: %d is beyond %d\n",
 		    ~filt, EVFILT_SYSCOUNT);
-		return EINVAL;
+		return (EINVAL);
 	}
 	mtx_lock(&filterops_lock);
 	if (sysfilt_ops[~filt].for_fop != &null_filtops &&
@@ -1149,12 +1145,11 @@ kqueue_del_filteropts(int filt)
 static struct filterops *
 kqueue_fo_find(int filt)
 {
-
 	if (filt > 0 || filt + EVFILT_SYSCOUNT < 0)
-		return NULL;
+		return (NULL);
 
 	if (sysfilt_ops[~filt].for_nolock)
-		return sysfilt_ops[~filt].for_fop;
+		return (sysfilt_ops[~filt].for_fop);
 
 	mtx_lock(&filterops_lock);
 	sysfilt_ops[~filt].for_refcnt++;
@@ -1162,7 +1157,7 @@ kqueue_fo_find(int filt)
 		sysfilt_ops[~filt].for_fop = &null_filtops;
 	mtx_unlock(&filterops_lock);
 
-	return sysfilt_ops[~filt].for_fop;
+	return (sysfilt_ops[~filt].for_fop);
 }
 
 static void
@@ -1211,7 +1206,7 @@ kqueue_register(struct kqueue *kq, struct kevent *kev, struct thread *td, int wa
 	filt = kev->filter;
 	fops = kqueue_fo_find(filt);
 	if (fops == NULL)
-		return EINVAL;
+		return (EINVAL);
 
 	if (kev->flags & EV_ADD) {
 		/*
@@ -1523,7 +1518,7 @@ kqueue_expand(struct kqueue *kq, struct filterops *fops, uintptr_t ident,
 				size += KQEXTENT;
 			list = malloc(size * sizeof(*list), M_KQUEUE, mflag);
 			if (list == NULL)
-				return ENOMEM;
+				return (ENOMEM);
 			KQ_LOCK(kq);
 			if (kq->kq_knlistsize > fd) {
 				to_free = list;
@@ -1548,7 +1543,7 @@ kqueue_expand(struct kqueue *kq, struct filterops *fops, uintptr_t ident,
 			tmp_knhash = hashinit(KN_HASHSIZE, M_KQUEUE,
 			    &tmp_knhashmask);
 			if (tmp_knhash == NULL)
-				return ENOMEM;
+				return (ENOMEM);
 			KQ_LOCK(kq);
 			if (kq->kq_knhashmask == 0) {
 				kq->kq_knhash = tmp_knhash;
@@ -1562,7 +1557,7 @@ kqueue_expand(struct kqueue *kq, struct filterops *fops, uintptr_t ident,
 	free(to_free, M_KQUEUE);
 
 	KQ_NOTOWNED(kq);
-	return 0;
+	return (0);
 }
 
 static void
@@ -2099,8 +2094,9 @@ knote(struct knlist *list, long hint, int lockflags)
 			KQ_UNLOCK_FLUX(kq);
 		} else {
 			kn->kn_status |= KN_HASKQLOCK;
-			if (kn->kn_fop->f_event(kn, hint))
+			if (kn->kn_fop->f_event(kn, hint)) {
 				KNOTE_ACTIVATE(kn, 1);
+			}
 			kn->kn_status &= ~KN_HASKQLOCK;
 			KQ_UNLOCK(kq);
 		}

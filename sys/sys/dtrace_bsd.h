@@ -47,16 +47,18 @@ struct mtx;
 #define	DTRACE_KNOTE_UNLOCKED(list, hint)	KNOTE_UNLOCKED(list, hint);
 
 extern struct knlist *dtrace_knlist;
-extern struct mtx *dtrace_knlist_mtx;
+extern struct mtx dtrace_knlist_mtx;
 
 struct dtrace_probeinfo {
 	int		 id;		/* ID of the probe to install */
 	char		*instance;	/* instance to install it on */
 };
 
+/*
 int filt_dtraceattach(struct knote *);
 void filt_dtracedetach(struct knote *);
 int filt_dtrace(struct knote *, long);
+*/
 
 int dtrace_trap(struct trapframe *, u_int);
 
