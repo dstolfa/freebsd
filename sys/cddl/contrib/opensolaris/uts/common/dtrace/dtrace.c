@@ -266,8 +266,6 @@ static dtrace_dynvar_t	dtrace_dynhash_sink;	/* end of dynamic hash chains */
 static int		dtrace_dynvar_failclean; /* dynvars failed to clean */
 #ifndef illumos
 static struct mtx	dtrace_unr_mtx;
-static struct knlist	*dtrace_knlist;
-static struct mtx	dtrace_knlist_mtx;
 MTX_SYSINIT(dtrace_unr_mtx, &dtrace_unr_mtx, "Unique resource identifier", MTX_DEF);
 static eventhandler_tag	dtrace_kld_load_tag;
 static eventhandler_tag	dtrace_kld_unload_try_tag;
@@ -9776,7 +9774,6 @@ dtrace_probe_enable(dtrace_probedesc_t *desc, dtrace_enabling_t *enab)
 	zoneid_t zoneid;
 
 	ASSERT(MUTEX_HELD(&dtrace_lock));
-	/*dtrace_knote(dtrace_knlist, NOTE_PROBE_INSTALL);*/
 	dtrace_ecb_create_cache = NULL;
 
 	if (desc == NULL) {
@@ -11523,12 +11520,14 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 		return;
 	}
 
+	mtx_lock(dtrace_knlist_mtx);
 	probe_info.id = probe->dtpr_id;
 	probe_info.instance = probe->dtpr_instance;
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist->kl_list, kn_selnext, tkn) {
 		kn->kn_data = (__intptr_t) &probe_info;
 	}
 	DTRACE_KNOTE_LOCKED(dtrace_knlist, NOTE_PROBE_INSTALL);
+	mtx_unlock(dtrace_knlist_mtx);
 
 	if (probe->dtpr_ecb == NULL) {
 		if (probe->dtpr_mode == DTRACE_PROBE_MODE_VIRT)
@@ -12247,12 +12246,14 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 		return;
 	}
 
+	mtx_lock(dtrace_knlist_mtx);
 	probe_info.id = probe->dtpr_id;
 	probe_info.instance = probe->dtpr_instance;
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist->kl_list, kn_selnext, tkn) {
 		kn->kn_data = (__intptr_t) &probe_info;
 	}
 	DTRACE_KNOTE_LOCKED(dtrace_knlist, NOTE_PROBE_UNINSTALL);
+	mtx_unlock(dtrace_knlist_mtx);
 
 	for (pecb = probe->dtpr_ecb; pecb != NULL; pecb = pecb->dte_next) {
 		if (pecb == ecb)

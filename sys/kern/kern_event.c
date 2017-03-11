@@ -160,11 +160,6 @@ static void	filt_userdetach(struct knote *kn);
 static int	filt_user(struct knote *kn, long hint);
 static void	filt_usertouch(struct knote *kn, struct kevent *kev,
 		    u_long type);
-static int	filt_dtraceattach(struct knote *kn);
-static void	filt_dtracedetach(struct knote *kn);
-static int	filt_dtrace(struct knote *kn, long hint);
-static void	filt_dtracetouch(struct knote *kn, struct kevent *kev,
-		    u_long type);
 
 static struct filterops file_filtops = {
 	.f_isfd = 1,
@@ -844,44 +839,6 @@ filt_usertouch(struct knote *kn, struct kevent *kev, u_long type)
 		panic("filt_usertouch() - invalid type (%ld)", type);
 		break;
 	}
-}
-
-static int
-filt_dtraceattach(struct knote *kn)
-{
-	/*
-	struct kqueue *kq = kn->kn_fp->f_data;
-
-	if (kn->kn_filter != EVFILT_DTRACE)
-		return (EINVAL);
-
-	kn->kn_status |= KN_KQUEUE;
-	kn->kn_fop = &dtrace_filtops;
-	knlist_add(&kq->kq_sel.si_note, kn, 0);
-	*/
-
-	return (0);
-}
-
-static void
-filt_dtracedetach(struct knote *kn)
-{
-	/*
-	struct kqueue *kq = kn->kn_fp->f_data;
-
-	knlist_remove(&kq->kq_sel.si_note, kn, 0);
-	*/
-}
-
-static int
-filt_dtrace(struct knote *kn, long hint)
-{
-	/*
-	 * TODO: Set up the events with the proper hint:
-	 * NOTE_PROBE_INSTALL
-	 * NOTE_PROBE_UNINSTALL
-	 */
-	return (0);
 }
 
 int

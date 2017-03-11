@@ -39,6 +39,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/dtrace_bsd.h>
 #include <sys/sysctl.h>
 #include <sys/sysent.h>
+#include <sys/event.h>
 
 #define KDTRACE_PROC_SIZE	64
 #define	KDTRACE_THREAD_SIZE	256
@@ -57,6 +58,9 @@ dtrace_install_probe_ptr_t	dtrace_install_probe_ptr;
 dtrace_uninstall_probe_ptr_t	dtrace_uninstall_probe_ptr;
 
 systrace_probe_func_t		systrace_probe_func;
+
+struct knlist *dtrace_knlist;
+struct mtx *dtrace_knlist_mtx;
 
 /* Return the DTrace process data size compiled in the kernel hooks. */
 size_t
@@ -123,6 +127,46 @@ init_dtrace(void *dummy __unused)
 	    EVENTHANDLER_PRI_ANY);
 	EVENTHANDLER_REGISTER(thread_dtor, kdtrace_thread_dtor, NULL,
 	    EVENTHANDLER_PRI_ANY);
+	dtrace_knlist_mtx = malloc(sizeof(struct mtx), M_KDTRACE, M_WAITOK | M_ZERO);
+	dtrace_knlist = knlist_alloc(dtrace_knlist_mtx);
 }
 
+static void
+uninit_dtrace(void *dummy __unused)
+{
+	knlist_detach(dtrace_knlist);
+	free(dtrace_knlist_mtx, M_KDTRACE);
+}
+
+int
+filt_dtraceattach(struct knote *kn)
+{
+	if ((kn->kn_flags & EV_MODIFY_UDATA) == 0)
+		return (EDOOFUS);
+
+	if ((kn->kn_filter & EVFILT_DTRACE) == 0)
+		return (ENXIO);
+
+	if ((kn->kn_sfflags & (NOTE_PROBE_INSTALL | NOTE_PROBE_UNINSTALL)) == 0)
+		return (EINVAL);
+
+	knlist_add(dtrace_knlist, kn, 0);
+
+	return (0);
+}
+
+void
+filt_dtracedetach(struct knote *kn)
+{
+	knlist_remove(dtrace_knlist, kn, 0);
+}
+
+int
+filt_dtrace(struct knote *kn, long hint)
+{
+	return !(kn->kn_sfflags & hint);
+}
+
+
 SYSINIT(kdtrace, SI_SUB_KDTRACE, SI_ORDER_FIRST, init_dtrace, NULL);
+SYSUNINIT(kdtrace, SI_SUB_KDTRACE, SI_ORDER_FIRST, uninit_dtrace, NULL);
