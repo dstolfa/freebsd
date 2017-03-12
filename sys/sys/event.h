@@ -85,8 +85,6 @@ struct kevent {
 #define EV_FLAG1	0x2000		/* filter-specific flag */
 #define EV_FLAG2	0x4000		/* filter-specific flag */
 
-#define	EV_MODIFY_UDATA	0x0200		/* modify the udata values */
-
 /* returned values */
 #define EV_EOF		0x8000		/* EOF detected */
 #define EV_ERROR	0x4000		/* error, data contains errno */
@@ -183,7 +181,7 @@ struct knlist {
 #define	KNF_LISTLOCKED	0x0001			/* knlist is locked */
 #define	KNF_NOKQLOCK	0x0002			/* do not keep KQ_LOCK */
 
-#define KNOTE(list, hist, flags)	knote(list, hist, flags)
+#define KNOTE(list, hint, flags)	knote(list, hint, flags)
 #define KNOTE_LOCKED(list, hint)	knote(list, hint, KNF_LISTLOCKED)
 #define KNOTE_UNLOCKED(list, hint)	knote(list, hint, 0)
 

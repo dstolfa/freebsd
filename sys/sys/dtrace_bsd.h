@@ -42,23 +42,30 @@ struct knote;
 struct knlist;
 struct mtx;
 
-#define	DTRACE_KNOTE(list, hist, flags)		KNOTE(knlist, hist, flags)
-#define	DTRACE_KNOTE_LOCKED(list, hint)		KNOTE_LOCKED(list, hint)
-#define	DTRACE_KNOTE_UNLOCKED(list, hint)	KNOTE_UNLOCKED(list, hint);
+#define	DTRACE_KNOTE(list, hint, flags)					\
+	do {								\
+		if (!KNLIST_EMPTY(list)) {				\
+			KNOTE(list, hint, flags | KNF_NOKQLOCK);	\
+		}							\
+	} while (0)
 
-extern struct knlist *dtrace_knlist;
+#define	DTRACE_KNOTE_LOCKED(list, hint)		DTRACE_KNOTE(list, hint, KNF_LISTLOCKED)
+#define	DTRACE_KNOTE_UNLOCKED(list, hint)	DTRACE_KNOTE(list, hint, 0);
+#define	DTRACE_INSTANCENAMELEN	64
+
+extern struct knlist dtrace_knlist;
 extern struct mtx dtrace_knlist_mtx;
 
 struct dtrace_probeinfo {
-	int		 id;		/* ID of the probe to install */
-	char		*instance;	/* instance to install it on */
+	int	id;					/* ID of the probe to install */
+	char	instance[DTRACE_INSTANCENAMELEN];	/* instance to install it on */
 };
 
-/*
+
 int filt_dtraceattach(struct knote *);
 void filt_dtracedetach(struct knote *);
 int filt_dtrace(struct knote *, long);
-*/
+
 
 int dtrace_trap(struct trapframe *, u_int);
 

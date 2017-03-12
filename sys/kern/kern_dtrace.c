@@ -59,11 +59,7 @@ dtrace_uninstall_probe_ptr_t	dtrace_uninstall_probe_ptr;
 
 systrace_probe_func_t		systrace_probe_func;
 
-static int filt_dtraceattach(struct knote *);
-static void filt_dtracedetach(struct knote *);
-static int filt_dtrace(struct knote *, long);
-
-struct knlist *dtrace_knlist;
+struct knlist dtrace_knlist;
 struct mtx dtrace_knlist_mtx;
 
 struct filterops dtrace_filtops = {
@@ -137,36 +133,46 @@ init_dtrace(void *dummy __unused)
 	    EVENTHANDLER_PRI_ANY);
 	EVENTHANDLER_REGISTER(thread_dtor, kdtrace_thread_dtor, NULL,
 	    EVENTHANDLER_PRI_ANY);
+	mtx_init(&dtrace_knlist_mtx, "dtknlmtx", NULL, MTX_DEF);
+	knlist_init_mtx(&dtrace_knlist, &dtrace_knlist_mtx);
 }
 
-static int
+static void
+uninit_dtrace(void *dummy __unused)
+{
+	mtx_destroy(&dtrace_knlist_mtx);
+	knlist_destroy(&dtrace_knlist);
+}
+
+int
 filt_dtraceattach(struct knote *kn)
 {
-	if ((kn->kn_flags & EV_MODIFY_UDATA) == 0)
-		return (EDOOFUS);
-
 	if ((kn->kn_filter & EVFILT_DTRACE) == 0)
 		return (ENXIO);
 
 	if ((kn->kn_sfflags & (NOTE_PROBE_INSTALL | NOTE_PROBE_UNINSTALL)) == 0)
 		return (EINVAL);
 
-	knlist_add(dtrace_knlist, kn, 0);
+	kn->kn_hookid = 1;
+	kn->kn_sdata = kn->kn_data;
+	knlist_add(&dtrace_knlist, kn, 0);
 
 	return (0);
 }
 
-static __inline void
+__inline void
 filt_dtracedetach(struct knote *kn)
 {
-	knlist_remove(dtrace_knlist, kn, 0);
+	kn->kn_hookid = 0;
+	knlist_remove(&dtrace_knlist, kn, 0);
 }
 
-static __inline int
+__inline int
 filt_dtrace(struct knote *kn, long hint)
 {
-	return !(kn->kn_sfflags & hint);
+	return (kn->kn_hookid);
 }
 
 
 SYSINIT(kdtrace, SI_SUB_KDTRACE, SI_ORDER_FIRST, init_dtrace, NULL);
+SYSUNINIT(kdtrace, SI_SUB_KDTRACE, SI_ORDER_FIRST, uninit_dtrace, NULL);

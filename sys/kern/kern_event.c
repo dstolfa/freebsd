@@ -96,7 +96,7 @@ TASKQUEUE_DEFINE_THREAD(kqueue_ctx);
 
 static int	kevent_copyout(void *arg, struct kevent *kevp, int count);
 static int	kevent_copyin(void *arg, struct kevent *kevp, int count);
-static int	kevent_data_copyout(struct kevent *kevp, int nbytes);
+static int	kevent_data_copyout(void *kaddr, void *uaddr, int nbytes);
 static int	kqueue_register(struct kqueue *kq, struct kevent *kev,
 		    struct thread *td, int waitok);
 static int	kqueue_acquire(struct file *fp, struct kqueue **kqp);
@@ -990,9 +990,9 @@ kevent_copyin(void *arg, struct kevent *kevp, int count)
 }
 
 static __inline int
-kevent_data_copyout(struct kevent *kevp, int nbytes)
+kevent_data_copyout(void *kaddr, void *uaddr, int nbytes)
 {
-	return (copyout((void *)kevp->data, kevp->udata, nbytes));
+	return (copyout(kaddr, uaddr, nbytes));
 }
 
 int
@@ -1751,18 +1751,11 @@ retry:
 			} else
 				TAILQ_INSERT_TAIL(&kq->kq_head, kn, kn_tqe);
 
-			if (kn->kn_flags & EV_MODIFY_UDATA) {
-				size_t nbytes;
-				switch(kn->kn_filter) {
-				case EVFILT_DTRACE:
-					nbytes = sizeof(struct dtrace_probeinfo);
-				default:
-					nbytes = 0;
-				}
+			if (kn->kn_filter & EVFILT_DTRACE)
+				(void) kevent_data_copyout((void *)kevp->data,
+				    (void *)kn->kn_sdata,
+				    sizeof(struct dtrace_probeinfo));
 
-				(void) kevent_data_copyout(kevp, nbytes);
-			}
-			
 			kn->kn_status &= ~KN_SCAN;
 			kn_leave_flux(kn);
 			kn_list_unlock(knl);

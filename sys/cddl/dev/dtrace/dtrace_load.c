@@ -73,8 +73,6 @@ dtrace_load(void *dummy)
 	dtrace_invop_init();
 
 	dtrace_taskq = taskq_create("dtrace_taskq", 1, maxclsyspri, 0, 0, 0);
-	mtx_init(&dtrace_knlist_mtx, "dtknlmtx", NULL, MTX_DEF);
-	dtrace_knlist = knlist_alloc(&dtrace_knlist_mtx);
 
 	dtrace_arena = new_unrhdr(1, INT_MAX, &dtrace_unr_mtx);
 

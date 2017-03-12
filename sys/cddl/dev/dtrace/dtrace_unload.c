@@ -135,8 +135,6 @@ dtrace_unload()
 	mutex_destroy(&dtrace_errlock);
 #endif
 
-	mtx_destroy(&dtrace_knlist_mtx);
-	knlist_detach(dtrace_knlist);
 	taskq_destroy(dtrace_taskq);
 
 	/* Reset our hook for exceptions. */
