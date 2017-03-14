@@ -11508,6 +11508,8 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 	dtrace_probe_t *probe = ecb->dte_probe;
 	struct dtrace_probeinfo probe_info;
 	struct knote *kn, *tkn;
+	struct uio uio;
+	struct iovec iov;
 
 	ASSERT(MUTEX_HELD(&cpu_lock));
 	ASSERT(MUTEX_HELD(&dtrace_lock));
@@ -11520,12 +11522,26 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 		return;
 	}
 	mtx_lock(&dtrace_knlist_mtx);
+
 	probe_info.id = probe->dtpr_id;
 	dtrace_strcpy(probe->dtpr_instance, probe_info.instance, DTRACE_INSTANCENAMELEN);
+
+	iov.iov_base = &probe_info;
+	iov.iov_len = sizeof(struct dtrace_probeinfo);
+
+	uio.uio_iov = &iov;
+	uio.uio_iovcnt = 1;
+	uio.uio_offset = 0;
+	uio.uio_resid = sizeof(struct dtrace_probeinfo);
+	uio.uio_segflg = UIO_SYSSPACE;
+	uio.uio_rw = UIO_WRITE;
+	uio.uio_td = NULL; /* set in kqueue_uiomove() */
+
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
-		kn->kn_data = (__intptr_t) &probe_info;
+		kn->kn_data = (__intptr_t) &uio;
 	}
 	DTRACE_KNOTE_LOCKED(&dtrace_knlist, NOTE_PROBE_INSTALL);
+
 	mtx_unlock(&dtrace_knlist_mtx);
 
 	if (probe->dtpr_ecb == NULL) {

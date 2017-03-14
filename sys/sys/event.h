@@ -246,6 +246,7 @@ struct knote {
 		struct		proc *p_proc;	/* proc pointer */
 		struct		kaiocb *p_aio;	/* AIO job pointer */
 		struct		aioliojob *p_lio;	/* LIO job pointer */
+		struct		thread *p_td;	/* thread pointer */
 		void		*p_v;		/* generic other pointer */
 	} kn_ptr;
 	struct			filterops *kn_fop;
@@ -261,6 +262,7 @@ struct knote {
 #define kn_data		kn_kevent.data
 #define	kn_udata	kn_kevent.udata
 #define kn_fp		kn_ptr.p_fp
+#define	kn_tp		kn_ptr.p_td
 };
 struct kevent_copyops {
 	void	*arg;
