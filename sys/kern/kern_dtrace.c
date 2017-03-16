@@ -147,15 +147,20 @@ uninit_dtrace(void *dummy __unused)
 int
 filt_dtraceattach(struct knote *kn)
 {
+	struct knote *knt, *tkn;
 	if ((kn->kn_filter & EVFILT_DTRACE) == 0)
 		return (ENXIO);
 
 	if ((kn->kn_sfflags & (NOTE_PROBE_INSTALL | NOTE_PROBE_UNINSTALL)) == 0)
 		return (EINVAL);
 
-	kn->kn_hookid = 1;
 	kn->kn_sdata = kn->kn_data;
 	knlist_add(&dtrace_knlist, kn, 0);
+	SLIST_FOREACH_SAFE(knt, &dtrace_knlist.kl_list, kn_selnext, tkn) {
+		printf("kn_sdata = %lx\n", knt->kn_sdata);
+		printf("kn_data = %lx\n", knt->kn_data);
+		printf("kn_sfflags = %x\n", knt->kn_sfflags);
+	}
 
 	return (0);
 }
@@ -163,14 +168,14 @@ filt_dtraceattach(struct knote *kn)
 __inline void
 filt_dtracedetach(struct knote *kn)
 {
-	kn->kn_hookid = 0;
 	knlist_remove(&dtrace_knlist, kn, 0);
 }
 
 __inline int
 filt_dtrace(struct knote *kn, long hint)
 {
-	return (kn->kn_hookid);
+	return ((kn->kn_fflags & NOTE_PROBE_INSTALL) &&
+		(kn->kn_fflags & NOTE_PROBE_UNINSTALL));
 }
 
 

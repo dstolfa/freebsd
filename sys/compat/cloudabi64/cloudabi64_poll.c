@@ -399,10 +399,10 @@ cloudabi64_sys_poll_fd(struct thread *td,
 		timeout.tv_sec = subtimo.clock.timeout / 1000000000;
 		timeout.tv_nsec = subtimo.clock.timeout % 1000000000;
 		return (kern_kevent(td, uap->fd, uap->in_len, uap->out_len,
-		    &copyops, &timeout));
+		    &copyops, &timeout, 0));
 	} else {
 		/* Poll without a timeout. */
 		return (kern_kevent(td, uap->fd, uap->in_len, uap->out_len,
-		    &copyops, NULL));
+		    &copyops, NULL, 0));
 	}
 }

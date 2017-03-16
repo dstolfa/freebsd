@@ -110,7 +110,8 @@ static void	kqueue_task(void *arg, int pending);
 static int	kqueue_scan(struct kqueue *kq, int maxevents,
 		    struct kevent_copyops *k_ops,
 		    const struct timespec *timeout,
-		    struct kevent *keva, struct thread *td);
+		    struct kevent *keva, struct thread *td,
+		    __intptr_t data);
 static void 	kqueue_wakeup(struct kqueue *kq);
 static struct filterops *kqueue_fo_find(int filt);
 static void	kqueue_fo_release(int filt);
@@ -900,6 +901,7 @@ struct kevent_args {
 	struct	kevent *eventlist;
 	int	nevents;
 	const struct timespec *timeout;
+#define	kev_data	eventlist->data
 };
 #endif
 int
@@ -939,8 +941,12 @@ sys_kevent(struct thread *td, struct kevent_args *uap)
 	}
 #endif
 
-	error = kern_kevent(td, uap->fd, uap->nchanges, uap->nevents,
-	    &k_ops, tsp);
+	if (uap->eventlist)
+		error = kern_kevent(td, uap->fd, uap->nchanges, uap->nevents,
+		    &k_ops, tsp, uap->kev_data);
+	else
+		error = kern_kevent(td, uap->fd, uap->nchanges, uap->nevents,
+		    &k_ops, tsp, 0);
 
 #ifdef KTRACE
 	if (ktruioin != NULL) {
@@ -991,16 +997,22 @@ kevent_copyin(void *arg, struct kevent *kevp, int count)
 }
 
 static int
-kevent_uiomove(void *addr, int siz, struct uio *uiop, struct thread *td)
+kevent_uiomove(void *kaddr, int siz, struct uio *uiop, struct thread *td)
 {
 	struct iovec *iov;
 	if (uiop) {
 		iov = uiop->uio_iov;
+/*		printf("kaddr = %p\n", kaddr);
+		printf("iov->base = %p\n", iov->iov_base);
+		printf("iov->len = %zu\n", iov->iov_len);
+*/
+		if (kaddr == NULL)
+			return (EINVAL);
 		if (iov->iov_base == NULL ||
 		    (intptr_t)((intptr_t)iov->iov_base - iov->iov_len) < 0)
 			return (EINVAL);
 		uiop->uio_td = td;
-		return (uiomove(addr, siz, uiop));
+		return (uiomove(kaddr, siz, uiop));
 	}
 
 	return (EINVAL);
@@ -1008,7 +1020,7 @@ kevent_uiomove(void *addr, int siz, struct uio *uiop, struct thread *td)
 
 int
 kern_kevent(struct thread *td, int fd, int nchanges, int nevents,
-    struct kevent_copyops *k_ops, const struct timespec *timeout)
+    struct kevent_copyops *k_ops, const struct timespec *timeout, __intptr_t data)
 {
 	cap_rights_t rights;
 	struct file *fp;
@@ -1023,7 +1035,7 @@ kern_kevent(struct thread *td, int fd, int nchanges, int nevents,
 	if (error != 0)
 		return (error);
 
-	error = kern_kevent_fp(td, fp, nchanges, nevents, k_ops, timeout);
+	error = kern_kevent_fp(td, fp, nchanges, nevents, k_ops, timeout, data);
 	fdrop(fp, td);
 
 	return (error);
@@ -1031,7 +1043,7 @@ kern_kevent(struct thread *td, int fd, int nchanges, int nevents,
 
 static int
 kqueue_kevent(struct kqueue *kq, struct thread *td, int nchanges, int nevents,
-    struct kevent_copyops *k_ops, const struct timespec *timeout)
+    struct kevent_copyops *k_ops, const struct timespec *timeout, __intptr_t data)
 {
 	struct kevent keva[KQ_NEVENTS];
 	struct kevent *kevp, *changes;
@@ -1067,12 +1079,12 @@ kqueue_kevent(struct kqueue *kq, struct thread *td, int nchanges, int nevents,
 		return (0);
 	}
 
-	return (kqueue_scan(kq, nevents, k_ops, timeout, keva, td));
+	return (kqueue_scan(kq, nevents, k_ops, timeout, keva, td, data));
 }
 
 int
 kern_kevent_fp(struct thread *td, struct file *fp, int nchanges, int nevents,
-    struct kevent_copyops *k_ops, const struct timespec *timeout)
+    struct kevent_copyops *k_ops, const struct timespec *timeout, __intptr_t data)
 {
 	struct kqueue *kq;
 	int error;
@@ -1080,7 +1092,7 @@ kern_kevent_fp(struct thread *td, struct file *fp, int nchanges, int nevents,
 	error = kqueue_acquire(fp, &kq);
 	if (error != 0)
 		return (error);
-	error = kqueue_kevent(kq, td, nchanges, nevents, k_ops, timeout);
+	error = kqueue_kevent(kq, td, nchanges, nevents, k_ops, timeout, data);
 	kqueue_release(kq, 0);
 	return (error);
 }
@@ -1098,7 +1110,7 @@ kern_kevent_anonymous(struct thread *td, int nevents,
 
 	kqueue_init(&kq);
 	kq.kq_refcnt = 1;
-	error = kqueue_kevent(&kq, td, nevents, nevents, k_ops, NULL);
+	error = kqueue_kevent(&kq, td, nevents, nevents, k_ops, NULL, 0);
 	kqueue_drain(&kq, td);
 	kqueue_destroy(&kq);
 	return (error);
@@ -1599,7 +1611,7 @@ kqueue_task(void *arg, int pending)
  */
 static int
 kqueue_scan(struct kqueue *kq, int maxevents, struct kevent_copyops *k_ops,
-    const struct timespec *tsp, struct kevent *keva, struct thread *td)
+    const struct timespec *tsp, struct kevent *keva, struct thread *td, __intptr_t data)
 {
 	struct kevent *kevp;
 	struct knote *kn, *marker;
@@ -1762,10 +1774,25 @@ retry:
 			} else
 				TAILQ_INSERT_TAIL(&kq->kq_head, kn, kn_tqe);
 
-			if (kn->kn_filter == EVFILT_DTRACE)
-				(void) kevent_uiomove((void *)kevp->data,
+			if (kn->kn_filter == EVFILT_DTRACE) {
+				struct uio uio;
+				struct iovec iov;
+
+				iov.iov_base = (void *)data;
+				iov.iov_len = sizeof(struct dtrace_probeinfo);
+
+				uio.uio_iov = &iov;
+				uio.uio_iovcnt = 1;
+				uio.uio_offset = 0;
+				uio.uio_resid = sizeof(struct dtrace_probeinfo);
+				uio.uio_segflg = UIO_USERSPACE;
+				uio.uio_rw = UIO_WRITE;
+				uio.uio_td = td;
+
+				(void) kevent_uiomove((void *)kn->kn_data,
 				    sizeof(struct dtrace_probeinfo),
-				    (struct uio *)kn->kn_sdata, td);
+				    &uio, td);
+			}
 
 			kn->kn_status &= ~KN_SCAN;
 			kn_leave_flux(kn);

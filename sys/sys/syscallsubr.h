@@ -133,12 +133,13 @@ int	kern_jail(struct thread *td, struct jail *j);
 int	kern_jail_get(struct thread *td, struct uio *options, int flags);
 int	kern_jail_set(struct thread *td, struct uio *options, int flags);
 int	kern_kevent(struct thread *td, int fd, int nchanges, int nevents,
-	    struct kevent_copyops *k_ops, const struct timespec *timeout);
+	    struct kevent_copyops *k_ops, const struct timespec *timeout,
+	    __intptr_t data);
 int	kern_kevent_anonymous(struct thread *td, int nevents,
 	    struct kevent_copyops *k_ops);
 int	kern_kevent_fp(struct thread *td, struct file *fp, int nchanges,
 	    int nevents, struct kevent_copyops *k_ops,
-	    const struct timespec *timeout);
+	    const struct timespec *timeout, __intptr_t data);
 int	kern_kqueue(struct thread *td, int flags, struct filecaps *fcaps);
 int	kern_kldload(struct thread *td, const char *file, int *fileid);
 int	kern_kldstat(struct thread *td, int fileid, struct kld_file_stat *stat);
