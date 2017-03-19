@@ -3766,11 +3766,11 @@ pf_unload_vnet(void)
 		return;
 	}
 
-	pf_unload_vnet_purge();
-
 	PF_RULES_WLOCK();
 	shutdown_pf();
 	PF_RULES_WUNLOCK();
+
+	pf_unload_vnet_purge();
 
 	pf_normalize_cleanup();
 	PF_RULES_WLOCK();
@@ -3791,7 +3791,7 @@ pf_unload(void)
 	pf_end_threads = 1;
 	while (pf_end_threads < 2) {
 		wakeup_one(pf_purge_thread);
-		rw_sleep(pf_purge_thread, &pf_rules_lock, 0, "pftmo", 0);
+		tsleep(pf_purge_thread, 0, "pftmo", 0);
 	}
 
 	if (pf_dev != NULL)

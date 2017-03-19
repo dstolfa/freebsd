@@ -7,16 +7,16 @@ SRCS+=	vmx_assym.h svm_assym.h
 DPSRCS=	vmx_genassym.c svm_genassym.c
 
 CFLAGS+= -DVMM_KEEP_STATS -DSMP
-CFLAGS+= -I${.CURDIR}/../../amd64/vmm
-CFLAGS+= -I${.CURDIR}/../../amd64/vmm/io
-CFLAGS+= -I${.CURDIR}/../../amd64/vmm/intel
-CFLAGS+= -I${.CURDIR}/../../amd64/vmm/amd
+CFLAGS+= -I${SRCTOP}/sys/amd64/vmm
+CFLAGS+= -I${SRCTOP}/sys/amd64/vmm/io
+CFLAGS+= -I${SRCTOP}/sys/amd64/vmm/intel
+CFLAGS+= -I${SRCTOP}/sys/amd64/vmm/amd
 
 CFLAGS_INCLUDE_SOLARIS= -I${.CURDIR}/../../cddl/compat/opensolaris
 CFLAGS_INCLUDE_SOLARIS+= -I${.CURDIR}/../../cddl/contrib/opensolaris/uts/common
 
 # generic vmm support
-.PATH: ${.CURDIR}/../../amd64/vmm
+.PATH: ${SRCTOP}/sys/amd64/vmm
 SRCS+=	vmm.c		\
 	vmm_dev.c	\
 	vmm_host.c	\
@@ -28,7 +28,7 @@ SRCS+=	vmm.c		\
 	vmm_util.c	\
 	x86.c
 
-.PATH: ${.CURDIR}/../../amd64/vmm/io
+.PATH: ${SRCTOP}/sys/amd64/vmm/io
 SRCS+=	iommu.c		\
 	ppt.c           \
 	vatpic.c	\
@@ -40,7 +40,7 @@ SRCS+=	iommu.c		\
 	vrtc.c
 
 # intel-specific files
-.PATH: ${.CURDIR}/../../amd64/vmm/intel
+.PATH: ${SRCTOP}/sys/amd64/vmm/intel
 SRCS+=	ept.c		\
 	vmcs.c		\
 	vmx_msr.c	\
@@ -49,7 +49,7 @@ SRCS+=	ept.c		\
 	vtd.c
 
 # amd-specific files
-.PATH: ${.CURDIR}/../../amd64/vmm/amd
+.PATH: ${SRCTOP}/sys/amd64/vmm/amd
 SRCS+=	vmcb.c		\
 	svm.c		\
 	svm_support.S	\
