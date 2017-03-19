@@ -50,7 +50,7 @@
  * file as the convention used is the SystemV ABI
  * calling convention.
  */
-int	hypercall_prototype(/* args */);
+int	hypercall_prototype(void /* args */);
 
 #endif
 
