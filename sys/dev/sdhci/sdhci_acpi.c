@@ -29,7 +29,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
-#include <sys/conf.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
 #include <sys/module.h>
@@ -41,16 +40,14 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/bus.h>
 #include <machine/resource.h>
-#include <machine/stdarg.h>
 
 #include <contrib/dev/acpica/include/acpi.h>
 #include <dev/acpica/acpivar.h>
 
 #include <dev/mmc/bridge.h>
-#include <dev/mmc/mmcreg.h>
-#include <dev/mmc/mmcbrvar.h>
 
-#include "sdhci.h"
+#include <dev/sdhci/sdhci.h>
+
 #include "mmcbr_if.h"
 #include "sdhci_if.h"
 
@@ -60,13 +57,14 @@ static const struct sdhci_acpi_device {
 	const char	*desc;
 	u_int		quirks;
 } sdhci_acpi_devices[] = {
-	{ "80860F14",	1,	"Intel Bay Trail SD Host Controller",
+	{ "80860F14",	1,	"Intel Bay Trail eMMC 4.5 Controller",
 	    SDHCI_QUIRK_ALL_SLOTS_NON_REMOVABLE |
-	    SDHCI_QUIRK_INTEL_POWER_UP_RESET },
-	{ "80860F14",	3,	"Intel Bay Trail SD Host Controller",
-	    SDHCI_QUIRK_INTEL_POWER_UP_RESET },
-	{ "80860F16",	0,	"Intel Bay Trail SD Host Controller",
-	    0 },
+	    SDHCI_QUIRK_INTEL_POWER_UP_RESET |
+	    SDHCI_QUIRK_WAIT_WHILE_BUSY },
+	{ "80860F14",	3,	"Intel Bay Trail SDXC Controller",
+	    SDHCI_QUIRK_WAIT_WHILE_BUSY },
+	{ "80860F16",	0,	"Intel Bay Trail SDXC Controller",
+	    SDHCI_QUIRK_WAIT_WHILE_BUSY },
 	{ NULL, 0, NULL, 0}
 };
 
@@ -89,7 +87,8 @@ static void sdhci_acpi_intr(void *arg);
 static int sdhci_acpi_detach(device_t dev);
 
 static uint8_t
-sdhci_acpi_read_1(device_t dev, struct sdhci_slot *slot, bus_size_t off)
+sdhci_acpi_read_1(device_t dev, struct sdhci_slot *slot __unused,
+    bus_size_t off)
 {
 	struct sdhci_acpi_softc *sc = device_get_softc(dev);
 
@@ -99,8 +98,8 @@ sdhci_acpi_read_1(device_t dev, struct sdhci_slot *slot, bus_size_t off)
 }
 
 static void
-sdhci_acpi_write_1(device_t dev, struct sdhci_slot *slot, bus_size_t off,
-    uint8_t val)
+sdhci_acpi_write_1(device_t dev, struct sdhci_slot *slot __unused,
+    bus_size_t off, uint8_t val)
 {
 	struct sdhci_acpi_softc *sc = device_get_softc(dev);
 
@@ -110,7 +109,8 @@ sdhci_acpi_write_1(device_t dev, struct sdhci_slot *slot, bus_size_t off,
 }
 
 static uint16_t
-sdhci_acpi_read_2(device_t dev, struct sdhci_slot *slot, bus_size_t off)
+sdhci_acpi_read_2(device_t dev, struct sdhci_slot *slot __unused,
+    bus_size_t off)
 {
 	struct sdhci_acpi_softc *sc = device_get_softc(dev);
 
@@ -120,8 +120,8 @@ sdhci_acpi_read_2(device_t dev, struct sdhci_slot *slot, bus_size_t off)
 }
 
 static void
-sdhci_acpi_write_2(device_t dev, struct sdhci_slot *slot, bus_size_t off,
-    uint16_t val)
+sdhci_acpi_write_2(device_t dev, struct sdhci_slot *slot __unused,
+    bus_size_t off, uint16_t val)
 {
 	struct sdhci_acpi_softc *sc = device_get_softc(dev);
 
@@ -131,7 +131,8 @@ sdhci_acpi_write_2(device_t dev, struct sdhci_slot *slot, bus_size_t off,
 }
 
 static uint32_t
-sdhci_acpi_read_4(device_t dev, struct sdhci_slot *slot, bus_size_t off)
+sdhci_acpi_read_4(device_t dev, struct sdhci_slot *slot __unused,
+    bus_size_t off)
 {
 	struct sdhci_acpi_softc *sc = device_get_softc(dev);
 
@@ -141,8 +142,8 @@ sdhci_acpi_read_4(device_t dev, struct sdhci_slot *slot, bus_size_t off)
 }
 
 static void
-sdhci_acpi_write_4(device_t dev, struct sdhci_slot *slot, bus_size_t off,
-    uint32_t val)
+sdhci_acpi_write_4(device_t dev, struct sdhci_slot *slot __unused,
+    bus_size_t off, uint32_t val)
 {
 	struct sdhci_acpi_softc *sc = device_get_softc(dev);
 
@@ -152,7 +153,7 @@ sdhci_acpi_write_4(device_t dev, struct sdhci_slot *slot, bus_size_t off,
 }
 
 static void
-sdhci_acpi_read_multi_4(device_t dev, struct sdhci_slot *slot,
+sdhci_acpi_read_multi_4(device_t dev, struct sdhci_slot *slot __unused,
     bus_size_t off, uint32_t *data, bus_size_t count)
 {
 	struct sdhci_acpi_softc *sc = device_get_softc(dev);
@@ -161,7 +162,7 @@ sdhci_acpi_read_multi_4(device_t dev, struct sdhci_slot *slot,
 }
 
 static void
-sdhci_acpi_write_multi_4(device_t dev, struct sdhci_slot *slot,
+sdhci_acpi_write_multi_4(device_t dev, struct sdhci_slot *slot __unused,
     bus_size_t off, uint32_t *data, bus_size_t count)
 {
 	struct sdhci_acpi_softc *sc = device_get_softc(dev);
@@ -192,7 +193,7 @@ sdhci_acpi_find_device(device_t dev)
 		if ((sdhci_acpi_devices[i].uid != 0) &&
 		    (sdhci_acpi_devices[i].uid != uid))
 			continue;
-		return &sdhci_acpi_devices[i];
+		return (&sdhci_acpi_devices[i]);
 	}
 
 	return (NULL);
@@ -371,5 +372,4 @@ static devclass_t sdhci_acpi_devclass;
 DRIVER_MODULE(sdhci_acpi, acpi, sdhci_acpi_driver, sdhci_acpi_devclass, NULL,
     NULL);
 MODULE_DEPEND(sdhci_acpi, sdhci, 1, 1, 1);
-DRIVER_MODULE(mmc, sdhci_acpi, mmc_driver, mmc_devclass, NULL, NULL);
-MODULE_DEPEND(sdhci_acpi, mmc, 1, 1, 1);
+MMC_DECLARE_BRIDGE(sdhci_acpi);
