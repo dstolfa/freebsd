@@ -70,10 +70,13 @@
 #if defined(__ARM_ARCH_4T__) || __ARM_ARCH >= 5
 #define ARM_HAS_BX
 #endif
-#if !defined(__ARM_FEATURE_CLZ) &&                                             \
+#if !defined(__ARM_FEATURE_CLZ) && __ARM_ARCH_ISA_THUMB != 1 &&                \
     (__ARM_ARCH >= 6 || (__ARM_ARCH == 5 && !defined(__ARM_ARCH_5__)))
 #define __ARM_FEATURE_CLZ
 #endif
+
+#undef __ARM_ARCH_ISA_THUMB
+#define __ARM_ARCH_ISA_THUMB 0
 
 #ifdef ARM_HAS_BX
 #define JMP(r) bx r

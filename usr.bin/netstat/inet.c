@@ -10,7 +10,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -469,7 +469,7 @@ protopr(u_long off, const char *name, int af1, int proto)
 				    2 * (int)sizeof(void *),
 				    (u_long)inp->inp_ppcb);
 			else
-				xo_emit("{q:adddress/%*lx} ",
+				xo_emit("{q:address/%*lx} ",
 				    2 * (int)sizeof(void *),
 				    (u_long)so->so_pcb);
 		}

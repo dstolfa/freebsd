@@ -16,7 +16,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -341,6 +341,17 @@ time_t tleft;
 	return(n);
 bad:
 	errno = 0;
+	return (-1);
+}
+
+int
+dhcp_try_rfc1048(u_char *cp, u_int len)
+{
+
+	expected_dhcpmsgtype = DHCPACK;
+	if (bcmp(vm_rfc1048, cp, sizeof(vm_rfc1048)) == 0) {
+		return (vend_rfc1048(cp, len));
+	}
 	return (-1);
 }
 

@@ -409,7 +409,7 @@ vm_fault_populate(struct faultstate *fs, vm_offset_t vaddr, vm_prot_t prot,
 		vm_fault_populate_cleanup(fs->first_object, pager_first,
 		    map_first - 1);
 	map_last = MIN(OFF_TO_IDX(fs->entry->end - fs->entry->start +
-	    fs->entry->offset), pager_last);
+	    fs->entry->offset) - 1, pager_last);
 	if (map_last < pager_last)
 		vm_fault_populate_cleanup(fs->first_object, map_last + 1,
 		    pager_last);
@@ -1544,7 +1544,7 @@ vm_fault_copy_entry(vm_map_t dst_map, vm_map_t src_map,
 		 * actually shadow anything - we copy the pages directly.)
 		 */
 		dst_object = vm_object_allocate(OBJT_DEFAULT,
-		    OFF_TO_IDX(dst_entry->end - dst_entry->start));
+		    atop(dst_entry->end - dst_entry->start));
 #if VM_NRESERVLEVEL > 0
 		dst_object->flags |= OBJ_COLORED;
 		dst_object->pg_color = atop(dst_entry->start);

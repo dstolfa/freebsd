@@ -15,7 +15,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -148,6 +148,7 @@ struct pargs {
  *      o - ktrace lock
  *      q - td_contested lock
  *      r - p_peers lock
+ *      s - see sleepq_switch(), sleeping_on_old_rtc(), and sleep(9)
  *      t - thread lock
  *	u - process stat lock
  *	w - process timer lock
@@ -283,6 +284,7 @@ struct thread {
 	int		td_dom_rr_idx;	/* (k) RR Numa domain selection. */
 	void		*td_su;		/* (k) FFS SU private */
 	sbintime_t	td_sleeptimo;	/* (t) Sleep timeout. */
+	int		td_rtcgen;	/* (s) rtc_generation of abs. sleep */
 #define	td_endzero td_sigmask
 
 /* Copied during fork1() or create_thread(). */

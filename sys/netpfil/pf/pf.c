@@ -1429,9 +1429,7 @@ pf_purge_thread(void *unused __unused)
 	u_int idx = 0;
 
 	for (;;) {
-		PF_RULES_RLOCK();
-		rw_sleep(pf_purge_thread, &pf_rules_lock, 0, "pftm", hz / 10);
-		PF_RULES_RUNLOCK();
+		tsleep(pf_purge_thread, 0, "pftm", hz / 10);
 
 		VNET_LIST_RLOCK();
 		VNET_FOREACH(vnet_iter) {
@@ -1440,6 +1438,7 @@ pf_purge_thread(void *unused __unused)
 			if (pf_end_threads) {
 				pf_end_threads++;
 				wakeup(pf_purge_thread);
+				VNET_LIST_RUNLOCK();
 				kproc_exit(0);
 			}
 
@@ -6245,6 +6244,9 @@ pf_test6(int dir, struct ifnet *ifp, struct mbuf **m0, struct inpcb *inp)
 	    (m->m_pkthdr.rcvif->if_bridge != ifp->if_softc &&
 	    m->m_pkthdr.rcvif->if_bridge != ifp->if_bridge)))
 		fwdir = PF_FWD;
+
+	if (dir == PF_FWD)
+		dir = PF_OUT;
 
 	if (!V_pf_status.running)
 		return (PF_PASS);
