@@ -96,8 +96,7 @@ TASKQUEUE_DEFINE_THREAD(kqueue_ctx);
 
 static int	kevent_copyout(void *arg, struct kevent *kevp, int count);
 static int	kevent_copyin(void *arg, struct kevent *kevp, int count);
-static int	kevent_uiomove(void *kaddr, int siz, struct uio *uiop,
-          	    struct thread *td);
+static int	kevent_kn_uiomove(struct knote *kn, struct thread *td);
 static int	kqueue_register(struct kqueue *kq, struct kevent *kev,
 		    struct thread *td, int waitok);
 static int	kqueue_acquire(struct file *fp, struct kqueue **kqp);
@@ -747,7 +746,6 @@ filt_timerdetach(struct knote *kn)
 static int
 filt_timer(struct knote *kn, long hint)
 {
-
 	return (kn->kn_data != 0);
 }
 
@@ -1013,25 +1011,40 @@ kevent_copyin(void *arg, struct kevent *kevp, int count)
 }
 
 static int
-kevent_uiomove(void *kaddr, int siz, struct uio *uiop, struct thread *td)
+kevent_kn_uiomove(struct knote *kn, struct thread *td)
 {
-	struct iovec *iov;
-	if (uiop) {
-		iov = uiop->uio_iov;
-/*		printf("kaddr = %p\n", kaddr);
-		printf("iov->base = %p\n", iov->iov_base);
-		printf("iov->len = %zu\n", iov->iov_len);
-*/
-		if (kaddr == NULL)
-			return (EINVAL);
-		if (iov->iov_base == NULL ||
-		    (intptr_t)((intptr_t)iov->iov_base - iov->iov_len) < 0)
-			return (EINVAL);
-		uiop->uio_td = td;
-		return (uiomove(kaddr, siz, uiop));
-	}
+	struct iovec iov;
+	struct uio uio;
+	void *kaddr;
+	size_t nbytes;
 
-	return (EINVAL);
+	/*
+	 * FIXME: printf these values here, it's rather problematic
+	 * that (a) it keeps calling kevent(2), and (b), it's not
+	 * giving the correct values out
+	 */
+	kaddr = kn->kn_iov->iov_base;
+	nbytes = kn->kn_iov->iov_len;
+
+	if (kaddr == NULL)
+		return (EINVAL);
+	if (((long) kaddr) - nbytes <= 0)
+		return (EINVAL);
+
+	iov.iov_base = (void *)kn->kn_sdata;
+	iov.iov_len = nbytes;
+
+	uio = (struct uio){
+		.uio_iov = &iov,
+		.uio_iovcnt = 1,
+		.uio_offset = 0,
+		.uio_segflg = UIO_USERSPACE,
+		.uio_rw = UIO_READ,
+		.uio_resid = nbytes,
+		.uio_td = td
+	};
+
+	return (uiomove_frombuf(kaddr, nbytes, &uio));
 }
 
 int
@@ -1790,26 +1803,6 @@ retry:
 			} else
 				TAILQ_INSERT_TAIL(&kq->kq_head, kn, kn_tqe);
 
-			if (kn->kn_filter == EVFILT_DTRACE) {
-				struct uio uio;
-				struct iovec iov;
-
-				iov.iov_base = (void *)data;
-				iov.iov_len = sizeof(struct dtrace_probeinfo);
-
-				uio.uio_iov = &iov;
-				uio.uio_iovcnt = 1;
-				uio.uio_offset = 0;
-				uio.uio_resid = sizeof(struct dtrace_probeinfo);
-				uio.uio_segflg = UIO_USERSPACE;
-				uio.uio_rw = UIO_WRITE;
-				uio.uio_td = td;
-
-				(void) kevent_uiomove((void *)kn->kn_data,
-				    sizeof(struct dtrace_probeinfo),
-				    &uio, td);
-			}
-
 			kn->kn_status &= ~KN_SCAN;
 			kn_leave_flux(kn);
 			kn_list_unlock(knl);
@@ -1827,6 +1820,15 @@ retry:
 			error = k_ops->k_copyout(k_ops->arg, keva, nkev);
 			nkev = 0;
 			kevp = keva;
+			if (error) {
+				KQ_LOCK(kq);
+				break;
+			}
+
+			if (kn->kn_filter == EVFILT_DTRACE) {
+				error = kevent_kn_uiomove(kn, td);
+				kn->kn_iov = NULL;
+			}
 			KQ_LOCK(kq);
 			if (error)
 				break;

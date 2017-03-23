@@ -11508,6 +11508,7 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 	dtrace_probe_t *probe = ecb->dte_probe;
 	struct dtrace_probeinfo probe_info;
 	struct knote *kn, *tkn;
+	struct iovec iov;
 
 	ASSERT(MUTEX_HELD(&cpu_lock));
 	ASSERT(MUTEX_HELD(&dtrace_lock));
@@ -11523,14 +11524,14 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 
 	probe_info.id = probe->dtpr_id;
 	dtrace_strcpy(probe->dtpr_instance, probe_info.instance, DTRACE_INSTANCENAMELEN);
-	printf("probe_info.id = %d\n", probe_info.id);
-	printf("probe_info.instance = %64s\n", probe_info.instance);
 
-	int i = 0;
+	iov = (struct iovec){
+		.iov_base = &probe_info,
+		.iov_len = sizeof (struct dtrace_probeinfo)
+	};
+
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
-		printf("knlist entry %d\n", i);
-		kn->kn_data = (__intptr_t) &probe_info;
-		i++;
+		kn->kn_iov = &iov;
 	}
 	DTRACE_KNOTE_LOCKED(&dtrace_knlist, NOTE_PROBE_INSTALL);
 
@@ -12241,6 +12242,7 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 	dtrace_probe_t *probe = ecb->dte_probe;
 	struct dtrace_probeinfo probe_info;
 	struct knote *kn, *tkn;
+	struct iovec iov;
 
 	ASSERT(MUTEX_HELD(&dtrace_lock));
 
@@ -12255,11 +12257,14 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 
 	probe_info.id = probe->dtpr_id;
 	dtrace_strcpy(probe->dtpr_instance, probe_info.instance, DTRACE_INSTANCENAMELEN);
-	printf("probe_info.id = %d\n", probe_info.id);
-	printf("probe_info.instance = %64s\n", probe_info.instance);
+
+	iov = (struct iovec){
+		.iov_base = &probe_info,
+		.iov_len = sizeof (struct dtrace_probeinfo)
+	};
 
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
-		kn->kn_data = (__intptr_t) &probe_info;
+		kn->kn_iov = &iov;
 	}
 
 	DTRACE_KNOTE_LOCKED(&dtrace_knlist, NOTE_PROBE_UNINSTALL);

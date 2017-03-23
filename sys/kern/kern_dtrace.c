@@ -40,6 +40,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sysctl.h>
 #include <sys/sysent.h>
 #include <sys/event.h>
+#include <sys/uio.h>
 
 #define KDTRACE_PROC_SIZE	64
 #define	KDTRACE_THREAD_SIZE	256
@@ -58,6 +59,11 @@ dtrace_install_probe_ptr_t	dtrace_install_probe_ptr;
 dtrace_uninstall_probe_ptr_t	dtrace_uninstall_probe_ptr;
 
 systrace_probe_func_t		systrace_probe_func;
+
+static int filt_dtraceattach(struct knote *);
+static void filt_dtracedetach(struct knote *);
+static int filt_dtrace(struct knote *, long);
+static void filt_dtracetouch(struct knote *, struct kevent *, u_long);
 
 struct knlist dtrace_knlist;
 struct mtx dtrace_knlist_mtx;
@@ -144,38 +150,84 @@ uninit_dtrace(void *dummy __unused)
 	knlist_destroy(&dtrace_knlist);
 }
 
-int
+static int
 filt_dtraceattach(struct knote *kn)
 {
-	struct knote *knt, *tkn;
 	if ((kn->kn_filter & EVFILT_DTRACE) == 0)
 		return (ENXIO);
 
 	if ((kn->kn_sfflags & (NOTE_PROBE_INSTALL | NOTE_PROBE_UNINSTALL)) == 0)
 		return (EINVAL);
 
-	kn->kn_sdata = kn->kn_data;
+	kn->kn_status |= KN_KQUEUE;
 	knlist_add(&dtrace_knlist, kn, 0);
-	SLIST_FOREACH_SAFE(knt, &dtrace_knlist.kl_list, kn_selnext, tkn) {
-		printf("kn_sdata = %lx\n", knt->kn_sdata);
-		printf("kn_data = %lx\n", knt->kn_data);
-		printf("kn_sfflags = %x\n", knt->kn_sfflags);
-	}
-
 	return (0);
 }
 
-__inline void
+static __inline void
 filt_dtracedetach(struct knote *kn)
 {
 	knlist_remove(&dtrace_knlist, kn, 0);
 }
 
-__inline int
+static __inline int
 filt_dtrace(struct knote *kn, long hint)
 {
-	return ((kn->kn_fflags & NOTE_PROBE_INSTALL) &&
-		(kn->kn_fflags & NOTE_PROBE_UNINSTALL));
+	return ((kn->kn_sfflags & NOTE_PROBE_INSTALL)   &&
+	        (kn->kn_sfflags & NOTE_PROBE_UNINSTALL) &&
+	        (kn->kn_iov != NULL));
+}
+
+static void
+filt_dtracetouch(struct knote *kn, struct kevent *kev, u_long type)
+{
+/*
+	struct uio uio;
+	struct iovec iov;
+	int error;
+
+	switch (type) {
+	case EVENT_REGISTER:
+		kn->kn_sdata = kev->data;
+		kn->kn_sfflags = kev->fflags;
+		break;
+	case EVENT_PROCESS:
+		iov.iov_base = (void *)kn->kn_sdata;
+		iov.iov_len = sizeof(struct dtrace_probeinfo);
+
+		if (iov.iov_base == NULL ||
+		    ((long)iov.iov_base) - iov.iov_len <= 0)
+			return;
+		if (kn->kn_data == 0)
+			return;
+
+		uio = (struct uio){
+			.uio_iov = &iov,
+			.uio_iovcnt = 1,
+			.uio_offset = 0,
+			.uio_segflg = UIO_USERSPACE,
+			.uio_rw = UIO_READ,
+			.uio_resid = sizeof(struct dtrace_probeinfo),
+			.uio_td = kn->kn_ctxtd
+		};
+
+
+		error = uiomove_frombuf((void *)kn->kn_data,
+		    sizeof(struct dtrace_probeinfo), &uio);
+
+		KASSERT(error == 0, ("%s: error %d in uiomove(9)",
+		    __func__, error));
+
+		if (kn->kn_flags & EV_CLEAR) {
+			kn->kn_data = 0;
+			kn->kn_fflags = 0;
+		}
+		break;
+	default:
+		panic("filt_dtracetouch() - invalid type (%ld)", type);
+		break;
+	}
+*/
 }
 
 

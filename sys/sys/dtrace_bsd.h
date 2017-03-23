@@ -61,12 +61,6 @@ struct dtrace_probeinfo {
 	char	instance[DTRACE_INSTANCENAMELEN];	/* instance to install it on */
 };
 
-
-int filt_dtraceattach(struct knote *);
-void filt_dtracedetach(struct knote *);
-int filt_dtrace(struct knote *, long);
-
-
 int dtrace_trap(struct trapframe *, u_int);
 
 /*
