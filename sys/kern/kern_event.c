@@ -1268,6 +1268,8 @@ kqueue_register(struct kqueue *kq, struct kevent *kev, struct thread *td, int wa
 		 * if the spare knote appears to be actually required.
 		 */
 		tkn = knote_alloc(waitok);
+		tkn->kn_iov = malloc(sizeof(struct iovec), M_KQUEUE,
+		    M_WAITOK | M_ZERO);
 	} else {
 		tkn = NULL;
 	}
@@ -1484,6 +1486,7 @@ done:
 		FILEDESC_XUNLOCK(td->td_proc->p_fd);
 	if (fp != NULL)
 		fdrop(fp, td);
+	free(tkn->kn_iov, M_KQUEUE);
 	knote_free(tkn);
 	if (fops != NULL)
 		kqueue_fo_release(filt);
@@ -1817,14 +1820,14 @@ retry:
 		nkev++;
 		count--;
 		if (kn->kn_iov != NULL) {
-			iovlist[niov][0] = *(kn->kn_iov);
-			iovlist[niov][1] = (struct iovec) {
-				.iov_base = (void *)kn->kn_sdata,
-				.iov_len = kn->kn_iov->iov_len
-			};
-			niov++;
-			free(kn->kn_iov, M_KQUEUE);
-			kn->kn_iov = NULL;
+			if (kn->kn_iov->iov_base != NULL) {
+				iovlist[niov][0] = *(kn->kn_iov);
+				iovlist[niov][1] = (struct iovec) {
+					.iov_base = (void *)kn->kn_sdata,
+					.iov_len = kn->kn_iov->iov_len
+				};
+				niov++;
+			}
 		}
 
 		if (nkev == KQ_NEVENTS) {
@@ -2541,6 +2544,7 @@ knote_drop_detached(struct knote *kn, struct thread *td)
 	}
 	kqueue_fo_release(kn->kn_kevent.filter);
 	kn->kn_fop = NULL;
+	free(kn->kn_iov, M_KQUEUE);
 	knote_free(kn);
 }
 

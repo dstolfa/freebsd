@@ -175,7 +175,7 @@ filt_dtrace(struct knote *kn, long hint)
 {
 	return ((kn->kn_sfflags & NOTE_PROBE_INSTALL)   &&
 	        (kn->kn_sfflags & NOTE_PROBE_UNINSTALL) &&
-	        (kn->kn_iov != NULL));
+	        (kn->kn_iov->iov_base != NULL));
 }
 
 static void
