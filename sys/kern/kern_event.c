@@ -40,7 +40,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/mutex.h>
 #include <sys/rwlock.h>
 #include <sys/proc.h>
-#include <sys/malloc.h>
 #include <sys/unistd.h>
 #include <sys/file.h>
 #include <sys/filedesc.h>
@@ -73,7 +72,7 @@ __FBSDID("$FreeBSD$");
 
 #include <vm/uma.h>
 
-static MALLOC_DEFINE(M_KQUEUE, "kqueue", "memory for kqueue system");
+MALLOC_DEFINE(M_KQUEUE, "kqueue", "memory for kqueue system");
 
 /*
  * This lock is used if multiple kq locks are required.  This possibly
@@ -96,7 +95,8 @@ TASKQUEUE_DEFINE_THREAD(kqueue_ctx);
 
 static int	kevent_copyout(void *arg, struct kevent *kevp, int count);
 static int	kevent_copyin(void *arg, struct kevent *kevp, int count);
-static int	kevent_kn_uiomove(struct knote *kn, struct thread *td);
+static int	kevent_kn_uiomove(struct iovec iovlist[KQ_NEVENTS][2], int niov,
+          	    struct thread *td);
 static int	kqueue_register(struct kqueue *kq, struct kevent *kev,
 		    struct thread *td, int waitok);
 static int	kqueue_acquire(struct file *fp, struct kqueue **kqp);
@@ -109,8 +109,7 @@ static void	kqueue_task(void *arg, int pending);
 static int	kqueue_scan(struct kqueue *kq, int maxevents,
 		    struct kevent_copyops *k_ops,
 		    const struct timespec *timeout,
-		    struct kevent *keva, struct thread *td,
-		    __intptr_t data);
+		    struct kevent *keva, struct thread *td);
 static void 	kqueue_wakeup(struct kqueue *kq);
 static struct filterops *kqueue_fo_find(int filt);
 static void	kqueue_fo_release(int filt);
@@ -955,12 +954,8 @@ sys_kevent(struct thread *td, struct kevent_args *uap)
 	}
 #endif
 
-	if (uap->eventlist)
-		error = kern_kevent(td, uap->fd, uap->nchanges, uap->nevents,
-		    &k_ops, tsp, uap->kev_data);
-	else
-		error = kern_kevent(td, uap->fd, uap->nchanges, uap->nevents,
-		    &k_ops, tsp, 0);
+	error = kern_kevent(td, uap->fd, uap->nchanges, uap->nevents,
+	    &k_ops, tsp);
 
 #ifdef KTRACE
 	if (ktruioin != NULL) {
@@ -1011,45 +1006,51 @@ kevent_copyin(void *arg, struct kevent *kevp, int count)
 }
 
 static int
-kevent_kn_uiomove(struct knote *kn, struct thread *td)
+kevent_kn_uiomove(struct iovec iovlist[KQ_NEVENTS][2], int niov,
+    struct thread *td)
 {
-	struct iovec iov;
+	struct iovec *iovk, *iovu;
 	struct uio uio;
 	void *kaddr;
 	size_t nbytes;
+	int error, i;
 
-	/*
-	 * FIXME: printf these values here, it's rather problematic
-	 * that (a) it keeps calling kevent(2), and (b), it's not
-	 * giving the correct values out
-	 */
-	kaddr = kn->kn_iov->iov_base;
-	nbytes = kn->kn_iov->iov_len;
+	error = 0;
 
-	if (kaddr == NULL)
-		return (EINVAL);
-	if (((long) kaddr) - nbytes <= 0)
-		return (EINVAL);
+	for (i = 0; i < niov; i++) {
+		iovk = &iovlist[i][0];
+		iovu = &iovlist[i][1];
 
-	iov.iov_base = (void *)kn->kn_sdata;
-	iov.iov_len = nbytes;
+		kaddr = iovk->iov_base;
+		nbytes = iovk->iov_len;
 
-	uio = (struct uio){
-		.uio_iov = &iov,
-		.uio_iovcnt = 1,
-		.uio_offset = 0,
-		.uio_segflg = UIO_USERSPACE,
-		.uio_rw = UIO_READ,
-		.uio_resid = nbytes,
-		.uio_td = td
-	};
+		if (kaddr == NULL)
+			return (EINVAL);
+		if (((long) kaddr) - nbytes <= 0)
+			return (EINVAL);
 
-	return (uiomove_frombuf(kaddr, nbytes, &uio));
+		uio = (struct uio) {
+			.uio_iov = iovu,
+			.uio_iovcnt = 1,
+			.uio_offset = 0,
+			.uio_segflg = UIO_USERSPACE,
+			.uio_rw = UIO_READ,
+			.uio_resid = nbytes,
+			.uio_td = td
+		};
+
+		error = uiomove_frombuf(kaddr, nbytes, &uio);
+
+		free(iovk->iov_base, M_KQUEUE);
+		iovk->iov_base = NULL;
+	}
+	
+	return (error);
 }
 
 int
 kern_kevent(struct thread *td, int fd, int nchanges, int nevents,
-    struct kevent_copyops *k_ops, const struct timespec *timeout, __intptr_t data)
+    struct kevent_copyops *k_ops, const struct timespec *timeout)
 {
 	cap_rights_t rights;
 	struct file *fp;
@@ -1064,7 +1065,7 @@ kern_kevent(struct thread *td, int fd, int nchanges, int nevents,
 	if (error != 0)
 		return (error);
 
-	error = kern_kevent_fp(td, fp, nchanges, nevents, k_ops, timeout, data);
+	error = kern_kevent_fp(td, fp, nchanges, nevents, k_ops, timeout);
 	fdrop(fp, td);
 
 	return (error);
@@ -1072,7 +1073,7 @@ kern_kevent(struct thread *td, int fd, int nchanges, int nevents,
 
 static int
 kqueue_kevent(struct kqueue *kq, struct thread *td, int nchanges, int nevents,
-    struct kevent_copyops *k_ops, const struct timespec *timeout, __intptr_t data)
+    struct kevent_copyops *k_ops, const struct timespec *timeout)
 {
 	struct kevent keva[KQ_NEVENTS];
 	struct kevent *kevp, *changes;
@@ -1108,12 +1109,12 @@ kqueue_kevent(struct kqueue *kq, struct thread *td, int nchanges, int nevents,
 		return (0);
 	}
 
-	return (kqueue_scan(kq, nevents, k_ops, timeout, keva, td, data));
+	return (kqueue_scan(kq, nevents, k_ops, timeout, keva, td));
 }
 
 int
 kern_kevent_fp(struct thread *td, struct file *fp, int nchanges, int nevents,
-    struct kevent_copyops *k_ops, const struct timespec *timeout, __intptr_t data)
+    struct kevent_copyops *k_ops, const struct timespec *timeout)
 {
 	struct kqueue *kq;
 	int error;
@@ -1121,7 +1122,7 @@ kern_kevent_fp(struct thread *td, struct file *fp, int nchanges, int nevents,
 	error = kqueue_acquire(fp, &kq);
 	if (error != 0)
 		return (error);
-	error = kqueue_kevent(kq, td, nchanges, nevents, k_ops, timeout, data);
+	error = kqueue_kevent(kq, td, nchanges, nevents, k_ops, timeout);
 	kqueue_release(kq, 0);
 	return (error);
 }
@@ -1139,7 +1140,7 @@ kern_kevent_anonymous(struct thread *td, int nevents,
 
 	kqueue_init(&kq);
 	kq.kq_refcnt = 1;
-	error = kqueue_kevent(&kq, td, nevents, nevents, k_ops, NULL, 0);
+	error = kqueue_kevent(&kq, td, nevents, nevents, k_ops, NULL);
 	kqueue_drain(&kq, td);
 	kqueue_destroy(&kq);
 	return (error);
@@ -1640,18 +1641,20 @@ kqueue_task(void *arg, int pending)
  */
 static int
 kqueue_scan(struct kqueue *kq, int maxevents, struct kevent_copyops *k_ops,
-    const struct timespec *tsp, struct kevent *keva, struct thread *td, __intptr_t data)
+    const struct timespec *tsp, struct kevent *keva, struct thread *td)
 {
 	struct kevent *kevp;
 	struct knote *kn, *marker;
 	struct knlist *knl;
+	struct iovec iovlist[KQ_NEVENTS][2];
 	sbintime_t asbt, rsbt;
-	int count, error, haskqglobal, influx, nkev, touch;
+	int count, error, haskqglobal, influx, nkev, touch, niov;
 
 	count = maxevents;
 	nkev = 0;
 	error = 0;
 	haskqglobal = 0;
+	niov = 0;
 
 	if (maxevents == 0)
 		goto done_nl;
@@ -1813,6 +1816,16 @@ retry:
 		kevp++;
 		nkev++;
 		count--;
+		if (kn->kn_iov != NULL) {
+			iovlist[niov][0] = *(kn->kn_iov);
+			iovlist[niov][1] = (struct iovec) {
+				.iov_base = (void *)kn->kn_sdata,
+				.iov_len = kn->kn_iov->iov_len
+			};
+			niov++;
+			free(kn->kn_iov, M_KQUEUE);
+			kn->kn_iov = NULL;
+		}
 
 		if (nkev == KQ_NEVENTS) {
 			influx = 0;
@@ -1824,11 +1837,8 @@ retry:
 				KQ_LOCK(kq);
 				break;
 			}
-
-			if (kn->kn_filter == EVFILT_DTRACE) {
-				error = kevent_kn_uiomove(kn, td);
-				kn->kn_iov = NULL;
-			}
+			error = kevent_kn_uiomove(iovlist, niov, td);
+			niov = 0;
 			KQ_LOCK(kq);
 			if (error)
 				break;
@@ -1841,8 +1851,14 @@ done:
 	knote_free(marker);
 done_nl:
 	KQ_NOTOWNED(kq);
-	if (nkev != 0)
+	if (nkev != 0) {
 		error = k_ops->k_copyout(k_ops->arg, keva, nkev);
+		if (error)
+			goto done_ret;
+	}
+	if (niov != 0)
+		error = kevent_kn_uiomove(iovlist, niov, td);
+done_ret:
 	td->td_retval[0] = maxevents - count;
 	return (error);
 }

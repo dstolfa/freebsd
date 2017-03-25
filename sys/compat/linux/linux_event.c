@@ -523,7 +523,7 @@ linux_epoll_ctl(struct thread *td, struct linux_epoll_ctl_args *args)
 
 	epoll_fd_install(td, args->fd, le.data);
 
-	error = kern_kevent_fp(td, epfp, nchanges, 0, &k_ops, NULL, 0);
+	error = kern_kevent_fp(td, epfp, nchanges, 0, &k_ops, NULL);
 
 leave0:
 	fdrop(fp, td);
@@ -596,7 +596,7 @@ linux_epoll_wait_common(struct thread *td, int epfd, struct epoll_event *events,
 		tsp = NULL;
 	}
 
-	error = kern_kevent_fp(td, epfp, 0, maxevents, &k_ops, tsp, 0);
+	error = kern_kevent_fp(td, epfp, 0, maxevents, &k_ops, tsp);
 	if (error == 0 && coargs.error != 0)
 		error = coargs.error;
 
@@ -657,7 +657,7 @@ epoll_delete_event(struct thread *td, struct file *epfp, int fd, int filter)
 	ciargs.changelist = &kev;
 	EV_SET(&kev, fd, filter, EV_DELETE | EV_DISABLE, 0, 0, 0);
 
-	return (kern_kevent_fp(td, epfp, 1, 0, &k_ops, NULL, 0));
+	return (kern_kevent_fp(td, epfp, 1, 0, &k_ops, NULL));
 }
 
 static int

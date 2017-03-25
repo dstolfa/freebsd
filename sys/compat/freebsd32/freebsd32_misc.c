@@ -671,7 +671,7 @@ freebsd32_kevent(struct thread *td, struct freebsd32_kevent_args *uap)
 	} else
 		tsp = NULL;
 	error = kern_kevent(td, uap->fd, uap->nchanges, uap->nevents,
-	    &k_ops, tsp, uap->kev_data);
+	    &k_ops, tsp);
 	return (error);
 }
 

@@ -31,6 +31,7 @@
 
 #include <sys/_types.h>
 #include <sys/queue.h>
+#include <sys/malloc.h>
 
 #define EVFILT_READ		(-1)
 #define EVFILT_WRITE		(-2)
@@ -174,6 +175,10 @@ struct knlist {
 
 
 #ifdef _KERNEL
+
+#ifdef MALLOC_DECLARE
+MALLOC_DECLARE(M_KQUEUE);
+#endif
 
 /*
  * Flags for knote call

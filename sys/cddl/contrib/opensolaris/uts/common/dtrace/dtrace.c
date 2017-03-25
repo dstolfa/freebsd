@@ -116,6 +116,7 @@
 #ifndef illumos
 #include <sys/callout.h>
 #include <sys/ctype.h>
+#include <sys/event.h>
 #include <sys/eventhandler.h>
 #include <sys/hash.h>
 #include <sys/limits.h>
@@ -11506,9 +11507,9 @@ static void
 dtrace_ecb_enable(dtrace_ecb_t *ecb)
 {
 	dtrace_probe_t *probe = ecb->dte_probe;
-	struct dtrace_probeinfo probe_info;
+	struct dtrace_probeinfo *probe_info;
 	struct knote *kn, *tkn;
-	struct iovec iov;
+	struct iovec *iov;
 
 	ASSERT(MUTEX_HELD(&cpu_lock));
 	ASSERT(MUTEX_HELD(&dtrace_lock));
@@ -11520,18 +11521,22 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 		 */
 		return;
 	}
+
+	probe_info = malloc(sizeof (struct dtrace_probeinfo),
+	    M_KQUEUE, M_WAITOK);
+	iov = malloc(sizeof (struct iovec), M_KQUEUE, M_WAITOK | M_ZERO);
+
+	probe_info->id = probe->dtpr_id;
+	dtrace_strcpy(probe->dtpr_instance, probe_info->instance,
+	    DTRACE_INSTANCENAMELEN);
+
+	iov->iov_base = probe_info;
+	iov->iov_len = sizeof (struct dtrace_probeinfo);
+
 	mtx_lock(&dtrace_knlist_mtx);
 
-	probe_info.id = probe->dtpr_id;
-	dtrace_strcpy(probe->dtpr_instance, probe_info.instance, DTRACE_INSTANCENAMELEN);
-
-	iov = (struct iovec){
-		.iov_base = &probe_info,
-		.iov_len = sizeof (struct dtrace_probeinfo)
-	};
-
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
-		kn->kn_iov = &iov;
+		kn->kn_iov = iov;
 	}
 	DTRACE_KNOTE_LOCKED(&dtrace_knlist, NOTE_PROBE_INSTALL);
 
@@ -11568,8 +11573,8 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 		probe->dtpr_ecb_last = ecb;
 		probe->dtpr_predcache = 0;
 
-		dtrace_sync();
 	}
+	dtrace_sync();
 }
 
 /*
@@ -12240,9 +12245,9 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 	 */
 	dtrace_ecb_t *pecb, *prev = NULL;
 	dtrace_probe_t *probe = ecb->dte_probe;
-	struct dtrace_probeinfo probe_info;
+	struct dtrace_probeinfo *probe_info;
 	struct knote *kn, *tkn;
-	struct iovec iov;
+	struct iovec *iov;
 
 	ASSERT(MUTEX_HELD(&dtrace_lock));
 
@@ -12253,20 +12258,22 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 		return;
 	}
 
+	probe_info = malloc(sizeof (struct dtrace_probeinfo),
+	    M_KQUEUE, M_WAITOK);
+	iov = malloc(sizeof (struct iovec), M_KQUEUE, M_WAITOK | M_ZERO);
+
+	probe_info->id = probe->dtpr_id;
+	dtrace_strcpy(probe->dtpr_instance, probe_info->instance,
+	    DTRACE_INSTANCENAMELEN);
+
+	iov->iov_base = probe_info;
+	iov->iov_len = sizeof (struct dtrace_probeinfo);
+
 	mtx_lock(&dtrace_knlist_mtx);
 
-	probe_info.id = probe->dtpr_id;
-	dtrace_strcpy(probe->dtpr_instance, probe_info.instance, DTRACE_INSTANCENAMELEN);
-
-	iov = (struct iovec){
-		.iov_base = &probe_info,
-		.iov_len = sizeof (struct dtrace_probeinfo)
-	};
-
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
-		kn->kn_iov = &iov;
+		kn->kn_iov = iov;
 	}
-
 	DTRACE_KNOTE_LOCKED(&dtrace_knlist, NOTE_PROBE_UNINSTALL);
 
 	mtx_unlock(&dtrace_knlist_mtx);
