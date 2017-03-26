@@ -1268,8 +1268,6 @@ kqueue_register(struct kqueue *kq, struct kevent *kev, struct thread *td, int wa
 		 * if the spare knote appears to be actually required.
 		 */
 		tkn = knote_alloc(waitok);
-		tkn->kn_iov = malloc(sizeof(struct iovec), M_KQUEUE,
-		    M_WAITOK | M_ZERO);
 	} else {
 		tkn = NULL;
 	}
@@ -1384,6 +1382,7 @@ findkn:
 			kn->kn_fp = fp;
 			kn->kn_kq = kq;
 			kn->kn_fop = fops;
+			kn->kn_iov = NULL; 
 			/*
 			 * apply reference counts to knote structure, and
 			 * do not release it at the end of this routine.
@@ -1486,7 +1485,7 @@ done:
 		FILEDESC_XUNLOCK(td->td_proc->p_fd);
 	if (fp != NULL)
 		fdrop(fp, td);
-	free(tkn->kn_iov, M_KQUEUE);
+
 	knote_free(tkn);
 	if (fops != NULL)
 		kqueue_fo_release(filt);
@@ -1714,7 +1713,7 @@ retry:
 	while (count) {
 		KQ_OWNED(kq);
 		kn = TAILQ_FIRST(&kq->kq_head);
-
+		
 		if ((kn->kn_status == KN_MARKER && kn != marker) ||
 		    kn_in_flux(kn)) {
 			if (influx) {
@@ -1818,16 +1817,16 @@ retry:
 		/* we are returning a copy to the user */
 		kevp++;
 		nkev++;
-		count--;
-		if (kn->kn_iov != NULL) {
-			if (kn->kn_iov->iov_base != NULL) {
-				iovlist[niov][0] = *(kn->kn_iov);
-				iovlist[niov][1] = (struct iovec) {
-					.iov_base = (void *)kn->kn_sdata,
-					.iov_len = kn->kn_iov->iov_len
-				};
-				niov++;
-			}
+		count--;		
+		if (kn && kn->kn_iov && kn->kn_iov->iov_base) {
+			iovlist[niov][0] = *(kn->kn_iov);
+			kn->kn_iov->iov_base = NULL;
+			sema_post(&kn->kn_iovsema);
+			iovlist[niov][1] = (struct iovec) {
+				.iov_base = (void *)kn->kn_sdata,
+				.iov_len = iovlist[niov][0].iov_len
+			};
+			niov++;
 		}
 
 		if (nkev == KQ_NEVENTS) {
@@ -1859,8 +1858,9 @@ done_nl:
 		if (error)
 			goto done_ret;
 	}
-	if (niov != 0)
+	if (niov != 0) {
 		error = kevent_kn_uiomove(iovlist, niov, td);
+	}
 done_ret:
 	td->td_retval[0] = maxevents - count;
 	return (error);
@@ -2544,7 +2544,6 @@ knote_drop_detached(struct knote *kn, struct thread *td)
 	}
 	kqueue_fo_release(kn->kn_kevent.filter);
 	kn->kn_fop = NULL;
-	free(kn->kn_iov, M_KQUEUE);
 	knote_free(kn);
 }
 

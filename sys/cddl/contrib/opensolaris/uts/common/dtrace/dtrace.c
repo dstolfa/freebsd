@@ -11531,6 +11531,7 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 	mtx_lock(&dtrace_knlist_mtx);
 
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
+		sema_wait(&kn->kn_iovsema);
 		kn->kn_iov->iov_base = probe_info;
 		kn->kn_iov->iov_len = sizeof (struct dtrace_probeinfo);
 	}
@@ -12263,6 +12264,7 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 	mtx_lock(&dtrace_knlist_mtx);
 
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
+		sema_wait(&kn->kn_iovsema);
 		kn->kn_iov->iov_base = probe_info;
 		kn->kn_iov->iov_len = sizeof (struct dtrace_probeinfo);
 	}

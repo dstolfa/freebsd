@@ -32,6 +32,7 @@
 #include <sys/_types.h>
 #include <sys/queue.h>
 #include <sys/malloc.h>
+#include <sys/sema.h>
 
 #define EVFILT_READ		(-1)
 #define EVFILT_WRITE		(-2)
@@ -255,6 +256,8 @@ struct knote {
 	} kn_ptr;
 
 	struct			iovec *kn_iov;	/* data to be uiomove()'d */
+	struct			sema kn_iovsema; /* iovec semaphore */
+#define	KN_IOV_READY		0x01
 	struct			filterops *kn_fop;
 
 #define kn_id		kn_kevent.ident

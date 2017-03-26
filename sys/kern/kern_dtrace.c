@@ -160,13 +160,18 @@ filt_dtraceattach(struct knote *kn)
 		return (EINVAL);
 
 	kn->kn_status |= KN_KQUEUE;
+	kn->kn_iov = malloc(sizeof(struct iovec), M_KQUEUE, M_WAITOK | M_ZERO);
+	sema_init(&kn->kn_iovsema, 0, "knote iovec semaphore");
 	knlist_add(&dtrace_knlist, kn, 0);
-	return (0);
+	return (kn->kn_iov == NULL);
 }
 
 static __inline void
 filt_dtracedetach(struct knote *kn)
 {
+	sema_destroy(&kn->kn_iovsema);
+	free(kn->kn_iov, M_KQUEUE);
+	kn->kn_iov = NULL;
 	knlist_remove(&dtrace_knlist, kn, 0);
 }
 
