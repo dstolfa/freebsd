@@ -162,7 +162,9 @@ filt_dtraceattach(struct knote *kn)
 	kn->kn_status |= KN_KQUEUE;
 	kn->kn_iov = malloc(sizeof(struct iovec), M_KQUEUE, M_WAITOK | M_ZERO);
 	sema_init(&kn->kn_iovsema, 0, "knote iovec semaphore");
+	mtx_lock(&dtrace_knlist_mtx);
 	knlist_add(&dtrace_knlist, kn, 0);
+	mtx_unlock(&dtrace_knlist_mtx);
 	return (kn->kn_iov == NULL);
 }
 
@@ -182,59 +184,6 @@ filt_dtrace(struct knote *kn, long hint)
 	        (kn->kn_sfflags & NOTE_PROBE_UNINSTALL) &&
 	        (kn->kn_iov->iov_base != NULL));
 }
-
-static void
-filt_dtracetouch(struct knote *kn, struct kevent *kev, u_long type)
-{
-/*
-	struct uio uio;
-	struct iovec iov;
-	int error;
-
-	switch (type) {
-	case EVENT_REGISTER:
-		kn->kn_sdata = kev->data;
-		kn->kn_sfflags = kev->fflags;
-		break;
-	case EVENT_PROCESS:
-		iov.iov_base = (void *)kn->kn_sdata;
-		iov.iov_len = sizeof(struct dtrace_probeinfo);
-
-		if (iov.iov_base == NULL ||
-		    ((long)iov.iov_base) - iov.iov_len <= 0)
-			return;
-		if (kn->kn_data == 0)
-			return;
-
-		uio = (struct uio){
-			.uio_iov = &iov,
-			.uio_iovcnt = 1,
-			.uio_offset = 0,
-			.uio_segflg = UIO_USERSPACE,
-			.uio_rw = UIO_READ,
-			.uio_resid = sizeof(struct dtrace_probeinfo),
-			.uio_td = kn->kn_ctxtd
-		};
-
-
-		error = uiomove_frombuf((void *)kn->kn_data,
-		    sizeof(struct dtrace_probeinfo), &uio);
-
-		KASSERT(error == 0, ("%s: error %d in uiomove(9)",
-		    __func__, error));
-
-		if (kn->kn_flags & EV_CLEAR) {
-			kn->kn_data = 0;
-			kn->kn_fflags = 0;
-		}
-		break;
-	default:
-		panic("filt_dtracetouch() - invalid type (%ld)", type);
-		break;
-	}
-*/
-}
-
 
 SYSINIT(kdtrace, SI_SUB_KDTRACE, SI_ORDER_FIRST, init_dtrace, NULL);
 SYSUNINIT(kdtrace, SI_SUB_KDTRACE, SI_ORDER_FIRST, uninit_dtrace, NULL);

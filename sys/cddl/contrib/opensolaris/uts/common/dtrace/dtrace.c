@@ -11521,6 +11521,13 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 		return;
 	}
 
+	/*
+	 * XXX:
+	 * This needs to be optimized by either skipping this chunk
+	 * of code if there are no knotes to enqueued, or think of
+	 * a smarter way to do this in the case that there are knotes
+	 * to enqueue
+	 */
 	probe_info = malloc(sizeof (struct dtrace_probeinfo),
 	    M_KQUEUE, M_WAITOK);
 
@@ -11541,6 +11548,8 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
 		sema_wait(&kn->kn_iovsema);
 	}
+
+	free(probe_info, M_KQUEUE);
 
 	if (probe->dtpr_ecb == NULL) {
 		if (probe->dtpr_mode == DTRACE_PROBE_MODE_VIRT)
@@ -12277,6 +12286,8 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
 		sema_wait(&kn->kn_iovsema);
 	}
+
+	free(probe_info, M_KQUEUE);
 
 	for (pecb = probe->dtpr_ecb; pecb != NULL; pecb = pecb->dte_next) {
 		if (pecb == ecb)

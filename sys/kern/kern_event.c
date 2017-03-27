@@ -1015,6 +1015,8 @@ kevent_kn_uiomove(struct iovec iovlist[KQ_NEVENTS][2], int niov,
 	size_t nbytes;
 	int error, i;
 
+	kaddr = NULL;
+	nbytes = 0;
 	error = 0;
 
 	for (i = 0; i < niov; i++) {
@@ -1040,7 +1042,6 @@ kevent_kn_uiomove(struct iovec iovlist[KQ_NEVENTS][2], int niov,
 		};
 
 		error = uiomove_frombuf(kaddr, nbytes, &uio);
-
 		free(iovk->iov_base, M_KQUEUE);
 		iovk->iov_base = NULL;
 	}
@@ -1819,7 +1820,22 @@ retry:
 		nkev++;
 		count--;		
 		if (kn && kn->kn_iov && kn->kn_iov->iov_base) {
-			iovlist[niov][0] = *(kn->kn_iov);
+			/*
+			 * XXX:
+			 * This is far from ideal, but it _works_. What might make sense here
+			 * is to handle the iovlist lockless, there is no need to hold the kq
+			 * lock in this case. Furthermore, all of these iovecs are being
+			 * duplicated unnecessarily. The copy is being performed once already
+			 * so there is no need to copy into the iovlist[niov][0] again.
+			 */
+			struct iovec iovtmp;
+			KQ_UNLOCK_FLUX(kq);
+			iovtmp.iov_base = malloc(kn->kn_iov->iov_len, M_KQUEUE, M_WAITOK);
+			iovtmp.iov_len = kn->kn_iov->iov_len;
+			memcpy(iovtmp.iov_base, kn->kn_iov->iov_base, iovtmp.iov_len);
+			KQ_LOCK(kq);
+			iovlist[niov][0] = iovtmp;
+			iovlist[niov][0].iov_len = kn->kn_iov->iov_len;
 			kn->kn_iov->iov_base = NULL;
 			sema_post(&kn->kn_iovsema);
 			iovlist[niov][1] = (struct iovec) {
