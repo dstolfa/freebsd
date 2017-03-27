@@ -11531,13 +11531,16 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 	mtx_lock(&dtrace_knlist_mtx);
 
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
-		sema_wait(&kn->kn_iovsema);
 		kn->kn_iov->iov_base = probe_info;
 		kn->kn_iov->iov_len = sizeof (struct dtrace_probeinfo);
 	}
 	DTRACE_KNOTE_LOCKED(&dtrace_knlist, NOTE_PROBE_INSTALL);
 
 	mtx_unlock(&dtrace_knlist_mtx);
+
+	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
+		sema_wait(&kn->kn_iovsema);
+	}
 
 	if (probe->dtpr_ecb == NULL) {
 		if (probe->dtpr_mode == DTRACE_PROBE_MODE_VIRT)
@@ -12264,13 +12267,16 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 	mtx_lock(&dtrace_knlist_mtx);
 
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
-		sema_wait(&kn->kn_iovsema);
 		kn->kn_iov->iov_base = probe_info;
 		kn->kn_iov->iov_len = sizeof (struct dtrace_probeinfo);
 	}
 	DTRACE_KNOTE_LOCKED(&dtrace_knlist, NOTE_PROBE_UNINSTALL);
 
 	mtx_unlock(&dtrace_knlist_mtx);
+
+	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
+		sema_wait(&kn->kn_iovsema);
+	}
 
 	for (pecb = probe->dtpr_ecb; pecb != NULL; pecb = pecb->dte_next) {
 		if (pecb == ecb)
