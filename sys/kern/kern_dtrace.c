@@ -162,9 +162,7 @@ filt_dtraceattach(struct knote *kn)
 	kn->kn_status |= KN_KQUEUE;
 	kn->kn_iov = malloc(sizeof(struct iovec), M_KQUEUE, M_WAITOK | M_ZERO);
 	sema_init(&kn->kn_iovsema, 0, "knote iovec semaphore");
-	mtx_lock(&dtrace_knlist_mtx);
 	knlist_add(&dtrace_knlist, kn, 0);
-	mtx_unlock(&dtrace_knlist_mtx);
 	return (kn->kn_iov == NULL);
 }
 
