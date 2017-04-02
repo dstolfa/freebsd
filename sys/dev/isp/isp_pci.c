@@ -682,9 +682,7 @@ isp_pci_attach(device_t dev)
 	pcs->pci_dev = dev;
 	isp->isp_dev = dev;
 	isp->isp_nchan = 1;
-	if (sizeof (bus_addr_t) > 4)
-		isp->isp_osinfo.sixtyfourbit = 1;
-	mtx_init(&isp->isp_osinfo.lock, "isp", NULL, MTX_DEF);
+	mtx_init(&isp->isp_lock, "isp", NULL, MTX_DEF);
 
 	/*
 	 * Get Generic Options
@@ -981,7 +979,7 @@ bad:
 		free(pcs->pci_isp.isp_osinfo.pc.ptr, M_DEVBUF);
 		pcs->pci_isp.isp_osinfo.pc.ptr = NULL;
 	}
-	mtx_destroy(&isp->isp_osinfo.lock);
+	mtx_destroy(&isp->isp_lock);
 	return (ENXIO);
 }
 
@@ -1019,7 +1017,7 @@ isp_pci_detach(device_t dev)
 		free(pcs->pci_isp.isp_osinfo.pc.ptr, M_DEVBUF);
 		pcs->pci_isp.isp_osinfo.pc.ptr = NULL;
 	}
-	mtx_destroy(&isp->isp_osinfo.lock);
+	mtx_destroy(&isp->isp_lock);
 	return (0);
 }
 
@@ -1527,14 +1525,14 @@ isp_pci_mbxdma(ispsoftc_t *isp)
 		slim = (1UL << 24);
 		llim = BUS_SPACE_MAXADDR_32BIT;
 	}
-	if (isp->isp_osinfo.sixtyfourbit)
+	if (sizeof (bus_size_t) > 4)
 		nsegs = ISP_NSEG64_MAX;
 	else
 		nsegs = ISP_NSEG_MAX;
 
-	if (isp_dma_tag_create(BUS_DMA_ROOTARG(ISP_PCD(isp)), 1,
+	if (bus_dma_tag_create(bus_get_dma_tag(ISP_PCD(isp)), 1,
 	    slim, llim, hlim, NULL, NULL, BUS_SPACE_MAXSIZE, nsegs, slim, 0,
-	    &isp->isp_osinfo.dmat)) {
+	    busdma_lock_mutex, &isp->isp_lock, &isp->isp_osinfo.dmat)) {
 		ISP_LOCK(isp);
 		isp_prt(isp, ISP_LOGERR, "could not create master dma tag");
 		return (1);
@@ -1547,9 +1545,10 @@ isp_pci_mbxdma(ispsoftc_t *isp)
 	len = ISP_QUEUE_SIZE(RQUEST_QUEUE_LEN(isp));
 	if (isp->isp_type >= ISP_HA_FC_2200)
 		len += (N_XCMDS * XCMD_SIZE);
-	if (isp_dma_tag_create(isp->isp_osinfo.dmat, QENTRY_LEN, slim,
+	if (bus_dma_tag_create(isp->isp_osinfo.dmat, QENTRY_LEN, slim,
 	    BUS_SPACE_MAXADDR_32BIT, BUS_SPACE_MAXADDR, NULL, NULL,
-	    len, 1, len, 0, &isp->isp_osinfo.reqdmat)) {
+	    len, 1, len, 0, busdma_lock_mutex, &isp->isp_lock,
+	    &isp->isp_osinfo.reqdmat)) {
 		isp_prt(isp, ISP_LOGERR, "cannot create request DMA tag");
 		goto bad;
 	}
@@ -1588,9 +1587,10 @@ isp_pci_mbxdma(ispsoftc_t *isp)
 	 * Allocate and map the result queue.
 	 */
 	len = ISP_QUEUE_SIZE(RESULT_QUEUE_LEN(isp));
-	if (isp_dma_tag_create(isp->isp_osinfo.dmat, QENTRY_LEN, slim,
+	if (bus_dma_tag_create(isp->isp_osinfo.dmat, QENTRY_LEN, slim,
 	    BUS_SPACE_MAXADDR_32BIT, BUS_SPACE_MAXADDR, NULL, NULL,
-	    len, 1, len, 0, &isp->isp_osinfo.respdmat)) {
+	    len, 1, len, 0, busdma_lock_mutex, &isp->isp_lock,
+	    &isp->isp_osinfo.respdmat)) {
 		isp_prt(isp, ISP_LOGERR, "cannot create response DMA tag");
 		goto bad;
 	}
@@ -1617,9 +1617,10 @@ isp_pci_mbxdma(ispsoftc_t *isp)
 	 */
 	if (IS_24XX(isp)) {
 		len = ISP_QUEUE_SIZE(RESULT_QUEUE_LEN(isp));
-		if (isp_dma_tag_create(isp->isp_osinfo.dmat, QENTRY_LEN, slim,
+		if (bus_dma_tag_create(isp->isp_osinfo.dmat, QENTRY_LEN, slim,
 		    BUS_SPACE_MAXADDR_32BIT, BUS_SPACE_MAXADDR, NULL, NULL,
-		    len, 1, len, 0, &isp->isp_osinfo.atiodmat)) {
+		    len, 1, len, 0, busdma_lock_mutex, &isp->isp_lock,
+		    &isp->isp_osinfo.atiodmat)) {
 			isp_prt(isp, ISP_LOGERR, "cannot create ATIO DMA tag");
 			goto bad;
 		}
@@ -1643,9 +1644,10 @@ isp_pci_mbxdma(ispsoftc_t *isp)
 #endif
 
 	if (IS_FC(isp)) {
-		if (isp_dma_tag_create(isp->isp_osinfo.dmat, 64, slim,
+		if (bus_dma_tag_create(isp->isp_osinfo.dmat, 64, slim,
 		    BUS_SPACE_MAXADDR, BUS_SPACE_MAXADDR, NULL, NULL,
-		    2*QENTRY_LEN, 1, 2*QENTRY_LEN, 0, &isp->isp_osinfo.iocbdmat)) {
+		    2*QENTRY_LEN, 1, 2*QENTRY_LEN, 0, busdma_lock_mutex,
+		    &isp->isp_lock, &isp->isp_osinfo.iocbdmat)) {
 			goto bad;
 		}
 		if (bus_dmamem_alloc(isp->isp_osinfo.iocbdmat,
@@ -1658,9 +1660,10 @@ isp_pci_mbxdma(ispsoftc_t *isp)
 			goto bad;
 		isp->isp_iocb_dma = im.maddr;
 
-		if (isp_dma_tag_create(isp->isp_osinfo.dmat, 64, slim,
+		if (bus_dma_tag_create(isp->isp_osinfo.dmat, 64, slim,
 		    BUS_SPACE_MAXADDR, BUS_SPACE_MAXADDR, NULL, NULL,
-		    ISP_FC_SCRLEN, 1, ISP_FC_SCRLEN, 0, &isp->isp_osinfo.scdmat))
+		    ISP_FC_SCRLEN, 1, ISP_FC_SCRLEN, 0, busdma_lock_mutex,
+		    &isp->isp_lock, &isp->isp_osinfo.scdmat))
 			goto bad;
 		for (cmap = 0; cmap < isp->isp_nchan; cmap++) {
 			struct isp_fc *fc = ISP_FC_PC(isp, cmap);
@@ -1715,7 +1718,7 @@ gotmaxcmds:
 			}
 			goto bad;
 		}
-		callout_init_mtx(&pcmd->wdog, &isp->isp_osinfo.lock, 0);
+		callout_init_mtx(&pcmd->wdog, &isp->isp_lock, 0);
 		if (i == isp->isp_maxcmds-1)
 			pcmd->next = NULL;
 		else
@@ -1830,151 +1833,43 @@ typedef struct {
 	void *cmd_token;
 	void *rq;	/* original request */
 	int error;
-	bus_size_t mapsize;
 } mush_t;
 
 #define	MUSHERR_NOQENTRIES	-2
 
-#ifdef	ISP_TARGET_MODE
-static void tdma2_2(void *, bus_dma_segment_t *, int, bus_size_t, int);
-static void tdma2(void *, bus_dma_segment_t *, int, int);
-
-static void
-tdma2_2(void *arg, bus_dma_segment_t *dm_segs, int nseg, bus_size_t mapsize, int error)
-{
-	mush_t *mp;
-	mp = (mush_t *)arg;
-	mp->mapsize = mapsize;
-	tdma2(arg, dm_segs, nseg, error);
-}
-
-static void
-tdma2(void *arg, bus_dma_segment_t *dm_segs, int nseg, int error)
-{
-	mush_t *mp;
-	ispsoftc_t *isp;
-	struct ccb_scsiio *csio;
-	isp_ddir_t ddir;
-	ispreq_t *rq;
-
-	mp = (mush_t *) arg;
-	if (error) {
-		mp->error = error;
-		return;
-	}
-	csio = mp->cmd_token;
-	isp = mp->isp;
-	rq = mp->rq;
-	if (nseg) {
-		if (isp->isp_osinfo.sixtyfourbit) {
-			if (nseg >= ISP_NSEG64_MAX) {
-				isp_prt(isp, ISP_LOGERR, "number of segments (%d) exceed maximum we can support (%d)", nseg, ISP_NSEG64_MAX);
-				mp->error = EFAULT;
-				return;
-			}
-			if (rq->req_header.rqs_entry_type == RQSTYPE_CTIO2) {
-				rq->req_header.rqs_entry_type = RQSTYPE_CTIO3;
-			}
-		} else {
-			if (nseg >= ISP_NSEG_MAX) {
-				isp_prt(isp, ISP_LOGERR, "number of segments (%d) exceed maximum we can support (%d)", nseg, ISP_NSEG_MAX);
-				mp->error = EFAULT;
-				return;
-			}
-		}
-		if ((csio->ccb_h.flags & CAM_DIR_MASK) == CAM_DIR_IN) {
-			bus_dmamap_sync(isp->isp_osinfo.dmat, PISP_PCMD(csio)->dmap, BUS_DMASYNC_PREWRITE);
-			ddir = ISP_TO_DEVICE;
-		} else if ((csio->ccb_h.flags & CAM_DIR_MASK) == CAM_DIR_OUT) {
-			bus_dmamap_sync(isp->isp_osinfo.dmat, PISP_PCMD(csio)->dmap, BUS_DMASYNC_PREREAD);
-			ddir = ISP_FROM_DEVICE;
-		} else {
-			dm_segs = NULL;
-			nseg = 0;
-			ddir = ISP_NOXFR;
-		}
-	} else {
-		dm_segs = NULL;
-		nseg = 0;
-		ddir = ISP_NOXFR;
-	}
-
-	error = isp_send_tgt_cmd(isp, rq, dm_segs, nseg, XS_XFRLEN(csio), ddir, &csio->sense_data, csio->sense_len);
-	switch (error) {
-	case CMD_EAGAIN:
-		mp->error = MUSHERR_NOQENTRIES;
-	case CMD_QUEUED:
-		break;
-	default:
-		mp->error = EIO;
-	}
-}
-#endif
-
-static void dma2_2(void *, bus_dma_segment_t *, int, bus_size_t, int);
-static void dma2(void *, bus_dma_segment_t *, int, int);
-
-static void
-dma2_2(void *arg, bus_dma_segment_t *dm_segs, int nseg, bus_size_t mapsize, int error)
-{
-	mush_t *mp;
-	mp = (mush_t *)arg;
-	mp->mapsize = mapsize;
-	dma2(arg, dm_segs, nseg, error);
-}
-
 static void
 dma2(void *arg, bus_dma_segment_t *dm_segs, int nseg, int error)
 {
-	mush_t *mp;
-	ispsoftc_t *isp;
-	struct ccb_scsiio *csio;
+	mush_t *mp = (mush_t *) arg;
+	ispsoftc_t *isp= mp->isp;
+	struct ccb_scsiio *csio = mp->cmd_token;
 	isp_ddir_t ddir;
-	ispreq_t *rq;
+	int sdir;
 
-	mp = (mush_t *) arg;
 	if (error) {
 		mp->error = error;
 		return;
 	}
-	csio = mp->cmd_token;
-	isp = mp->isp;
-	rq = mp->rq;
-	if (nseg) {
-		if (isp->isp_osinfo.sixtyfourbit) {
-			if (nseg >= ISP_NSEG64_MAX) {
-				isp_prt(isp, ISP_LOGERR, "number of segments (%d) exceed maximum we can support (%d)", nseg, ISP_NSEG64_MAX);
-				mp->error = EFAULT;
-				return;
-			}
-			if (rq->req_header.rqs_entry_type == RQSTYPE_T2RQS) {
-				rq->req_header.rqs_entry_type = RQSTYPE_T3RQS;
-			} else if (rq->req_header.rqs_entry_type == RQSTYPE_REQUEST) {
-				rq->req_header.rqs_entry_type = RQSTYPE_A64;
-			}
-		} else {
-			if (nseg >= ISP_NSEG_MAX) {
-				isp_prt(isp, ISP_LOGERR, "number of segments (%d) exceed maximum we can support (%d)", nseg, ISP_NSEG_MAX);
-				mp->error = EFAULT;
-				return;
-			}
-		}
-		if ((csio->ccb_h.flags & CAM_DIR_MASK) == CAM_DIR_IN) {
-			bus_dmamap_sync(isp->isp_osinfo.dmat, PISP_PCMD(csio)->dmap, BUS_DMASYNC_PREREAD);
-			ddir = ISP_FROM_DEVICE;
-		} else if ((csio->ccb_h.flags & CAM_DIR_MASK) == CAM_DIR_OUT) {
-			bus_dmamap_sync(isp->isp_osinfo.dmat, PISP_PCMD(csio)->dmap, BUS_DMASYNC_PREWRITE);
-			ddir = ISP_TO_DEVICE;
-		} else {
-			ddir = ISP_NOXFR;
-		}
-	} else {
-		dm_segs = NULL;
-		nseg = 0;
+	if (nseg == 0) {
 		ddir = ISP_NOXFR;
+	} else {
+		if ((csio->ccb_h.flags & CAM_DIR_MASK) == CAM_DIR_IN) {
+			ddir = ISP_FROM_DEVICE;
+		} else {
+			ddir = ISP_TO_DEVICE;
+		}
+		if ((csio->ccb_h.func_code == XPT_CONT_TARGET_IO) ^
+		    ((csio->ccb_h.flags & CAM_DIR_MASK) == CAM_DIR_IN)) {
+			sdir = BUS_DMASYNC_PREREAD;
+		} else {
+			sdir = BUS_DMASYNC_PREWRITE;
+		}
+		bus_dmamap_sync(isp->isp_osinfo.dmat, PISP_PCMD(csio)->dmap,
+		    sdir);
 	}
 
-	error = isp_send_cmd(isp, rq, dm_segs, nseg, XS_XFRLEN(csio), ddir, (ispds64_t *)csio->req_map);
+	error = isp_send_cmd(isp, mp->rq, dm_segs, nseg, XS_XFRLEN(csio),
+	    ddir, (ispds64_t *)csio->req_map);
 	switch (error) {
 	case CMD_EAGAIN:
 		mp->error = MUSHERR_NOQENTRIES;
@@ -1991,8 +1886,6 @@ static int
 isp_pci_dmasetup(ispsoftc_t *isp, struct ccb_scsiio *csio, void *ff)
 {
 	mush_t mush, *mp;
-	void (*eptr)(void *, bus_dma_segment_t *, int, int);
-	void (*eptr2)(void *, bus_dma_segment_t *, int, bus_size_t, int);
 	int error;
 
 	mp = &mush;
@@ -2000,22 +1893,9 @@ isp_pci_dmasetup(ispsoftc_t *isp, struct ccb_scsiio *csio, void *ff)
 	mp->cmd_token = csio;
 	mp->rq = ff;
 	mp->error = 0;
-	mp->mapsize = 0;
-
-#ifdef	ISP_TARGET_MODE
-	if (csio->ccb_h.func_code == XPT_CONT_TARGET_IO) {
-		eptr = tdma2;
-		eptr2 = tdma2_2;
-	} else
-#endif
-	{
-		eptr = dma2;
-		eptr2 = dma2_2;
-	}
-
 
 	error = bus_dmamap_load_ccb(isp->isp_osinfo.dmat, PISP_PCMD(csio)->dmap,
-	    (union ccb *)csio, eptr, mp, 0);
+	    (union ccb *)csio, dma2, mp, 0);
 	if (error == EINPROGRESS) {
 		bus_dmamap_unload(isp->isp_osinfo.dmat, PISP_PCMD(csio)->dmap);
 		mp->error = EINVAL;
@@ -2054,6 +1934,7 @@ isp_pci_irqsetup(ispsoftc_t *isp)
 	if (isp->isp_nirq > 0)
 		return (0);
 
+	ISP_UNLOCK(isp);
 	if (ISP_CAP_MSIX(isp)) {
 		max_irq = min(ISP_MAX_IRQS, IS_26XX(isp) ? 3 : 2);
 		pcs->msicount = imin(pci_msix_count(dev), max_irq);
@@ -2094,6 +1975,7 @@ isp_pci_irqsetup(ispsoftc_t *isp)
 		}
 		isp->isp_nirq = i + 1;
 	}
+	ISP_LOCK(isp);
 
 	return (isp->isp_nirq == 0);
 }
