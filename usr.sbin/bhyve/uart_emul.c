@@ -275,7 +275,7 @@ uart_opentty(struct uart_softc *sc)
 {
 
 	ttyopen(&sc->tty);
-	sc->mev = mevent_add(sc->tty.fd, EVF_READ, uart_drain, sc);
+	sc->mev = mevent_add(sc->tty.fd, EVF_READ, uart_drain, sc, 0);
 	assert(sc->mev != NULL);
 }
 

@@ -37,6 +37,9 @@ __FBSDID("$FreeBSD$");
 #include <sys/linker_set.h>
 #include <sys/uio.h>
 #include <sys/types.h>
+#include <sys/dtrace_bsd.h>
+
+#include <machine/vmm.h>
 
 #include <err.h>
 #include <errno.h>
@@ -49,6 +52,8 @@ __FBSDID("$FreeBSD$");
 #include <pthread.h>
 #include <libgen.h>
 #include <sysexits.h>
+
+#include <vmmapi.h>
 
 #include "bhyverun.h"
 #include "pci_emul.h"
@@ -85,18 +90,20 @@ static int pci_vtdtr_debug;
 struct mevent	*vtdtr_mev;
 
 struct pci_vtdtr_control {
-	uint32_t	 event;
-	uint32_t	 value;
-	char		*info;
+	uint32_t	event;
+	uint32_t	value;
+	char		info[DTRACE_INSTANCENAMELEN];
 } __attribute__((packed));
 
 struct pci_vtdtr_softc {
-	struct virtio_softc		vsd_vs;
-	struct vqueue_info		vsd_queues[VTDTR_MAXQ];
-	pthread_mutex_t			vsd_mtx;
-	uint64_t			vsd_features;
-	uint64_t			vsd_cfg;
-	int				vsd_ready;
+	struct virtio_softc		 vsd_vs;
+	struct vqueue_info		 vsd_queues[VTDTR_MAXQ];
+	struct vmctx			*vsd_vmctx;
+	struct dtrace_probeinfo		 vsd_pbi;
+	pthread_mutex_t			 vsd_mtx;
+	uint64_t			 vsd_features;
+	uint64_t			 vsd_cfg;
+	int				 vsd_ready;
 };
 
 static void	pci_vtdtr_reset(void *);
@@ -277,9 +284,14 @@ pci_vtdtr_handle_mev(int pb, enum ev_type et __unused, int ne, void *vsc)
 {
 	struct pci_vtdtr_softc *sc;
 	struct pci_vtdtr_control ctrl;
+	char *name;
 
 	sc = vsc;
-
+	name = vm_get_name(sc->vsd_vmctx);
+	
+	if (strcmp(name, sc->vsd_pbi.instance) != 0)
+		return;
+	
 	if (ne & NOTE_PROBE_INSTALL)
 		ctrl.event = VTDTR_DEVICE_PROBE_INSTALL;
 	else if (ne & NOTE_PROBE_UNINSTALL)
@@ -287,7 +299,8 @@ pci_vtdtr_handle_mev(int pb, enum ev_type et __unused, int ne, void *vsc)
 	else
 		return;
 	ctrl.value = pb;
-
+	strcpy(ctrl.info, sc->vsd_pbi.instance);
+	
 	pci_vtdtr_control_send(sc, &ctrl);
 }
 
@@ -300,6 +313,7 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 
 	vi_softc_linkup(&sc->vsd_vs, &vtdtr_vi_consts, sc, pci_inst, sc->vsd_queues);
 	sc->vsd_vs.vs_mtx = &sc->vsd_mtx;
+	sc->vsd_vmctx = ctx;
 
 	/*
 	 * XXX: We might be able to get away with a device-wide notify
@@ -320,7 +334,7 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 
 	vi_set_io_bar(&sc->vsd_vs, 0);
 
-	vtdtr_mev = mevent_add(0, EVF_DTRACE, pci_vtdtr_handle_mev, sc);
+	vtdtr_mev = mevent_add(0, EVF_DTRACE, pci_vtdtr_handle_mev, sc, (__intptr_t)&(sc->vsd_pbi));
 
 	return (0);
 }

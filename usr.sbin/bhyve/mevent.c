@@ -70,16 +70,16 @@ static int mevent_pipefd[2];
 static pthread_mutex_t mevent_lmutex = PTHREAD_MUTEX_INITIALIZER;
 
 struct mevent {	
-	void	(*me_func)(int, enum ev_type, int, void *);
-#define me_msecs me_fd
-#define me_dtpb me_fd
-	int	me_fd;
-	int	me_timid;
-	enum ev_type me_type;
-	void    *me_param;
-	int	me_cq;
-	int	me_state;
-	int	me_closefd;
+	void		(*me_func)(int, enum ev_type, int, void *);
+#define me_msecs 	me_fd
+	int		me_fd;
+	int		me_timid;
+	enum ev_type	me_type;
+	void		*me_param;
+	__intptr_t	me_data;
+	int		me_cq;
+	int		me_state;
+	int		me_closefd;
 	LIST_ENTRY(mevent) me_list;			   
 };
 
@@ -210,7 +210,7 @@ mevent_build(int mfd, struct kevent *kev)
 				kev[i].data = mevp->me_msecs;
 			} else {
 				kev[i].ident = mevp->me_fd;
-				kev[i].data = 0;
+				kev[i].data = mevp->me_data;
 			}
 			kev[i].filter = mevent_kq_filter(mevp);
 			kev[i].flags = mevent_kq_flags(mevp);
@@ -253,7 +253,7 @@ mevent_handle(struct kevent *kev, int numev)
 
 struct mevent *
 mevent_add(int tfd, enum ev_type type,
-	   void (*func)(int, enum ev_type, int, void *), void *param)
+	   void (*func)(int, enum ev_type, int, void *), void *param, __intptr_t data)
 {
 	struct mevent *lp, *mevp;
 
@@ -298,6 +298,7 @@ mevent_add(int tfd, enum ev_type type,
 	mevp->me_type = type;
 	mevp->me_func = func;
 	mevp->me_param = param;
+	mevp->me_data = data;
 
 	LIST_INSERT_HEAD(&change_head, mevp, me_list);
 	mevp->me_cq = 1;
@@ -451,7 +452,7 @@ mevent_dispatch(void)
 	/*
 	 * Add internal event handler for the pipe write fd
 	 */
-	pipev = mevent_add(mevent_pipefd[0], EVF_READ, mevent_pipe_read, NULL);
+	pipev = mevent_add(mevent_pipefd[0], EVF_READ, mevent_pipe_read, NULL, 0);
 	assert(pipev != NULL);
 
 	for (;;) {

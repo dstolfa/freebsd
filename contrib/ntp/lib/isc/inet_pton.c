@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 /*
  * Copyright (C) 2004, 2005, 2007  Internet Systems Consortium, Inc. ("ISC")
  * Copyright (C) 1996-2003  Internet Software Consortium.
@@ -213,3 +214,5 @@ inet_pton6(const char *src, unsigned char *dst) {
 	memcpy(dst, tmp, NS_IN6ADDRSZ);
 	return (1);
 }
+=======
+>>>>>>> Stashed changes

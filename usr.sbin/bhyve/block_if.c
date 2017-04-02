@@ -388,7 +388,7 @@ blockif_sigcont_handler(int signal, enum ev_type type, int ne __unused, void *ar
 static void
 blockif_init(void)
 {
-	mevent_add(SIGCONT, EVF_SIGNAL, blockif_sigcont_handler, NULL);
+	mevent_add(SIGCONT, EVF_SIGNAL, blockif_sigcont_handler, NULL, 0);
 	(void) signal(SIGCONT, SIG_IGN);
 }
 

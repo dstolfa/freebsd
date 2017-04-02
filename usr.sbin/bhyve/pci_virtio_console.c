@@ -340,7 +340,7 @@ pci_vtcon_sock_add(struct pci_vtcon_softc *sc, const char *name,
 	sock->vss_conn_fd = -1;
 	sock->vss_server_fd = s;
 	sock->vss_server_evp = mevent_add(s, EVF_READ, pci_vtcon_sock_accept,
-	    sock);
+	    sock, 0);
 
 	if (sock->vss_server_evp == NULL) {
 		error = -1;
@@ -374,7 +374,7 @@ pci_vtcon_sock_accept(int fd __unused, enum ev_type t __unused, int en __unused,
 
 	sock->vss_open = true;
 	sock->vss_conn_fd = s;
-	sock->vss_conn_evp = mevent_add(s, EVF_READ, pci_vtcon_sock_rx, sock);
+	sock->vss_conn_evp = mevent_add(s, EVF_READ, pci_vtcon_sock_rx, sock, 0);
 
 	pci_vtcon_open_port(sock->vss_port, true);
 }

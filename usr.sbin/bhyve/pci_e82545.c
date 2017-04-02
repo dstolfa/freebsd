@@ -588,7 +588,7 @@ e82545_icr_assert(struct e82545_softc *sc, uint32_t bits)
 		if (sc->esc_ITR != 0) {
 			sc->esc_mevpitr = mevent_add(
 			    (sc->esc_ITR + 3905) / 3906,  /* 256ns -> 1ms */
-			    EVF_TIMER, e82545_itr_callback, sc);
+			    EVF_TIMER, e82545_itr_callback, sc, 0);
 		}
 	}
 }
@@ -616,7 +616,7 @@ e82545_ims_change(struct e82545_softc *sc, uint32_t bits)
 		if (sc->esc_ITR != 0) {
 			sc->esc_mevpitr = mevent_add(
 			    (sc->esc_ITR + 3905) / 3906,  /* 256ns -> 1ms */
-			    EVF_TIMER, e82545_itr_callback, sc);
+			    EVF_TIMER, e82545_itr_callback, sc, 0);
 		}
 	}
 }
@@ -2245,7 +2245,8 @@ e82545_open_tap(struct e82545_softc *sc, char *opts)
 	sc->esc_mevp = mevent_add(sc->esc_tapfd,
 				  EVF_READ,
 				  e82545_tap_callback,
-				  sc);
+				  sc,
+				  0);
 	if (sc->esc_mevp == NULL) {
 		DPRINTF("Could not register mevent %d\n", EVF_READ);
 		close(sc->esc_tapfd);

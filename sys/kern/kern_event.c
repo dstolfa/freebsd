@@ -1833,11 +1833,10 @@ retry:
 			iovtmp.iov_base = malloc(kn->kn_iov->iov_len, M_KQUEUE, M_WAITOK);
 			iovtmp.iov_len = kn->kn_iov->iov_len;
 			memcpy(iovtmp.iov_base, kn->kn_iov->iov_base, iovtmp.iov_len);
-			KQ_LOCK(kq);
-			iovlist[niov][0] = iovtmp;
-			iovlist[niov][0].iov_len = kn->kn_iov->iov_len;
 			kn->kn_iov->iov_base = NULL;
 			sema_post(&kn->kn_iovsema);
+			KQ_LOCK(kq);
+			iovlist[niov][0] = iovtmp;
 			iovlist[niov][1] = (struct iovec) {
 				.iov_base = (void *)kn->kn_sdata,
 				.iov_len = iovlist[niov][0].iov_len

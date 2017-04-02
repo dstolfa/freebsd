@@ -31,6 +31,8 @@
 #ifndef _SYS_DTRACE_BSD_H
 #define	_SYS_DTRACE_BSD_H
 
+#ifdef _KERNEL
+
 /* Forward definitions: */
 struct mbuf;
 struct trapframe;
@@ -51,15 +53,9 @@ struct mtx;
 
 #define	DTRACE_KNOTE_LOCKED(list, hint)		DTRACE_KNOTE(list, hint, KNF_LISTLOCKED)
 #define	DTRACE_KNOTE_UNLOCKED(list, hint)	DTRACE_KNOTE(list, hint, 0);
-#define	DTRACE_INSTANCENAMELEN	64
 
 extern struct knlist dtrace_knlist;
 extern struct mtx dtrace_knlist_mtx;
-
-struct dtrace_probeinfo {
-	int	id;					/* ID of the probe to install */
-	char	instance[DTRACE_INSTANCENAMELEN];	/* instance to install it on */
-};
 
 int dtrace_trap(struct trapframe *, u_int);
 
@@ -196,5 +192,14 @@ size_t	kdtrace_thread_size(void);
  */
 uint64_t	dtrace_gethrtime(void);
 uint64_t	dtrace_gethrestime(void);
+
+#endif /* _KERNEL */
+
+#define	DTRACE_INSTANCENAMELEN	64
+
+struct dtrace_probeinfo {
+	int	id;					/* ID of the probe to install */
+	char	instance[DTRACE_INSTANCENAMELEN];	/* instance to install it on */
+};
 
 #endif /* _SYS_DTRACE_BSD_H */

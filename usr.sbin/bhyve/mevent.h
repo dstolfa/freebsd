@@ -41,7 +41,7 @@ struct mevent;
 
 struct mevent *mevent_add(int fd, enum ev_type type, 
 			  void (*func)(int, enum ev_type, int, void *),
-			  void *param);
+			  void *param, __intptr_t data);
 int	mevent_enable(struct mevent *evp);
 int	mevent_disable(struct mevent *evp);
 int	mevent_delete(struct mevent *evp);
