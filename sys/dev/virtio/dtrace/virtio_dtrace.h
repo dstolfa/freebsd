@@ -70,4 +70,11 @@ struct virtio_dtrace_queue {
 	char			 vtdq_name[16];
 };
 
+#define	VTDTR_QUEUE_LOCK(__q)			mtx_lock(&((__q)->vtdq_mtx))
+#define	VTDTR_QUEUE_UNLOCK(__q)			mtx_unlock(&((__q)->vtdq_mtx))
+#define	VTDTR_QUEUE_LOCK_ASSERT(__q)		\
+	mtx_assert(&((__q)->vtdq_mtx), MA_OWNED)
+#define	VTDTR_QUEUE_LOCK_ASSERT_NOTOWNED(__q)	\
+	mtx_assert(&((__q)->vtdq_mtx), MA_NOTOWNED)
+
 #endif

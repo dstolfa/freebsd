@@ -1008,9 +1008,9 @@ vtdtr_rxq_tq_intr(void *xrxq, int nprobes)
 	rxq = xrxq;
 	sc = rxq->vtdq_sc;
 
-	VTDTR_RXQ_LOCK(rxq);
+	VTDTR_QUEUE_LOCK(rxq);
 	
-	VTDTR_RXQ_UNLOCK(rxq);
+	VTDTR_QUEUE_UNLOCK(rxq);
 }
 
 /*
