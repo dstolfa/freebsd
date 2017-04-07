@@ -164,6 +164,8 @@ static void	vtdtr_tq_disable_intr(struct virtio_dtrace_taskq *);
 static void	vtdtr_tq_start(struct virtio_dtrace_taskq *);
 static void	vtdtr_txq_tq_intr(void *, int);
 static void	vtdtr_rxq_tq_intr(void *, int);
+static void	vtdtr_rxq_vq_intr(void *);
+static void	vtdtr_txq_vq_intr(void *);
 static int	vtdtr_init_txq(struct vtdtr_softc *);
 static int	vtdtr_init_rxq(struct vtdtr_softc *);
 
@@ -423,14 +425,16 @@ vtdtr_alloc_virtqueues(struct vtdtr_softc *sc)
 	dev = sc->vtdtr_dev;
 	rxq = sc->vtdtr_rxq;
 	txq = sc->vtdtr_txq;
+	rxq->vtdq_vqintr = vtdtr_vq_rx_intr;
+	txq->vtdq_vqintr = vtdtr_vq_tx_intr;
 	
 	info = malloc(sizeof(struct vq_alloc_info), M_TEMP, M_NOWAIT);
 	if (info == NULL)
 		return (ENOMEM);
 
-	VQ_ALLOC_INFO_INIT(&info[0], 0, rxq->vtdq_intrtask, sc, &rxq->vtdq_vq,
+	VQ_ALLOC_INFO_INIT(&info[0], 0, rxq->vtdq_vqintr, sc, &rxq->vtdq_vq,
 	    "%s-control RX", device_get_nameunit(dev));
-	VQ_ALLOC_INFO_INIT(&info[1], 0, txq->vtdq_intrtask, sc, &txq->vtdq_vq,
+	VQ_ALLOC_INFO_INIT(&info[1], 0, txq->vtdq_vqintr, sc, &txq->vtdq_vq,
 	    "%s-control TX", device_get_nameunit(dev));
 
 	error = virtio_alloc_virtqueues(dev, 0, 2, info);
@@ -989,7 +993,7 @@ vtdtr_tq_start(struct virtio_dtrace_taskq *dtq)
  * generated in the TX taskqueue.
  */
 static void
-vtdtr_txq_tq_intr(void *xtxq, int nprobes)
+vtdtr_txq_tq_intr(void *xtxq, int pending)
 {
 
 }
@@ -1000,7 +1004,7 @@ vtdtr_txq_tq_intr(void *xtxq, int nprobes)
  * generated in the RX taskqueue.
  */
 static void
-vtdtr_rxq_tq_intr(void *xrxq, int nprobes)
+vtdtr_rxq_tq_intr(void *xrxq, int pending)
 {
 	struct vtdtr_softc *sc;
 	struct virtio_dtrace_queue *q;
@@ -1011,6 +1015,28 @@ vtdtr_rxq_tq_intr(void *xrxq, int nprobes)
 	VTDTR_QUEUE_LOCK(rxq);
 	
 	VTDTR_QUEUE_UNLOCK(rxq);
+}
+
+static void
+vtdtr_rxq_vq_intr(void *xsc)
+{
+	struct vtdtr_softc *sc;
+	struct virtio_dtrace_queue *rxq;
+
+	sc = xsc;
+	rxq = sc->vtdtr_rxq;
+	taskqueue_enqueue(rxq->vtdq_tq, &rxq->vtdq_intrtask);
+}
+
+static void
+vtdtr_txq_vq_intr(void *xsc)
+{
+	struct vtdtr_softc *sc;
+	struct virtio_dtrace_queue *txq;
+
+	sc = xsc;
+	txq = sc->vtdtr_txq;
+	taskqueue_enqueue(txq->vtdq_tq, &txq->vtdq_intrtask);
 }
 
 /*
