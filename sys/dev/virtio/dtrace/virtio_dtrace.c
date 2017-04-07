@@ -310,6 +310,9 @@ vtdtr_attach(device_t dev)
 		goto fail;
 	}
 
+	device_printf(dev, "txq = %s, rxq = %s\n",
+	    sc->vtdtr_txq.vtdq_name, sc->vtdtr_rxq.vtdq_name);
+
 	error = vtdtr_queue_populate(&sc->vtdtr_rxq);
 	if (error)
 		goto fail;
@@ -320,12 +323,13 @@ vtdtr_attach(device_t dev)
 		goto fail;
 	}
 
-	error = vtdtr_enable_interrupts(sc);
+	vtdtr_enable_interrupts(sc);
+	/* FIXME: This should be handled either way???
 	if (error) {
 		device_printf(dev, "cannot enable interrupts\n");
 		goto fail;
 	}
-
+	*/
 	vtdtr_ctrl_send_control(&sc->vtdtr_txq, VIRTIO_DTRACE_DEVICE_READY, 1);
 fail:
 	if (error)
