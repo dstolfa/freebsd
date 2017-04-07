@@ -62,7 +62,7 @@ __FBSDID("$FreeBSD$");
 
 struct vtdtr_pb {
 	uint32_t				vtdprobe_id;
-	SLIST_ENTRY(vtdtr_pb)		vtdprobe_next;
+	SLIST_ENTRY(vtdtr_pb)			vtdprobe_next;
 };
 
 struct vtdtr_softc {
@@ -74,10 +74,10 @@ struct vtdtr_softc {
 #define	VTDTR_FLAG_PROBEACTION	0x02
 #define	VTDTR_FLAG_PROVACTION	0x04
 
-	struct task				 vtdtr_ctrl_task;
-	struct virtqueue			*vtdtr_ctrl_rxvq;
-	struct virtqueue			*vtdtr_ctrl_txvq;
-	struct mtx				 vtdtr_ctrl_tx_mtx;
+	struct virtio_dtrace_queue		vtdtr_txq;
+	struct vtdtr_dtrace_queue		vtdtr_rxq;
+	int					vtdtr_tx_nsegs;
+	int					vtdtr_rx_nsegs;
 
 	/*
 	 * We need to keep track of all the enabled probes in the
@@ -85,7 +85,7 @@ struct vtdtr_softc {
 	 * and host DTrace. The driver is the one asking to install
 	 * or uninstall the probes on the guest, as instructed by host.
 	 */
-	SLIST_HEAD(, vtdtr_pb)		vtdtr_enabled_probes;
+	SLIST_HEAD(, vtdtr_pb)			vtdtr_enabled_probes;
 	struct mtx				vtdtr_probe_list_mtx;
 };
 
@@ -156,6 +156,16 @@ static void	vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *,
           	    struct virtio_dtrace_control *);
 static void	vtdtr_ctrl_send_control(struct vtdtr_softc *, uint32_t, uint32_t);
 static void	vtdtr_destroy_probelist(struct vtdtr_softc *);
+static void	vtdtr_start_taskqueues(struct vtdtr_softc *);
+static void	vtdtr_free_taskqueues(struct vtdtr_softc *);
+static void	vtdtr_drain_taskqueues(struct vtdtr_softc *);
+static void	vtdtr_tq_enable_intr(struct virtio_dtrace_taskq *);
+static void	vtdtr_tq_disable_intr(struct virtio_dtrace_taskq *);
+static void	vtdtr_tq_start(struct virtio_dtrace_taskq *);
+static void	vtdtr_txq_tq_intr(void *, int);
+static void	vtdtr_rxq_tq_intr(void *, int);
+static int	vtdtr_init_txq(struct vtdtr_softc *);
+static int	vtdtr_init_rxq(struct vtdtr_softc *);
 
 static device_method_t vtdtr_methods[] = {
 	/* Device methods. */
@@ -249,6 +259,22 @@ vtdtr_probe(device_t dev)
 	return (BUS_PROBE_DEFAULT);
 }
 
+/*
+ * Performs all of the initialization in the module.
+ * The following values get assigned:
+ *     sc                       <- device softc
+ *     sc->dev                  <- dev
+ *     sc->vtdtr_mtx            <- MTX_DEF
+ *     sc->vtdtr_txq            <- vtdtr_txq_init()
+ *     sc->vtdtr_rxq            <- vtdtr_rxq_init()
+ *     sc->vtdtr_enabled_probes <- vtdtr_alloc_probelist()
+ *
+ * This function also sets up the interrupt type on
+ * the driver, as well as enables interrupts.
+ * As it returns, it also sends the control message
+ * to the userspace PCI device on the host that the
+ * driver is ready.
+ */
 static int
 vtdtr_attach(device_t dev)
 {
@@ -267,19 +293,23 @@ vtdtr_attach(device_t dev)
 
 	vtdtr_alloc_probelist(sc);
 
+	error = vtdtr_init_rxq(sc, 0);
+	if (error) {
+		device_printf(dev, "cannot initialize RX queue\n");
+		goto fail;
+	}
+	
+	error = vtdtr_init_txq(sc, 0);
+	if (error) {
+		device_printf(dev, "cannot initialize TX queue\n");
+		goto fail;
+	}
+	
 	error = vtdtr_alloc_virtqueues(sc);
 	if (error) {
 		device_printf(dev, "cannot allocate virtqueues\n");
 		goto fail;
 	}
-
-	/*
-	 * Here we set up the handlers for each of the features(actions) that
-	 * are supported
-	 */
-	if (sc->vtdtr_flags & VTDTR_FLAG_PROBEACTION ||
-	    sc->vtdtr_flags & VTDTR_FLAG_PROVACTION)
-		TASK_INIT(&sc->vtdtr_ctrl_task, 0, vtdtr_ctrl_task_act, sc);
 
 	error = vtdtr_ctrl_init(sc);
 	if (error)
@@ -300,6 +330,11 @@ fail:
 	return (error);
 }
 
+/*
+ * Here we free all the used memory in the
+ * driver, drain all the taskqeueues and
+ * destroy all the mutexes.
+ */
 static int
 vtdtr_detach(device_t dev)
 {
@@ -335,6 +370,9 @@ vtdtr_config_change(device_t dev)
 	return (0);
 }
 
+/*
+ * Wrapper function for virtio_negotiate_features()
+ */
 static void
 vtdtr_negotiate_features(struct vtdtr_softc *sc)
 {
@@ -347,6 +385,9 @@ vtdtr_negotiate_features(struct vtdtr_softc *sc)
 	sc->vtdtr_features = virtio_negotiate_features(dev, features);
 }
 
+/*
+ * Set up the features that this driver can handle
+ */
 static void
 vtdtr_setup_features(struct vtdtr_softc *sc)
 {
@@ -368,22 +409,28 @@ vtdtr_alloc_probelist(struct vtdtr_softc *sc)
 	SLIST_INIT(&sc->vtdtr_enabled_probes);
 }
 
+/*
+ * Allocate all the virtqueues.
+ */
 static int
 vtdtr_alloc_virtqueues(struct vtdtr_softc *sc)
 {
 	device_t dev;
 	struct vq_alloc_info *info;
+	struct virtio_dtrace_queue *rxq, *txq;
 	int error;
 
 	dev = sc->vtdtr_dev;
-
+	rxq = sc->vtdtr_rxq;
+	txq = sc->vtdtr_txq;
+	
 	info = malloc(sizeof(struct vq_alloc_info), M_TEMP, M_NOWAIT);
 	if (info == NULL)
 		return (ENOMEM);
 
-	VQ_ALLOC_INFO_INIT(&info[0], 0, vtdtr_ctrl_event_intr, sc, &sc->vtdtr_ctrl_rxvq,
+	VQ_ALLOC_INFO_INIT(&info[0], 0, rxq->vtdq_intrtask, sc, &rxq->vtdq_vq,
 	    "%s-control RX", device_get_nameunit(dev));
-	VQ_ALLOC_INFO_INIT(&info[1], 0, NULL, sc, &sc->vtdtr_ctrl_txvq,
+	VQ_ALLOC_INFO_INIT(&info[1], 0, txq->vtdq_intrtask, sc, &txq->vtdq_vq,
 	    "%s-control TX", device_get_nameunit(dev));
 
 	error = virtio_alloc_virtqueues(dev, 0, 2, info);
@@ -549,21 +596,6 @@ vtdtr_ctrl_task_act(void *xsc, int nprobes)
 	VTDTR_UNLOCK(sc);
 }
 
-static __inline void
-vtdtr_enable_interrupts(struct vtdtr_softc *sc)
-{
-	VTDTR_LOCK(sc);
-	virtqueue_enable_intr(sc->vtdtr_ctrl_rxvq);
-	VTDTR_UNLOCK(sc);
-}
-
-static __inline void
-vtdtr_disable_interrupts(struct vtdtr_softc *sc)
-{
-	VTDTR_LOCK_ASSERT(sc);
-	virtqueue_disable_intr(sc->vtdtr_ctrl_rxvq);
-}
-
 static void
 vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
@@ -660,6 +692,9 @@ vtdtr_ctrl_process_probeaction(struct vtdtr_softc *sc,
 	}
 }
 
+/*
+ * TODO
+ */
 static int
 vtdtr_ctrl_process_prov_register(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
@@ -679,6 +714,9 @@ vtdtr_ctrl_process_prov_register(struct vtdtr_softc *sc,
 	return (error);
 }
 
+/*
+ * TODO
+ */
 static int
 vtdtr_ctrl_process_prov_unregister(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
@@ -686,6 +724,9 @@ vtdtr_ctrl_process_prov_unregister(struct vtdtr_softc *sc,
 	return (0);
 }
 
+/*
+ * TODO
+ */
 static int
 vtdtr_ctrl_process_probe_create(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
@@ -693,6 +734,12 @@ vtdtr_ctrl_process_probe_create(struct vtdtr_softc *sc,
 	return (0);
 }
 
+/*
+ * This function is responsible for processing the
+ * probe installation event. It calls out to the
+ * DTrace framework and adds the said probe to the
+ * front of the list of the enabled probes.
+ */
 static void
 vtdtr_ctrl_process_probe_install(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl /* UNUSED */)
@@ -705,6 +752,12 @@ vtdtr_ctrl_process_probe_install(struct vtdtr_softc *sc,
 /*	dtrace_probeid_disable(probe->vtdprobe_id); */
 }
 
+/*
+ * This function is responsible for processing the
+ * probe uninstallation event. It calls out to the
+ * DTrace framework and removes the said probe from
+ * the list of enabled probes. 
+ */
 static void
 vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
@@ -721,6 +774,11 @@ vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
 	}
 }
 
+/*
+ * The purpose of this function is to pack the
+ * control event and send it through a virtqueue
+ * to the host PCI device. 
+ */
 static void
 vtdtr_ctrl_poll(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
@@ -762,6 +820,9 @@ vtdtr_ctrl_poll(struct vtdtr_softc *sc,
 	VTDTR_CTRL_TX_UNLOCK(sc);
 }
 
+/*
+ * Send a control event to the host PCI device.
+ */
 static void
 vtdtr_ctrl_send_control(struct vtdtr_softc *sc, uint32_t event, uint32_t value)
 {
@@ -777,6 +838,10 @@ vtdtr_ctrl_send_control(struct vtdtr_softc *sc, uint32_t event, uint32_t value)
 	vtdtr_ctrl_poll(sc, &ctrl);
 }
 
+/*
+ * A wrapper function used to free the list of enabled
+ * probes.
+ */
 static void
 vtdtr_destroy_probelist(struct vtdtr_softc *sc)
 {
@@ -786,4 +851,234 @@ vtdtr_destroy_probelist(struct vtdtr_softc *sc)
 		SLIST_REMOVE_HEAD(&sc->vtdtr_enabled_probes, vtdprobe_next);
 		free(tmp, M_VIRTIO_DTRACE);
 	}
+}
+
+/*
+ * Start all the taskqueues on the cpu_id = 1. This
+ * ensures that each of the taskqueues have a thread
+ * assigned to them that will then process all the
+ * events that take place.
+ */
+static void
+vtdtr_start_taskqueues(struct vtdtr_softc *sc)
+{
+	struct vtdtr_taskq *rxq, *txq;
+	device_t dev;
+	int error;
+
+	dev = sc->vtdtr_dev;
+	rxq = &sc->vtdtr_rxq;
+	txq = &sc->vtdtr_txq;
+
+	error = taskqueue_start_threads(&rxq->vtdtq_tq, 1, PI_SOFT,
+	    "%s rxq %d", device_get_nameunit(dev), rxq->vtdtq_id);
+	if (error)
+		device_printf(dev, "failed to start rx taskq %d\n",
+		    txq->vtdtq_id);
+	error = taskqueue_start_threads(&txq->vtdtq_tq, 1, PI_SOFT,
+	    "%s txq %d", device_get_nameunit(dev), txq->vtdtq_id);
+	if (error)
+		device_printf(dev, "failed to start tx taskq %d\n",
+		    txq->vtdtq_id);
+}
+
+/*
+ * Free all the taskqueues in the driver.
+ * The taskqueues were allocated in vtdtr_init_txq()
+ * and vtdtr_init_rxq() 
+ */
+static void
+vtdtr_free_taskqueues(struct vtdtr_softc *sc)
+{
+	struct vtdtr_taskq *rxq, *txq;
+	int i;
+
+	rxq = &sc->vtdtr_rxq;
+	txq = &sc->vtdtr_txq;
+
+	if (rxq->vtdtq_tq != NULL) {
+		taskqueue_free(rxq->vtdtq_tq);
+		rxq->vtdtq_tq = NULL;
+	}
+
+	if (txq->vtdtq_tq != NULL) {
+		taskqueue_free(txq->vtdtq_tq);
+		txq->vtdtq_tq = NULL;
+	}
+}
+
+/*
+ * Drain all the taskqueues in the driver
+ */
+static void
+vtdtr_drain_taskqueues(struct vtdtr_softc *sc)
+{
+	struct vtdtr_taskq *rxq, *txq;
+
+	rxq = &sc->vtdtr_rxq;
+	txq = &sc->vtdtr_txq;
+
+	if (rxq->vtdtq_tq != NULL)
+		taskqueue_drain(rxq->vtdtq_tq, &rxq->vtdtq_intrtask);
+
+	if (txq->vtdtq_tq != NULL)
+		taskqueue_drain(txq->vtdtq_tq, &txq->vtdtq_intrtask);
+}
+
+/*
+ * Disable interrupts on all of the virtqueues in the
+ * virtio driver.
+ */
+static void
+vtdtr_disable_interrupts(struct vtdtr_softc *sc)
+{
+	VTDTR_LOCK(sc);
+	vtdtr_vq_disable_intr(&sc->vtdtr_rxq);
+	vtdtr_vq_disable_intr(&sc->vtdtr_txq);
+	VTDTR_UNLOCK(sc);
+}
+
+/*
+ * Enable interrupts on all of the virtqueues in the
+ * virtio driver.
+ */
+static int
+vtdtr_enable_interrupts(struct vtdtr_softc *sc)
+{
+	int retval;
+	VTDTR_LOCK(sc);
+	retval = vtdtr_vq_enable_intr(&sc->vtdtr_txq);
+	if (retval != 0)
+		goto end;
+	retval = vtdtr_vq_enable_intr(&sc->vtdtr_rxq);
+end:
+	VTDTR_UNLOCK(sc);
+
+	return (retval);
+}
+
+/*
+ * A wrapper function to enable interrupts in a virtqueue
+ */
+static int
+vtdtr_vq_enable_intr(struct virtio_dtrace_queue *q)
+{
+	VTDTR_LOCK_ASSERT(sc);
+	return (virtqueue_enable_intr(q->vtdq_vq));
+}
+
+/*
+ * A wrapper function to disable interrupts in a virtqueue
+ */
+static void
+vtdtr_vq_disable_intr(struct virtio_dtrace_taskq *q)
+{
+	VTDTR_LOCK_ASSERT(sc);
+	virtqueue_disable_intr(q->vtdq_vq);
+}
+
+static void
+vtdtr_tq_start(struct virtio_dtrace_taskq *dtq)
+{
+
+}
+
+/*
+ * TODO:
+ * This is the function that is called when an interrupt is
+ * generated in the TX taskqueue.
+ */
+static void
+vtdtr_txq_tq_intr(void *xtxq, int nprobes)
+{
+
+}
+
+/*
+ * TODO:
+ * This is the function that is called when an interrupt is
+ * generated in the RX taskqueue.
+ */
+static void
+vtdtr_rxq_tq_intr(void *xrxq, int nprobes)
+{
+	struct vtdtr_softc *sc;
+	struct virtio_dtrace_queue *q;
+
+	rxq = xrxq;
+	sc = rxq->vtdq_sc;
+
+	VTDTR_RXQ_LOCK(rxq);
+	
+	VTDTR_RXQ_UNLOCK(rxq);
+}
+
+/*
+ * This functions sets up all the necessary data for the correct
+ * operation of a RX taskqueue of the VirtIO driver:
+ *     rxq->vtdq_sc       <- sc
+ *     rxq->vtdq_id       <- id
+ *     rxq->vtdq_name     <- devname-rx(1|2|3...)
+ *     rxq->vtdq_sg       <- allocate or ENOMEM
+ *     rxq->vtdq_intrtask <- vtdtr_rxq_tq_intr
+ *     rxq->vtdq_tq       <- create taskqueue
+ */
+static int
+vtdtr_init_rxq(struct vtdtr_softc *sc, int id)
+{
+	struct virtio_dtrace_queue *q;
+
+	q = &sc->vtdtr_rxq;
+
+	snprintf(q->vtdq_name, sizeof(q->vtdq_name), "%s-rx%d",
+	    device_get_nameunit(sc->vtdtr_dev), id);
+	mtx_init(&q->vtdq_mtx, q->vtdq_name, NULL, MTX_DEF);
+
+	q->vtdq_sc = sc;
+	q->vtdq_id = id;
+
+	q->vtdq_sg = sglist_alloc(sc->vtdtr_rx_nsegs, M_NOWAIT);
+	if (q->vtdq_sg == NULL)
+		return (ENOMEM);
+
+	TASK_INIT(q->vtdq_intrtask, 0, vtdtr_rxq_tq_intr, q);
+	q->vtdq_tq = taskqueue_create(q->vtdq_name, M_NOWAIT,
+	    taskqueue_thread_enqueue, &q->vtdq_tq);
+
+	return (q->vtdq_tq == NULL ? ENOMEM : 0);
+}
+
+/*
+* This functions sets up all the necessary data for the correct
+* operation of a RX taskqueue of the VirtIO driver:
+*     txq->vtdq_sc       <- sc
+*     txq->vtdq_id       <- id
+*     txq->vtdq_name     <- devname-txx(1|2|3...)
+*     txq->vtdq_sg       <- allocate or ENOMEM
+*     txq->vtdq_intrtask <- vtdtr_txq_tq_intr
+*     txq->vtdq_tq       <- create taskqueue
+*/
+static int
+vtdtr_init_txq(struct vtdtr_softc *sc, int id)
+{
+	struct virtio_dtrace_queue *q;
+
+	q = &sc->vtdtr_txq;
+
+	snprintf(q->vtdq_name, sizeof(q->vtdq_name), "%s-tx%d",
+	    device_get_nameunit(sc->vtdtr_dev), id);
+	mtx_init(&q->vtdq_mtx, q->vtdq_name, NULL, MTX_DEF);
+
+	q->vtdq_sc = sc;
+	q->vtdq_id = id;
+
+	q->vtdq_sg = sglist_alloc(sc->vtdtr_tx_nsegs, M_NOWAIT);
+	if (q->vtdq_sg == NULL)
+		return (ENOMEM);
+
+	TASK_INIT(q->vtdq_intrtask, 0, vtdtr_txq_tq_intr, q);
+	q->vtdq_tq = taskqueue_create(q->vtdq_name, M_NOWAIT,
+	    taskqueue_thread_enqueue, &q->vtdq_tq);
+
+	return (q->vtdq_tq == NULL ? ENOMEM : 0);
 }

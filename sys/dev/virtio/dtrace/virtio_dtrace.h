@@ -49,10 +49,23 @@
 #define	VIRTIO_DTRACE_PROBE_INSTALL	0x05	/* Probe Installation */
 #define	VIRTIO_DTRACE_PROBE_UNINSTALL	0x06	/* Probe Uninstallation */
 
+struct vtdtr_softc;
+
 struct virtio_dtrace_control {
 	uint32_t	 event;
 	uint32_t	 value; /* XXX: UUID? */
 	char		*info;  /* XXX: Stack? */
+};
+
+struct virtio_dtrace_queue {
+	struct mtx		 vtdq_mtx;
+	struct vtdtr_softc	*vtdq_sc;
+	struct virtqueue	*vtdq_vq;
+	struct sglist		*vtdq_sg;
+	int			 vtdq_id;
+	struct taskqueue	*vtdq_tq;
+	struct task		 vtdq_intrtask;
+	char			 vtdq_name[16];
 };
 
 #endif
