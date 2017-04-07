@@ -76,8 +76,8 @@ struct vtdtr_softc {
 
 	struct virtio_dtrace_queue		vtdtr_txq;
 	struct vtdtr_dtrace_queue		vtdtr_rxq;
-	int					vtdtr_tx_nsegs;
-	int					vtdtr_rx_nsegs;
+	int					vtdtr_tx_nseg;
+	int					vtdtr_rx_nseg;
 
 	/*
 	 * We need to keep track of all the enabled probes in the
@@ -283,10 +283,10 @@ vtdtr_attach(device_t dev)
 
 	sc = device_get_softc(dev);
 	sc->vtdtr_dev = dev;
+	sc->vtdtr_rx_nseg = 2;
+	sc->vtdtr_tx_nseg = 2;
 
 	mtx_init(&sc->vtdtr_mtx, "vtdtrmtx", NULL, MTX_DEF);
-	mtx_init(&sc->vtdtr_ctrl_tx_mtx, "vtdtrctrlmtx", NULL, MTX_DEF);
-
 
 	virtio_set_feature_desc(dev, vtdtr_feature_desc);
 	vtdtr_setup_features(sc);
@@ -1037,7 +1037,7 @@ vtdtr_init_rxq(struct vtdtr_softc *sc, int id)
 	q->vtdq_sc = sc;
 	q->vtdq_id = id;
 
-	q->vtdq_sg = sglist_alloc(sc->vtdtr_rx_nsegs, M_NOWAIT);
+	q->vtdq_sg = sglist_alloc(sc->vtdtr_rx_nseg, M_NOWAIT);
 	if (q->vtdq_sg == NULL)
 		return (ENOMEM);
 
@@ -1072,7 +1072,7 @@ vtdtr_init_txq(struct vtdtr_softc *sc, int id)
 	q->vtdq_sc = sc;
 	q->vtdq_id = id;
 
-	q->vtdq_sg = sglist_alloc(sc->vtdtr_tx_nsegs, M_NOWAIT);
+	q->vtdq_sg = sglist_alloc(sc->vtdtr_tx_nseg, M_NOWAIT);
 	if (q->vtdq_sg == NULL)
 		return (ENOMEM);
 
