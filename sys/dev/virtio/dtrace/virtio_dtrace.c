@@ -117,18 +117,18 @@ static void	vtdtr_setup_features(struct vtdtr_softc *);
 static void	vtdtr_alloc_probelist(struct vtdtr_softc *);
 static int	vtdtr_alloc_virtqueues(struct vtdtr_softc *);
 static void	vtdtr_stop(struct vtdtr_softc *);
+static void	vtdtr_drain_virtqueues(struct vtdtr_softc *);
 static int	vtdtr_ctrl_event_enqueue(struct vtdtr_softc *,
          	    struct virtio_dtrace_control *);
 static int	vtdtr_ctrl_event_create(struct vtdtr_softc *);
 static void	vtdtr_ctrl_event_requeue(struct vtdtr_softc *,
          	    struct virtio_dtrace_control *);
-static int	vtdtr_ctrl_event_populate(struct vtdtr_softc *);
-static void	vtdtr_ctrl_event_drain(struct vtdtr_softc *);
-static int	vtdtr_ctrl_init(struct vtdtr_softc *);
-static void	vtdtr_ctrl_deinit(struct vtdtr_softc *);
-static void	vtdtr_ctrl_event_intr(void *);
-static void	vtdtr_ctrl_task_act(void *, int);
-static void	vtdtr_enable_interrupts(struct vtdtr_softc *);
+static int	vtdtr_queue_populate(struct virtio_dtrace_queue *);
+static int	vtdtr_queue_enqueue_ctrl(struct virtio_dtrace_queue *,
+          	    struct virtio_dtrace_control *);
+static int	vtdtr_queue_new_ctrl(struct virtio_dtrace_queue *);
+
+static int	vtdtr_enable_interrupts(struct vtdtr_softc *);
 static void	vtdtr_disable_interrupts(struct vtdtr_softc *);
 static void	vtdtr_ctrl_process_event(struct vtdtr_softc *,
            	    struct virtio_dtrace_control *);
@@ -148,13 +148,14 @@ static void	vtdtr_ctrl_process_probe_install(struct vtdtr_softc *,
           	    struct virtio_dtrace_control *);
 static void	vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *,
           	    struct virtio_dtrace_control *);
-static void	vtdtr_ctrl_send_control(struct vtdtr_softc *, uint32_t, uint32_t);
+static void	vtdtr_ctrl_send_control(struct virtio_dtrace_queue *,
+           	    uint32_t, uint32_t);
 static void	vtdtr_destroy_probelist(struct vtdtr_softc *);
 static void	vtdtr_start_taskqueues(struct vtdtr_softc *);
 static void	vtdtr_free_taskqueues(struct vtdtr_softc *);
 static void	vtdtr_drain_taskqueues(struct vtdtr_softc *);
-static void	vtdtr_tq_enable_intr(struct virtio_dtrace_queue *);
-static void	vtdtr_tq_disable_intr(struct virtio_dtrace_queue *);
+static int	vtdtr_vq_enable_intr(struct virtio_dtrace_queue *);
+static void	vtdtr_vq_disable_intr(struct virtio_dtrace_queue *);
 static void	vtdtr_tq_start(struct virtio_dtrace_queue *);
 static void	vtdtr_txq_tq_intr(void *, int);
 static void	vtdtr_rxq_tq_intr(void *, int);
@@ -309,7 +310,7 @@ vtdtr_attach(device_t dev)
 		goto fail;
 	}
 
-	error = vtdtr_ctrl_init(sc);
+	error = vtdtr_queue_populate(&sc->vtdtr_rxq);
 	if (error)
 		goto fail;
 
@@ -319,8 +320,13 @@ vtdtr_attach(device_t dev)
 		goto fail;
 	}
 
-	vtdtr_enable_interrupts(sc);
-	vtdtr_ctrl_send_control(sc, VIRTIO_DTRACE_DEVICE_READY, 1);
+	error = vtdtr_enable_interrupts(sc);
+	if (error) {
+		device_printf(dev, "cannot enable interrupts\n");
+		goto fail;
+	}
+
+	vtdtr_ctrl_send_control(&sc->vtdtr_txq, VIRTIO_DTRACE_DEVICE_READY, 1);
 fail:
 	if (error)
 		vtdtr_detach(dev);
@@ -349,13 +355,12 @@ vtdtr_detach(device_t dev)
 	if (sc->vtdtr_flags & VTDTR_FLAG_PROBEACTION ||
 	    sc->vtdtr_flags & VTDTR_FLAG_PROVACTION) {
 		vtdtr_drain_taskqueues(sc);
-		vtdtr_ctrl_deinit(sc);
+		vtdtr_drain_virtqueues(sc);
 	}
 
 	vtdtr_destroy_probelist(sc);
 	vtdtr_destroy_rxq(sc, 0);
 	vtdtr_destroy_txq(sc, 0);
-	vtdtr_destroy_virtqueues(sc);
 	mtx_destroy(&sc->vtdtr_mtx);
 	
 	return (0);
@@ -423,8 +428,8 @@ vtdtr_alloc_virtqueues(struct vtdtr_softc *sc)
 	dev = sc->vtdtr_dev;
 	rxq = &sc->vtdtr_rxq;
 	txq = &sc->vtdtr_txq;
-	rxq->vtdq_vqintr = vtdtr_vq_rx_intr;
-	txq->vtdq_vqintr = vtdtr_vq_tx_intr;
+	rxq->vtdq_vqintr = vtdtr_rxq_vq_intr;
+	txq->vtdq_vqintr = vtdtr_txq_vq_intr;
 	
 	info = malloc(sizeof(struct vq_alloc_info), M_TEMP, M_NOWAIT);
 	if (info == NULL)
@@ -453,19 +458,20 @@ vtdtr_ctrl_event_enqueue(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
 {
 	struct sglist_seg segs[2];
-	struct sglist sg;
+	struct sglist *sg;
 	struct virtqueue *vq;
 	int error;
 
-	vq = sc->vtdtr_ctrl_rxvq;
+	vq = sc->vtdtr_txq.vtdq_vq;
+	sg = sc->vtdtr_txq.vtdq_sg;
 
-	sglist_init(&sg, 2, segs);
-	error = sglist_append(&sg, ctrl,
+	sglist_init(sg, 2, segs);
+	error = sglist_append(sg, ctrl,
 	    sizeof(struct virtio_dtrace_control) + VTDTR_BULK_BUFSZ);
 	KASSERT(error == 0,
 	    ("%s: error %d adding control to sglist", __func__, error));
 
-	return (virtqueue_enqueue(vq, ctrl, &sg, 0, sg.sg_nseg));
+	return (virtqueue_enqueue(vq, ctrl, sg, 0, sg->sg_nseg));
 }
 
 static int
@@ -500,16 +506,17 @@ vtdtr_ctrl_event_requeue(struct vtdtr_softc *sc,
 }
 
 static int
-vtdtr_ctrl_event_populate(struct vtdtr_softc *sc)
+vtdtr_queue_populate(struct virtio_dtrace_queue *q)
 {
 	struct virtqueue *vq;
-	int error, nbufs;
+	int nbufs;
+	int error;
 
-	vq = sc->vtdtr_ctrl_rxvq;
+	vq = q->vtdq_vq;
 	error = ENOSPC;
 
 	for (nbufs = 0; !virtqueue_full(vq); nbufs++) {
-		error = vtdtr_ctrl_event_create(sc);
+		error = vtdtr_queue_new_ctrl(q);
 		if (error)
 			break;
 	}
@@ -522,51 +529,45 @@ vtdtr_ctrl_event_populate(struct vtdtr_softc *sc)
 	return (error);
 }
 
-static void
-vtdtr_ctrl_event_drain(struct vtdtr_softc *sc)
-{
-	struct virtio_dtrace_control *ctrl;
-	struct virtqueue *vq;
-	int last;
-
-	vq = sc->vtdtr_ctrl_rxvq;
-	last = 0;
-
-	if (vq == NULL)
-		return;
-
-	VTDTR_LOCK(sc);
-
-	while ((ctrl = virtqueue_drain(vq, &last)) != NULL)
-		free(ctrl, M_DEVBUF);
-
-	VTDTR_UNLOCK(sc);
-}
-
-static __inline int
-vtdtr_ctrl_init(struct vtdtr_softc *sc)
-{
-	return (vtdtr_ctrl_event_populate(sc));
-}
-
-static __inline void
-vtdtr_ctrl_deinit(struct vtdtr_softc *sc)
-{
-	vtdtr_ctrl_event_drain(sc);
-}
-
-static void
-vtdtr_ctrl_event_intr(void *xsc)
+static int
+vtdtr_queue_new_ctrl(struct virtio_dtrace_queue *q)
 {
 	struct vtdtr_softc *sc;
-	sc = xsc;
+	struct virtio_dtrace_control *ctrl;
+	int error;
 
-	/*
-	 * XXX: It might be a good idea to use the DTrace taskqueue here, but it
-	 * would require intertwining between the virtio driver and the DTrace
-	 * framework itself
-	 */
-	taskqueue_enqueue(taskqueue_thread, &sc->vtdtr_ctrl_task);
+	sc = q->vtdq_sc;
+	ctrl = malloc(sizeof(struct virtio_dtrace_control),
+	    M_VIRTIO_DTRACE, M_NOWAIT | M_ZERO);
+	if (ctrl == NULL)
+		return (ENOMEM);
+
+	error = vtdtr_queue_enqueue_ctrl(q, ctrl);
+	if (error)
+		free(ctrl, M_VIRTIO_DTRACE);
+
+	return (error);
+}
+
+static int
+vtdtr_queue_enqueue_ctrl(struct virtio_dtrace_queue *q,
+    struct virtio_dtrace_control *ctrl)
+{
+	struct sglist_seg segs[2];
+	struct sglist *sg;
+	struct virtqueue *vq;
+	int error;
+
+	vq = q->vtdq_vq;
+	sg = q->vtdq_sg;
+
+	sglist_init(sg, 2, segs);
+	error = sglist_append(sg, ctrl, sizeof(struct virtio_dtrace_control) +
+	    VTDTR_BULK_BUFSZ);
+	KASSERT(error == 0, ("%s: error %d adding control to sglist",
+	    __func__, error));
+	
+	return (virtqueue_enqueue(vq, ctrl, sg, 0, sg->sg_nseg));
 }
 
 static void
@@ -788,7 +789,7 @@ vtdtr_ctrl_poll(struct virtio_dtrace_queue *txq,
 
 	if (!virtqueue_empty(vq))
 		return;
-	if (virtqueue_enqueue(vq, ctrl, sg, sg.sg_nseg, 0) != 0)
+	if (virtqueue_enqueue(vq, ctrl, sg, sg->sg_nseg, 0) != 0)
 		return;
 
 	virtqueue_notify(vq);
@@ -842,7 +843,7 @@ vtdtr_destroy_probelist(struct vtdtr_softc *sc)
 static void
 vtdtr_start_taskqueues(struct vtdtr_softc *sc)
 {
-	struct vtdtr_taskq *rxq, *txq;
+	struct virtio_dtrace_queue *rxq, *txq;
 	device_t dev;
 	int error;
 
@@ -850,16 +851,16 @@ vtdtr_start_taskqueues(struct vtdtr_softc *sc)
 	rxq = &sc->vtdtr_rxq;
 	txq = &sc->vtdtr_txq;
 
-	error = taskqueue_start_threads(&rxq->vtdtq_tq, 1, PI_SOFT,
-	    "%s rxq %d", device_get_nameunit(dev), rxq->vtdtq_id);
+	error = taskqueue_start_threads(&rxq->vtdq_tq, 1, PI_SOFT,
+	    "%s rxq %d", device_get_nameunit(dev), rxq->vtdq_id);
 	if (error)
 		device_printf(dev, "failed to start rx taskq %d\n",
-		    txq->vtdtq_id);
-	error = taskqueue_start_threads(&txq->vtdtq_tq, 1, PI_SOFT,
-	    "%s txq %d", device_get_nameunit(dev), txq->vtdtq_id);
+		    txq->vtdq_id);
+	error = taskqueue_start_threads(&txq->vtdq_tq, 1, PI_SOFT,
+	    "%s txq %d", device_get_nameunit(dev), txq->vtdq_id);
 	if (error)
 		device_printf(dev, "failed to start tx taskq %d\n",
-		    txq->vtdtq_id);
+		    txq->vtdq_id);
 }
 
 /*
@@ -870,20 +871,19 @@ vtdtr_start_taskqueues(struct vtdtr_softc *sc)
 static void
 vtdtr_free_taskqueues(struct vtdtr_softc *sc)
 {
-	struct vtdtr_taskq *rxq, *txq;
-	int i;
+	struct virtio_dtrace_queue *rxq, *txq;
 
 	rxq = &sc->vtdtr_rxq;
 	txq = &sc->vtdtr_txq;
 
-	if (rxq->vtdtq_tq != NULL) {
-		taskqueue_free(rxq->vtdtq_tq);
-		rxq->vtdtq_tq = NULL;
+	if (rxq->vtdq_tq != NULL) {
+		taskqueue_free(rxq->vtdq_tq);
+		rxq->vtdq_tq = NULL;
 	}
 
-	if (txq->vtdtq_tq != NULL) {
-		taskqueue_free(txq->vtdtq_tq);
-		txq->vtdtq_tq = NULL;
+	if (txq->vtdq_tq != NULL) {
+		taskqueue_free(txq->vtdq_tq);
+		txq->vtdq_tq = NULL;
 	}
 }
 
@@ -893,16 +893,39 @@ vtdtr_free_taskqueues(struct vtdtr_softc *sc)
 static void
 vtdtr_drain_taskqueues(struct vtdtr_softc *sc)
 {
-	struct vtdtr_taskq *rxq, *txq;
+	struct virtio_dtrace_queue *rxq, *txq;
 
 	rxq = &sc->vtdtr_rxq;
 	txq = &sc->vtdtr_txq;
 
-	if (rxq->vtdtq_tq != NULL)
-		taskqueue_drain(rxq->vtdtq_tq, &rxq->vtdtq_intrtask);
+	if (rxq->vtdq_tq != NULL)
+		taskqueue_drain(rxq->vtdq_tq, &rxq->vtdq_intrtask);
 
-	if (txq->vtdtq_tq != NULL)
-		taskqueue_drain(txq->vtdtq_tq, &txq->vtdtq_intrtask);
+	if (txq->vtdq_tq != NULL)
+		taskqueue_drain(txq->vtdq_tq, &txq->vtdq_intrtask);
+}
+
+static void
+vtdtr_drain_virtqueues(struct vtdtr_softc *sc)
+{
+	struct virtio_dtrace_queue *rxq, *txq;
+	struct virtio_dtrac_control *ctrl;
+	struct virtqueue *vq;
+	uint32_t last;
+	
+	rxq = &sc->vtdtr_rxq;
+	txq = &sc->vtdtr_txq;
+	last = 0;
+
+	vq = rxq->vtdq_vq;
+
+	while ((ctrl = virtqueue_drain(vq, &last)) != NULL)
+		free(ctrl, M_DEVBUF);
+
+	vq = txq->vtdq_vq;
+
+	while ((ctrl = virtqueue_drain(vq, &last)) != NULL)
+		free(ctrl, M_DEVBUF);
 }
 
 /*
@@ -943,7 +966,7 @@ end:
 static int
 vtdtr_vq_enable_intr(struct virtio_dtrace_queue *q)
 {
-	VTDTR_LOCK_ASSERT(sc);
+	VTDTR_LOCK_ASSERT(q->vtdq_sc);
 	return (virtqueue_enable_intr(q->vtdq_vq));
 }
 
@@ -951,14 +974,14 @@ vtdtr_vq_enable_intr(struct virtio_dtrace_queue *q)
  * A wrapper function to disable interrupts in a virtqueue
  */
 static void
-vtdtr_vq_disable_intr(struct virtio_dtrace_taskq *q)
+vtdtr_vq_disable_intr(struct virtio_dtrace_queue *q)
 {
-	VTDTR_LOCK_ASSERT(sc);
+	VTDTR_LOCK_ASSERT(q->vtdq_sc);
 	virtqueue_disable_intr(q->vtdq_vq);
 }
 
 static void
-vtdtr_tq_start(struct virtio_dtrace_taskq *dtq)
+vtdtr_tq_start(struct virtio_dtrace_queue *dtq)
 {
 
 }
@@ -983,7 +1006,7 @@ static void
 vtdtr_rxq_tq_intr(void *xrxq, int pending)
 {
 	struct vtdtr_softc *sc;
-	struct virtio_dtrace_queue *q;
+	struct virtio_dtrace_queue *rxq;
 	struct virtio_dtrace_control *ctrl;
 	uint32_t len;
 
@@ -1052,7 +1075,7 @@ vtdtr_init_rxq(struct vtdtr_softc *sc, int id)
 	if (rxq->vtdq_sg == NULL)
 		return (ENOMEM);
 
-	TASK_INIT(rxq->vtdq_intrtask, 0, vtdtr_rxq_tq_intr, rxq);
+	TASK_INIT(&rxq->vtdq_intrtask, 0, vtdtr_rxq_tq_intr, rxq);
 	rxq->vtdq_tq = taskqueue_create(rxq->vtdq_name, M_NOWAIT,
 	    taskqueue_thread_enqueue, &rxq->vtdq_tq);
 
@@ -1087,7 +1110,7 @@ vtdtr_init_txq(struct vtdtr_softc *sc, int id)
 	if (txq->vtdq_sg == NULL)
 		return (ENOMEM);
 
-	TASK_INIT(txq->vtdq_intrtask, 0, vtdtr_txq_tq_intr, txq);
+	TASK_INIT(&txq->vtdq_intrtask, 0, vtdtr_txq_tq_intr, txq);
 	txq->vtdq_tq = taskqueue_create(txq->vtdq_name, M_NOWAIT,
 	    taskqueue_thread_enqueue, &txq->vtdq_tq);
 
