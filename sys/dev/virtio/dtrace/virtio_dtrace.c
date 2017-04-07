@@ -75,7 +75,7 @@ struct vtdtr_softc {
 #define	VTDTR_FLAG_PROVACTION	0x04
 
 	struct virtio_dtrace_queue		vtdtr_txq;
-	struct vtdtr_dtrace_queue		vtdtr_rxq;
+	struct virtio_dtrace_queue		vtdtr_rxq;
 	int					vtdtr_tx_nseg;
 	int					vtdtr_rx_nseg;
 
@@ -102,12 +102,6 @@ struct vtdtr_softc {
     (mtx_assert(&((__sc)->vtdtr_mtx), MA_OWNED))
 #define	VTDTR_LOCK_ASSERT_NOTOWNED(__sc) \
     (mtx_assert(&((__sc)->vtdtr_mtx), MA_NOTOWNED))
-#define	VTDTR_CTRL_TX_LOCK(__sc)	(mtx_lock(&((__sc)->vtdtr_ctrl_tx_mtx)))
-#define	VTDTR_CTRL_TX_UNLOCK(__sc)	(mtx_unlock(&((__sc)->vtdtr_ctrl_tx_mtx)))
-#define	VTDTR_CTRL_TX_LOCK_ASSERT(__sc) \
-    (mtx_assert(&((__sc)->vtdtr_ctrl_tx_mtx), MA_OWNED))
-#define	VTDTR_CTRL_TX_LOCK_ASSERT_NOTOWNED(__sc) \
-    (mtx_assert(&((__sc)->vtdtr_ctrl_tx_mtx), MA_NOTOWNED))
 
 static MALLOC_DEFINE(M_VIRTIO_DTRACE, "dtvirtio", "DTrace VirtIO");
 
@@ -159,15 +153,17 @@ static void	vtdtr_destroy_probelist(struct vtdtr_softc *);
 static void	vtdtr_start_taskqueues(struct vtdtr_softc *);
 static void	vtdtr_free_taskqueues(struct vtdtr_softc *);
 static void	vtdtr_drain_taskqueues(struct vtdtr_softc *);
-static void	vtdtr_tq_enable_intr(struct virtio_dtrace_taskq *);
-static void	vtdtr_tq_disable_intr(struct virtio_dtrace_taskq *);
-static void	vtdtr_tq_start(struct virtio_dtrace_taskq *);
+static void	vtdtr_tq_enable_intr(struct virtio_dtrace_queue *);
+static void	vtdtr_tq_disable_intr(struct virtio_dtrace_queue *);
+static void	vtdtr_tq_start(struct virtio_dtrace_queue *);
 static void	vtdtr_txq_tq_intr(void *, int);
 static void	vtdtr_rxq_tq_intr(void *, int);
 static void	vtdtr_rxq_vq_intr(void *);
 static void	vtdtr_txq_vq_intr(void *);
-static int	vtdtr_init_txq(struct vtdtr_softc *);
-static int	vtdtr_init_rxq(struct vtdtr_softc *);
+static int	vtdtr_init_txq(struct vtdtr_softc *, int);
+static int	vtdtr_init_rxq(struct vtdtr_softc *, int);
+static void	vtdtr_destroy_rxq(struct vtdtr_softc *, int);
+static void	vtdtr_destroy_txq(struct vtdtr_softc *, int);
 
 static device_method_t vtdtr_methods[] = {
 	/* Device methods. */
@@ -352,14 +348,16 @@ vtdtr_detach(device_t dev)
 
 	if (sc->vtdtr_flags & VTDTR_FLAG_PROBEACTION ||
 	    sc->vtdtr_flags & VTDTR_FLAG_PROVACTION) {
-		taskqueue_drain(taskqueue_thread, &sc->vtdtr_ctrl_task);
+		vtdtr_drain_taskqueues(sc);
 		vtdtr_ctrl_deinit(sc);
 	}
 
 	vtdtr_destroy_probelist(sc);
+	vtdtr_destroy_rxq(sc, 0);
+	vtdtr_destroy_txq(sc, 0);
+	vtdtr_destroy_virtqueues(sc);
 	mtx_destroy(&sc->vtdtr_mtx);
-	mtx_destroy(&sc->vtdtr_ctrl_tx_mtx);
-
+	
 	return (0);
 }
 
@@ -423,8 +421,8 @@ vtdtr_alloc_virtqueues(struct vtdtr_softc *sc)
 	int error;
 
 	dev = sc->vtdtr_dev;
-	rxq = sc->vtdtr_rxq;
-	txq = sc->vtdtr_txq;
+	rxq = &sc->vtdtr_rxq;
+	txq = &sc->vtdtr_txq;
 	rxq->vtdq_vqintr = vtdtr_vq_rx_intr;
 	txq->vtdq_vqintr = vtdtr_vq_tx_intr;
 	
@@ -569,35 +567,6 @@ vtdtr_ctrl_event_intr(void *xsc)
 	 * framework itself
 	 */
 	taskqueue_enqueue(taskqueue_thread, &sc->vtdtr_ctrl_task);
-}
-
-static void
-vtdtr_ctrl_task_act(void *xsc, int nprobes)
-{
-	struct vtdtr_softc *sc;
-	struct virtqueue *vq;
-	struct virtio_dtrace_control *ctrl;
-	uint32_t len;
-
-	sc = xsc;
-	vq = sc->vtdtr_ctrl_rxvq;
-	len = 0;
-
-	VTDTR_LOCK(sc);
-
-	while (nprobes-- > 0) {
-		ctrl = virtqueue_dequeue(vq, &len);
-		if (ctrl == NULL)
-			break;
-
-		VTDTR_UNLOCK(sc);
-		vtdtr_ctrl_process_event(sc, ctrl);
-		VTDTR_LOCK(sc);
-
-		vtdtr_ctrl_event_requeue(sc, ctrl);
-	}
-
-	VTDTR_UNLOCK(sc);
 }
 
 static void
@@ -784,18 +753,21 @@ vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
  * to the host PCI device. 
  */
 static void
-vtdtr_ctrl_poll(struct vtdtr_softc *sc,
+vtdtr_ctrl_poll(struct virtio_dtrace_queue *txq,
     struct virtio_dtrace_control *ctrl)
 {
+	struct vtdtr_softc *sc;
 	struct sglist_seg segs[2];
-	struct sglist sg;
+	struct sglist *sg;
 	struct virtqueue *vq;
 	int error;
 
-	vq = sc->vtdtr_ctrl_txvq;
+	sc = txq->vtdq_sc;
+	vq = txq->vtdq_vq;
+	sg = txq->vtdq_sg;
 
-	sglist_init(&sg, 2, segs);
-	error = sglist_append(&sg, ctrl, sizeof(struct virtio_dtrace_control));
+	sglist_init(sg, sc->vtdtr_rx_nseg, segs);
+	error = sglist_append(sg, ctrl, sizeof(struct virtio_dtrace_control));
 	KASSERT(error == 0,
 	    ("%s: error %d adding control to sglist", __func__, error));
 
@@ -809,28 +781,32 @@ vtdtr_ctrl_poll(struct vtdtr_softc *sc,
 	 * while we are responding to a message or when we notify that we are
 	 * shutting down.
 	 */
-	VTDTR_CTRL_TX_LOCK(sc);
+	VTDTR_QUEUE_LOCK(txq);
 	KASSERT(sc->vtdtr_flags & VTDTR_FLAG_PROBEACTION ||
 	    sc->vtdtr_flags & VTDTR_FLAG_PROVACTION,
 	    ("%s: PROBEACTION || PROVACTION is not negotiated", __func__));
 
 	if (!virtqueue_empty(vq))
 		return;
-	if (virtqueue_enqueue(vq, ctrl, &sg, sg.sg_nseg, 0) != 0)
+	if (virtqueue_enqueue(vq, ctrl, sg, sg.sg_nseg, 0) != 0)
 		return;
 
 	virtqueue_notify(vq);
 	virtqueue_poll(vq, NULL);
-	VTDTR_CTRL_TX_UNLOCK(sc);
+	VTDTR_QUEUE_UNLOCK(txq);
 }
 
 /*
  * Send a control event to the host PCI device.
  */
 static void
-vtdtr_ctrl_send_control(struct vtdtr_softc *sc, uint32_t event, uint32_t value)
+vtdtr_ctrl_send_control(struct virtio_dtrace_queue *txq,
+    uint32_t event, uint32_t value)
 {
 	struct virtio_dtrace_control ctrl;
+	struct vtdtr_softc *sc;
+
+	sc = txq->vtdq_sc;
 
 	if (((sc->vtdtr_flags & VTDTR_FLAG_PROBEACTION) |
 	     (sc->vtdtr_flags & VTDTR_FLAG_PROVACTION)) == 0)
@@ -839,7 +815,7 @@ vtdtr_ctrl_send_control(struct vtdtr_softc *sc, uint32_t event, uint32_t value)
 	ctrl.event = event;
 	ctrl.value = value;
 
-	vtdtr_ctrl_poll(sc, &ctrl);
+	vtdtr_ctrl_poll(txq, &ctrl);
 }
 
 /*
@@ -1008,11 +984,20 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 {
 	struct vtdtr_softc *sc;
 	struct virtio_dtrace_queue *q;
+	struct virtio_dtrace_control *ctrl;
+	uint32_t len;
 
 	rxq = xrxq;
 	sc = rxq->vtdq_sc;
 
 	VTDTR_QUEUE_LOCK(rxq);
+
+	while ((ctrl = virtqueue_dequeue(rxq->vtdq_vq, &len)) != NULL) {
+		VTDTR_QUEUE_UNLOCK(rxq);
+		vtdtr_ctrl_process_event(sc, ctrl);
+		VTDTR_QUEUE_LOCK(rxq);
+		vtdtr_ctrl_event_requeue(sc, ctrl);
+	}
 	
 	VTDTR_QUEUE_UNLOCK(rxq);
 }
@@ -1024,7 +1009,7 @@ vtdtr_rxq_vq_intr(void *xsc)
 	struct virtio_dtrace_queue *rxq;
 
 	sc = xsc;
-	rxq = sc->vtdtr_rxq;
+	rxq = &sc->vtdtr_rxq;
 	taskqueue_enqueue(rxq->vtdq_tq, &rxq->vtdq_intrtask);
 }
 
@@ -1035,7 +1020,7 @@ vtdtr_txq_vq_intr(void *xsc)
 	struct virtio_dtrace_queue *txq;
 
 	sc = xsc;
-	txq = sc->vtdtr_txq;
+	txq = &sc->vtdtr_txq;
 	taskqueue_enqueue(txq->vtdq_tq, &txq->vtdq_intrtask);
 }
 
@@ -1052,26 +1037,26 @@ vtdtr_txq_vq_intr(void *xsc)
 static int
 vtdtr_init_rxq(struct vtdtr_softc *sc, int id)
 {
-	struct virtio_dtrace_queue *q;
+	struct virtio_dtrace_queue *rxq;
 
-	q = &sc->vtdtr_rxq;
+	rxq = &sc->vtdtr_rxq;
 
-	snprintf(q->vtdq_name, sizeof(q->vtdq_name), "%s-rx%d",
+	snprintf(rxq->vtdq_name, sizeof(rxq->vtdq_name), "%s-rx%d",
 	    device_get_nameunit(sc->vtdtr_dev), id);
-	mtx_init(&q->vtdq_mtx, q->vtdq_name, NULL, MTX_DEF);
+	mtx_init(&rxq->vtdq_mtx, rxq->vtdq_name, NULL, MTX_DEF);
 
-	q->vtdq_sc = sc;
-	q->vtdq_id = id;
+	rxq->vtdq_sc = sc;
+	rxq->vtdq_id = id;
 
-	q->vtdq_sg = sglist_alloc(sc->vtdtr_rx_nseg, M_NOWAIT);
-	if (q->vtdq_sg == NULL)
+	rxq->vtdq_sg = sglist_alloc(sc->vtdtr_rx_nseg, M_NOWAIT);
+	if (rxq->vtdq_sg == NULL)
 		return (ENOMEM);
 
-	TASK_INIT(q->vtdq_intrtask, 0, vtdtr_rxq_tq_intr, q);
-	q->vtdq_tq = taskqueue_create(q->vtdq_name, M_NOWAIT,
-	    taskqueue_thread_enqueue, &q->vtdq_tq);
+	TASK_INIT(rxq->vtdq_intrtask, 0, vtdtr_rxq_tq_intr, rxq);
+	rxq->vtdq_tq = taskqueue_create(rxq->vtdq_name, M_NOWAIT,
+	    taskqueue_thread_enqueue, &rxq->vtdq_tq);
 
-	return (q->vtdq_tq == NULL ? ENOMEM : 0);
+	return (rxq->vtdq_tq == NULL ? ENOMEM : 0);
 }
 
 /*
@@ -1087,24 +1072,52 @@ vtdtr_init_rxq(struct vtdtr_softc *sc, int id)
 static int
 vtdtr_init_txq(struct vtdtr_softc *sc, int id)
 {
-	struct virtio_dtrace_queue *q;
+	struct virtio_dtrace_queue *txq;
 
-	q = &sc->vtdtr_txq;
+	txq = &sc->vtdtr_txq;
 
-	snprintf(q->vtdq_name, sizeof(q->vtdq_name), "%s-tx%d",
+	snprintf(txq->vtdq_name, sizeof(txq->vtdq_name), "%s-tx%d",
 	    device_get_nameunit(sc->vtdtr_dev), id);
-	mtx_init(&q->vtdq_mtx, q->vtdq_name, NULL, MTX_DEF);
+	mtx_init(&txq->vtdq_mtx, txq->vtdq_name, NULL, MTX_DEF);
 
-	q->vtdq_sc = sc;
-	q->vtdq_id = id;
+	txq->vtdq_sc = sc;
+	txq->vtdq_id = id;
 
-	q->vtdq_sg = sglist_alloc(sc->vtdtr_tx_nseg, M_NOWAIT);
-	if (q->vtdq_sg == NULL)
+	txq->vtdq_sg = sglist_alloc(sc->vtdtr_tx_nseg, M_NOWAIT);
+	if (txq->vtdq_sg == NULL)
 		return (ENOMEM);
 
-	TASK_INIT(q->vtdq_intrtask, 0, vtdtr_txq_tq_intr, q);
-	q->vtdq_tq = taskqueue_create(q->vtdq_name, M_NOWAIT,
-	    taskqueue_thread_enqueue, &q->vtdq_tq);
+	TASK_INIT(txq->vtdq_intrtask, 0, vtdtr_txq_tq_intr, txq);
+	txq->vtdq_tq = taskqueue_create(txq->vtdq_name, M_NOWAIT,
+	    taskqueue_thread_enqueue, &txq->vtdq_tq);
 
-	return (q->vtdq_tq == NULL ? ENOMEM : 0);
+	return (txq->vtdq_tq == NULL ? ENOMEM : 0);
+}
+
+static void
+vtdtr_destroy_rxq(struct vtdtr_softc *sc, int id)
+{
+	struct virtio_dtrace_queue *rxq;
+
+	rxq = &sc->vtdtr_rxq;
+
+	mtx_destroy(&rxq->vtdq_mtx);
+	rxq->vtdq_sc = NULL;
+
+	sglist_free(rxq->vtdq_sg);
+	taskqueue_free(rxq->vtdq_tq);
+}
+
+static void
+vtdtr_destroy_txq(struct vtdtr_softc *sc, int id)
+{
+	struct virtio_dtrace_queue *txq;
+
+	txq = &sc->vtdtr_txq;
+
+	mtx_destroy(&txq->vtdq_mtx);
+	txq->vtdq_sc = NULL;
+
+	sglist_free(txq->vtdq_sg);
+	taskqueue_free(txq->vtdq_tq);
 }

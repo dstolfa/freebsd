@@ -57,7 +57,7 @@ struct virtio_dtrace_control {
 	uint32_t	event;
 	uint32_t	value;
 	char		info[VIRTIO_DTRACE_INFOSIZ];
-};
+}__atribute__((packed));
 
 struct virtio_dtrace_queue {
 	struct mtx		 vtdq_mtx;
