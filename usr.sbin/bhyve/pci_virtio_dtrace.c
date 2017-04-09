@@ -288,7 +288,7 @@ pci_vtdtr_handle_mev(int pb, enum ev_type et __unused, int ne, void *vsc)
 
 	sc = vsc;
 	name = vm_get_name(sc->vsd_vmctx);
-	
+
 	if (strcmp(name, sc->vsd_pbi.instance) != 0)
 		return;
 	
@@ -325,7 +325,7 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 
 	pci_set_cfgdata16(pci_inst, PCIR_DEVICE, VIRTIO_DEV_DTRACE);
 	pci_set_cfgdata16(pci_inst, PCIR_VENDOR, VIRTIO_VENDOR);
-	pci_set_cfgdata8(pci_inst, PCIR_CLASS, PCIC_OTHER);
+	pci_set_cfgdata8(pci_inst, PCIR_CLASS, PCIC_BRIDGE);
 	pci_set_cfgdata16(pci_inst, PCIR_SUBDEV_0, VIRTIO_TYPE_DTRACE);
 	pci_set_cfgdata16(pci_inst, PCIR_SUBVEND_0, VIRTIO_VENDOR);
 
@@ -335,7 +335,6 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 	vi_set_io_bar(&sc->vsd_vs, 0);
 
 	vtdtr_mev = mevent_add(0, EVF_DTRACE, pci_vtdtr_handle_mev, sc, (__intptr_t)&(sc->vsd_pbi));
-
 	return (0);
 }
 
