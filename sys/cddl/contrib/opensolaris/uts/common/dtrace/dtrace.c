@@ -11537,6 +11537,8 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 
 	mtx_lock(&dtrace_knlist_mtx);
 
+	dtrace_synchronize = 0;
+
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
 		kn->kn_iov->iov_base = probe_info;
 		kn->kn_iov->iov_len = sizeof (struct dtrace_probeinfo);
@@ -11548,6 +11550,8 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
 		sema_wait(&kn->kn_iovsema);
 	}
+
+	dtrace_synchronize = 1;
 
 	free(probe_info, M_KQUEUE);
 
@@ -12275,6 +12279,8 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 
 	mtx_lock(&dtrace_knlist_mtx);
 
+	dtrace_synchronize = 0;
+
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
 		kn->kn_iov->iov_base = probe_info;
 		kn->kn_iov->iov_len = sizeof (struct dtrace_probeinfo);
@@ -12286,6 +12292,8 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 	SLIST_FOREACH_SAFE(kn, &dtrace_knlist.kl_list, kn_selnext, tkn) {
 		sema_wait(&kn->kn_iovsema);
 	}
+
+	dtrace_synchronize = 1;
 
 	free(probe_info, M_KQUEUE);
 

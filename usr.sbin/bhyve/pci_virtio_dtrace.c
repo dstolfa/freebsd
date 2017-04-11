@@ -62,7 +62,7 @@ __FBSDID("$FreeBSD$");
 #include "sockstream.h"
 
 #define	VTDTR_RINGSZ			512
-#define	VTDTR_MAXQ			2
+#define	VTDTR_MAXQ			4
 
 #define	VTDTR_DEVICE_READY		0x00
 #define	VTDTR_DEVICE_DESTROY		0x01
@@ -221,15 +221,19 @@ pci_vtdtr_control_send(struct pci_vtdtr_softc *sc,
 
 	vq = &sc->vsd_queues[1];
 
-	if (!vq_has_descs(vq))
+/*	if (!vq_has_descs(vq)) {
+		printf("vq_has_descs == 0\n");
 		return;
+	} */
+	/* eh? */
 
 	n = vq_getchain(vq, &idx, &iov, 1, NULL);
-
+	printf("n = %d\n", n);
 	assert (n == 1);
 
 	memcpy(iov.iov_base, ctrl, sizeof(struct pci_vtdtr_control));
 	len = iov.iov_len;
+	printf("len = %d\n", len);
 
 	vq_relchain(vq, idx, len);
 	vq_endchains(vq, 1);
@@ -288,10 +292,14 @@ pci_vtdtr_handle_mev(int pb, enum ev_type et __unused, int ne, void *vsc)
 
 	sc = vsc;
 	name = vm_get_name(sc->vsd_vmctx);
+	printf("name = %s\n, instance = %s\n", name, sc->vsd_pbi.instance);
+/*	if (strcmp(name, sc->vsd_pbi.instance) != 0)
+		return; */
+	/*
+	 * Testing purposes... good god.
+	 */
 
-	if (strcmp(name, sc->vsd_pbi.instance) != 0)
-		return;
-	
+	printf("ne = %d\n", ne);
 	if (ne & NOTE_PROBE_INSTALL)
 		ctrl.event = VTDTR_DEVICE_PROBE_INSTALL;
 	else if (ne & NOTE_PROBE_UNINSTALL)
@@ -309,15 +317,13 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 {
 	struct pci_vtdtr_softc *sc;
 
+	printf("Initializing\n");
 	sc = calloc(1, sizeof(struct pci_vtdtr_softc));
 
 	vi_softc_linkup(&sc->vsd_vs, &vtdtr_vi_consts, sc, pci_inst, sc->vsd_queues);
 	sc->vsd_vs.vs_mtx = &sc->vsd_mtx;
 	sc->vsd_vmctx = ctx;
 
-	/*
-	 * XXX: We might be able to get away with a device-wide notify
-	 */
 	sc->vsd_queues[0].vq_qsize = VTDTR_RINGSZ;
 	sc->vsd_queues[0].vq_notify = pci_vtdtr_notify_rx;
 	sc->vsd_queues[1].vq_qsize = VTDTR_RINGSZ;
@@ -325,7 +331,7 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 
 	pci_set_cfgdata16(pci_inst, PCIR_DEVICE, VIRTIO_DEV_DTRACE);
 	pci_set_cfgdata16(pci_inst, PCIR_VENDOR, VIRTIO_VENDOR);
-	pci_set_cfgdata8(pci_inst, PCIR_CLASS, PCIC_BRIDGE);
+	pci_set_cfgdata8(pci_inst, PCIR_CLASS, PCIC_OTHER);
 	pci_set_cfgdata16(pci_inst, PCIR_SUBDEV_0, VIRTIO_TYPE_DTRACE);
 	pci_set_cfgdata16(pci_inst, PCIR_SUBVEND_0, VIRTIO_VENDOR);
 

@@ -56,6 +56,7 @@ struct mtx;
 
 extern struct knlist dtrace_knlist;
 extern struct mtx dtrace_knlist_mtx;
+extern int dtrace_synchronize;
 
 int dtrace_trap(struct trapframe *, u_int);
 

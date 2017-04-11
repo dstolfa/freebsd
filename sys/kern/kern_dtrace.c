@@ -67,6 +67,7 @@ static void filt_dtracetouch(struct knote *, struct kevent *, u_long);
 
 struct knlist dtrace_knlist;
 struct mtx dtrace_knlist_mtx;
+int dtrace_synchronize;
 
 struct filterops dtrace_filtops = {
 	.f_attach = filt_dtraceattach,
@@ -159,6 +160,7 @@ filt_dtraceattach(struct knote *kn)
 	if ((kn->kn_sfflags & (NOTE_PROBE_INSTALL | NOTE_PROBE_UNINSTALL)) == 0)
 		return (EINVAL);
 
+	dtrace_synchronize = 1;
 	kn->kn_status |= KN_KQUEUE;
 	kn->kn_iov = malloc(sizeof(struct iovec), M_KQUEUE, M_WAITOK | M_ZERO);
 	sema_init(&kn->kn_iovsema, 0, "knote iovec semaphore");
@@ -169,10 +171,17 @@ filt_dtraceattach(struct knote *kn)
 static __inline void
 filt_dtracedetach(struct knote *kn)
 {
+	mtx_lock(&dtrace_knlist_mtx);
+	while (dtrace_synchronize == 0) {
+		if (sema_value(&kn->kn_iovsema) <= 0)
+			sema_post(&kn->kn_iovsema);
+	}
+	dtrace_synchronize = 1;
 	sema_destroy(&kn->kn_iovsema);
 	free(kn->kn_iov, M_KQUEUE);
 	kn->kn_iov = NULL;
-	knlist_remove(&dtrace_knlist, kn, 0);
+	knlist_remove(&dtrace_knlist, kn, 1);
+	mtx_unlock(&dtrace_knlist_mtx);
 }
 
 static __inline int
