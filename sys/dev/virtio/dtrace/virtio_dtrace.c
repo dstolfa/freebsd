@@ -118,14 +118,11 @@ static void	vtdtr_alloc_probelist(struct vtdtr_softc *);
 static int	vtdtr_alloc_virtqueues(struct vtdtr_softc *);
 static void	vtdtr_stop(struct vtdtr_softc *);
 static void	vtdtr_drain_virtqueues(struct vtdtr_softc *);
-static int	vtdtr_ctrl_event_enqueue(struct vtdtr_softc *,
-         	    struct virtio_dtrace_control *);
-static int	vtdtr_ctrl_event_create(struct vtdtr_softc *);
-static void	vtdtr_ctrl_event_requeue(struct vtdtr_softc *,
-         	    struct virtio_dtrace_control *);
 static int	vtdtr_queue_populate(struct virtio_dtrace_queue *);
 static int	vtdtr_queue_enqueue_ctrl(struct virtio_dtrace_queue *,
-          	    struct virtio_dtrace_control *);
+          	    struct virtio_dtrace_control *, int, int);
+static void	vtdtr_queue_requeue_ctrl(struct virtio_dtrace_queue *,
+           	    struct virtio_dtrace_control *, int, int);
 static int	vtdtr_queue_new_ctrl(struct virtio_dtrace_queue *);
 
 static int	vtdtr_enable_interrupts(struct vtdtr_softc *);
@@ -148,7 +145,7 @@ static int	vtdtr_ctrl_process_probe_install(struct vtdtr_softc *,
           	    struct virtio_dtrace_control *);
 static int	vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *,
           	    struct virtio_dtrace_control *);
-static void	vtdtr_ctrl_send_control(struct virtio_dtrace_queue *,
+static void	vtdtr_queue_send_ctrl(struct virtio_dtrace_queue *,
            	    uint32_t, uint32_t);
 static void	vtdtr_destroy_probelist(struct vtdtr_softc *);
 static void	vtdtr_start_taskqueues(struct vtdtr_softc *);
@@ -282,8 +279,8 @@ vtdtr_attach(device_t dev)
 
 	sc = device_get_softc(dev);
 	sc->vtdtr_dev = dev;
-	sc->vtdtr_rx_nseg = 2;
-	sc->vtdtr_tx_nseg = 2;
+	sc->vtdtr_rx_nseg = 1;
+	sc->vtdtr_tx_nseg = 1;
 
 	mtx_init(&sc->vtdtr_mtx, "vtdtrmtx", NULL, MTX_DEF);
 
@@ -314,8 +311,18 @@ vtdtr_attach(device_t dev)
 	    sc->vtdtr_txq.vtdq_name, sc->vtdtr_rxq.vtdq_name);
 
 	error = vtdtr_queue_populate(&sc->vtdtr_rxq);
-	if (error)
+	if (error) {
+		device_printf(dev, "cannot populate %s\n",
+		    sc->vtdtr_rxq.vtdq_name);
 		goto fail;
+	}
+
+	error = vtdtr_queue_populate(&sc->vtdtr_txq);
+	if (error) {
+		device_printf(dev, "cannot populate %s\n",
+		    sc->vtdtr_txq.vtdq_name);
+		goto fail;
+	}
 
 	error = virtio_setup_intr(dev, INTR_TYPE_DTRACE);
 	if (error) {
@@ -330,7 +337,7 @@ vtdtr_attach(device_t dev)
 		goto fail;
 	}
 	*/
-	vtdtr_ctrl_send_control(&sc->vtdtr_txq, VIRTIO_DTRACE_DEVICE_READY, 1);
+	vtdtr_queue_send_ctrl(&sc->vtdtr_txq, VIRTIO_DTRACE_DEVICE_READY, 1);
 fail:
 	if (error)
 		vtdtr_detach(dev);
@@ -439,9 +446,9 @@ vtdtr_alloc_virtqueues(struct vtdtr_softc *sc)
 	if (info == NULL)
 		return (ENOMEM);
 
-	VQ_ALLOC_INFO_INIT(&info[0], 0, rxq->vtdq_vqintr, sc, &rxq->vtdq_vq,
+	VQ_ALLOC_INFO_INIT(&info[0], 2, rxq->vtdq_vqintr, sc, &rxq->vtdq_vq,
 	    "%s-control RX", device_get_nameunit(dev));
-	VQ_ALLOC_INFO_INIT(&info[1], 0, txq->vtdq_vqintr, sc, &txq->vtdq_vq,
+	VQ_ALLOC_INFO_INIT(&info[1], 2, txq->vtdq_vqintr, sc, &txq->vtdq_vq,
 	    "%s-control TX", device_get_nameunit(dev));
 
 	error = virtio_alloc_virtqueues(dev, 0, 2, info);
@@ -457,54 +464,14 @@ vtdtr_stop(struct vtdtr_softc *sc)
 	virtio_stop(sc->vtdtr_dev);
 }
 
-static int
-vtdtr_ctrl_event_enqueue(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl)
-{
-	struct sglist_seg segs[2];
-	struct sglist *sg;
-	struct virtqueue *vq;
-	int error;
-
-	vq = sc->vtdtr_txq.vtdq_vq;
-	sg = sc->vtdtr_txq.vtdq_sg;
-
-	sglist_init(sg, 2, segs);
-	error = sglist_append(sg, ctrl,
-	    sizeof(struct virtio_dtrace_control) + VTDTR_BULK_BUFSZ);
-	KASSERT(error == 0,
-	    ("%s: error %d adding control to sglist", __func__, error));
-
-	return (virtqueue_enqueue(vq, ctrl, sg, 0, sg->sg_nseg));
-}
-
-static int
-vtdtr_ctrl_event_create(struct vtdtr_softc *sc)
-{
-	struct virtio_dtrace_control *ctrl;
-	int error;
-
-	ctrl = malloc(sizeof(struct virtio_dtrace_control) + VTDTR_BULK_BUFSZ,
-	    M_DEVBUF, M_ZERO | M_NOWAIT);
-
-	if (ctrl == NULL)
-		return (ENOMEM);
-
-	error = vtdtr_ctrl_event_enqueue(sc, ctrl);
-	if (error)
-		free(ctrl, M_DEVBUF);
-
-	return (error);
-}
-
 static void
-vtdtr_ctrl_event_requeue(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl)
+vtdtr_queue_requeue_ctrl(struct virtio_dtrace_queue *q,
+    struct virtio_dtrace_control *ctrl, int readable, int writable)
 {
 	int error;
 
 	bzero(ctrl, sizeof(struct virtio_dtrace_control) + VTDTR_BULK_BUFSZ);
-	error = vtdtr_ctrl_event_enqueue(sc, ctrl);
+	error = vtdtr_queue_enqueue_ctrl(q, ctrl, readable, writable);
 	KASSERT(error == 0, ("%s: cannot requeue control buffer %d",
 	    __func__, error));
 }
@@ -546,7 +513,7 @@ vtdtr_queue_new_ctrl(struct virtio_dtrace_queue *q)
 	if (ctrl == NULL)
 		return (ENOMEM);
 
-	error = vtdtr_queue_enqueue_ctrl(q, ctrl);
+	error = vtdtr_queue_enqueue_ctrl(q, ctrl, 0, 1);
 	if (error)
 		free(ctrl, M_VIRTIO_DTRACE);
 
@@ -555,9 +522,8 @@ vtdtr_queue_new_ctrl(struct virtio_dtrace_queue *q)
 
 static int
 vtdtr_queue_enqueue_ctrl(struct virtio_dtrace_queue *q,
-    struct virtio_dtrace_control *ctrl)
+    struct virtio_dtrace_control *ctrl, int readable, int writable)
 {
-	struct sglist_seg segs[2];
 	struct sglist *sg;
 	struct virtqueue *vq;
 	int error;
@@ -565,13 +531,12 @@ vtdtr_queue_enqueue_ctrl(struct virtio_dtrace_queue *q,
 	vq = q->vtdq_vq;
 	sg = q->vtdq_sg;
 
-	sglist_init(sg, 2, segs);
-	error = sglist_append(sg, ctrl, sizeof(struct virtio_dtrace_control) +
-	    VTDTR_BULK_BUFSZ);
+	sglist_reset(sg);
+	error = sglist_append(sg, ctrl, sizeof(struct virtio_dtrace_control));
 	KASSERT(error == 0, ("%s: error %d adding control to sglist",
 	    __func__, error));
 	
-	return (virtqueue_enqueue(vq, ctrl, sg, 0, sg->sg_nseg));
+	return (virtqueue_enqueue(vq, ctrl, sg, readable, writable));
 }
 
 static int
@@ -763,11 +728,10 @@ vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
  * to the host PCI device. 
  */
 static void
-vtdtr_ctrl_poll(struct virtio_dtrace_queue *txq,
+vtdtr_queue_ctrl_poll(struct virtio_dtrace_queue *txq,
     struct virtio_dtrace_control *ctrl)
 {
 	struct vtdtr_softc *sc;
-	struct sglist_seg segs[2];
 	struct sglist *sg;
 	struct virtqueue *vq;
 	int error;
@@ -776,33 +740,20 @@ vtdtr_ctrl_poll(struct virtio_dtrace_queue *txq,
 	vq = txq->vtdq_vq;
 	sg = txq->vtdq_sg;
 
-	sglist_init(sg, sc->vtdtr_rx_nseg, segs);
-	error = sglist_append(sg, ctrl, sizeof(struct virtio_dtrace_control));
-	KASSERT(error == 0,
-	    ("%s: error %d adding control to sglist", __func__, error));
 
-	/*
-	 * XXX: Is this correct?
-	 *
-	 * There does not seem to be a good reason to lock the entire device,
-	 * only the TX virtqueue. The reasoning is that we do not care whether
-	 * we delegate processing requests, such as probe installing or
-	 * uninstalling, provider registration and similar operations to DTrace
-	 * while we are responding to a message or when we notify that we are
-	 * shutting down.
-	 */
 	VTDTR_QUEUE_LOCK(txq);
-	KASSERT(sc->vtdtr_flags & VTDTR_FLAG_PROBEACTION ||
-	    sc->vtdtr_flags & VTDTR_FLAG_PROVACTION,
-	    ("%s: PROBEACTION || PROVACTION is not negotiated", __func__));
 
-	if (!virtqueue_empty(vq))
-		return;
-	if (virtqueue_enqueue(vq, ctrl, sg, sg->sg_nseg, 0) != 0)
-		return;
-
-	virtqueue_notify(vq);
-	virtqueue_poll(vq, NULL);
+	error = vtdtr_queue_enqueue_ctrl(txq, ctrl, 1, 0);
+	
+	if (error == 0) {
+		printf("error == 0\n");
+		virtqueue_notify(vq);
+		virtqueue_poll(vq, NULL);
+		printf("Just polled: ctrl->value = %u\n", ctrl->value);
+	} else {
+		printf("Failed\n");
+		printf("error = %d\n", error);
+	}
 	VTDTR_QUEUE_UNLOCK(txq);
 }
 
@@ -810,7 +761,7 @@ vtdtr_ctrl_poll(struct virtio_dtrace_queue *txq,
  * Send a control event to the host PCI device.
  */
 static void
-vtdtr_ctrl_send_control(struct virtio_dtrace_queue *txq,
+vtdtr_queue_send_ctrl(struct virtio_dtrace_queue *txq,
     uint32_t event, uint32_t value)
 {
 	struct virtio_dtrace_control ctrl;
@@ -824,8 +775,9 @@ vtdtr_ctrl_send_control(struct virtio_dtrace_queue *txq,
 
 	ctrl.event = event;
 	ctrl.value = value;
+	printf("ctrl.event = %u\nctrl.value = %u\n", ctrl.event, ctrl.value);
 
-	vtdtr_ctrl_poll(txq, &ctrl);
+	vtdtr_queue_ctrl_poll(txq, &ctrl);
 }
 
 /*
@@ -1033,7 +985,7 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 		KASSERT(error == 0, ("%s: error %d processing event: (%s, %d)",
 		    __func__, error, ctrl->info, ctrl->value));
 		VTDTR_QUEUE_LOCK(rxq);
-		vtdtr_ctrl_event_requeue(sc, ctrl);
+		vtdtr_queue_requeue_ctrl(rxq, ctrl, 1, 0);
 	}
 	
 	VTDTR_QUEUE_UNLOCK(rxq);
@@ -1056,7 +1008,6 @@ vtdtr_txq_vq_intr(void *xsc)
 	struct vtdtr_softc *sc;
 	struct virtio_dtrace_queue *txq;
 
-	printf("Wrong one m8\n");
 	sc = xsc;
 	txq = &sc->vtdtr_txq;
 	taskqueue_enqueue(txq->vtdq_tq, &txq->vtdq_intrtask);

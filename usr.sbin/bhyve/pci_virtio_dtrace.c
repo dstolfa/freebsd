@@ -61,7 +61,7 @@ __FBSDID("$FreeBSD$");
 #include "mevent.h"
 #include "sockstream.h"
 
-#define	VTDTR_RINGSZ			512
+#define	VTDTR_RINGSZ			64
 #define	VTDTR_MAXQ			4
 
 #define	VTDTR_DEVICE_READY		0x00
@@ -211,7 +211,7 @@ pci_vtdtr_control_send(struct pci_vtdtr_softc *sc,
     struct pci_vtdtr_control *ctrl)
 {
 	/*
-	 * XXX: This might not be very correct
+	 * FIXME: This outright does not work
 	 */
 	struct vqueue_info *vq;
 	struct iovec iov;
@@ -221,11 +221,10 @@ pci_vtdtr_control_send(struct pci_vtdtr_softc *sc,
 
 	vq = &sc->vsd_queues[1];
 
-/*	if (!vq_has_descs(vq)) {
+	if (!vq_has_descs(vq)) {
 		printf("vq_has_descs == 0\n");
 		return;
-	} */
-	/* eh? */
+	}
 
 	n = vq_getchain(vq, &idx, &iov, 1, NULL);
 	printf("n = %d\n", n);
@@ -317,7 +316,6 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 {
 	struct pci_vtdtr_softc *sc;
 
-	printf("Initializing\n");
 	sc = calloc(1, sizeof(struct pci_vtdtr_softc));
 
 	vi_softc_linkup(&sc->vsd_vs, &vtdtr_vi_consts, sc, pci_inst, sc->vsd_queues);
@@ -325,9 +323,9 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 	sc->vsd_vmctx = ctx;
 
 	sc->vsd_queues[0].vq_qsize = VTDTR_RINGSZ;
-	sc->vsd_queues[0].vq_notify = pci_vtdtr_notify_rx;
+	sc->vsd_queues[0].vq_notify = pci_vtdtr_notify_tx;
 	sc->vsd_queues[1].vq_qsize = VTDTR_RINGSZ;
-	sc->vsd_queues[1].vq_notify = pci_vtdtr_notify_tx;
+	sc->vsd_queues[1].vq_notify = pci_vtdtr_notify_rx;
 
 	pci_set_cfgdata16(pci_inst, PCIR_DEVICE, VIRTIO_DEV_DTRACE);
 	pci_set_cfgdata16(pci_inst, PCIR_VENDOR, VIRTIO_VENDOR);
