@@ -324,20 +324,21 @@ vtdtr_attach(device_t dev)
 		goto fail;
 	}
 
-	error = virtio_setup_intr(dev, INTR_TYPE_DTRACE);
+	error = virtio_setup_intr(dev, INTR_TYPE_MISC);
 	if (error) {
-		device_printf(dev, "cannot set up virtqueue interrupts\n");
+		device_printf(dev, "cannot set up virtio interrupts\n");
 		goto fail;
 	}
 
-	vtdtr_enable_interrupts(sc);
-	/* FIXME: This should be handled either way???
-	if (error) {
-		device_printf(dev, "cannot enable interrupts\n");
-		goto fail;
+	error = vtdtr_enable_interrupts(sc);
+	if (error)
+		error = 0;
+	else {
+		device_printf(dev, "failed to enable the interrupts for virtqueues\n");
+		error = ENXIO;
 	}
-	*/
-//	vtdtr_queue_send_ctrl(&sc->vtdtr_txq, VIRTIO_DTRACE_DEVICE_READY, 1);
+
+	/*vtdtr_queue_send_ctrl(&sc->vtdtr_txq, VIRTIO_DTRACE_DEVICE_READY, 1);*/
 fail:
 	if (error)
 		vtdtr_detach(dev);

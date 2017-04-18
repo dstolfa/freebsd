@@ -87,8 +87,6 @@ static int pci_vtdtr_debug;
 #define	DPRINTF(params)		if (pci_vtdtr_debug) printf params
 #define	WPRINTF(params)		printf params
 
-struct mevent	*vtdtr_mev;
-
 struct pci_vtdtr_control {
 	uint32_t	event;
 	uint32_t	value;
@@ -100,6 +98,7 @@ struct pci_vtdtr_softc {
 	struct vqueue_info		 vsd_queues[VTDTR_MAXQ];
 	struct vmctx			*vsd_vmctx;
 	struct dtrace_probeinfo		 vsd_pbi;
+	struct mevent			*vtdtr_mev;
 	pthread_mutex_t			 vsd_mtx;
 	uint64_t			 vsd_features;
 	uint64_t			 vsd_cfg;
@@ -217,9 +216,25 @@ pci_vtdtr_control_send(struct pci_vtdtr_softc *sc,
 	struct iovec iov;
 	uint32_t len;
 	uint16_t idx;
+	int n;
 
 	vq = &sc->vsd_queues[0];
 
+	/*
+	 * Can't fill the descs if the guest does not
+	 * have memory mapped
+	 */
+	if (!vq_has_descs(vq)) {
+		fprintf(stderr, "vq_has_descs(vq) == 0\n");
+		return;
+	}
+
+	/*
+	 * Retrieve the iovec with the memory location
+	 */
+	n = vq_getchain(vq, &idx, &iov, 1, NULL);
+	assert(n == 1);
+		
 	len = sizeof(struct pci_vtdtr_control);
 	memcpy(iov.iov_base, ctrl, len);
 
@@ -244,9 +259,6 @@ pci_vtdtr_notify_tx(void *vsc, struct vqueue_info *vq)
 
 	while (vq_has_descs(vq)) {
 		n = vq_getchain(vq, &idx, iov, 1, flags);
-		fprintf(stderr, "TX: n = %d\n", n);
-		fprintf(stderr, "TX: idx = %u\n", idx);
-		fprintf(stderr, "TX: iov_base = %p\niov_len = %zu\n", iov[0].iov_base, iov[0].iov_len);
 		pci_vtdtr_control_tx(sc, iov, 1);
 		vq_relchain(vq, idx, sizeof(struct dtrace_probeinfo));
 	}
@@ -267,9 +279,6 @@ pci_vtdtr_notify_rx(void *vsc, struct vqueue_info *vq)
 
 	while (vq_has_descs(vq)) {
 		n = vq_getchain(vq, &idx, iov, 1, flags);
-		fprintf(stderr, "RX: n = %d\n", n);
-		fprintf(stderr, "RX: idx = %u\n", idx);
-		fprintf(stderr, "RX: iov_base = %p\niov_len = %zu\n", iov[0].iov_base, iov[0].iov_len);
 		pci_vtdtr_control_rx(sc, iov, 1);
 		vq_relchain(vq, idx, sizeof(struct dtrace_probeinfo));
 	}
@@ -292,7 +301,6 @@ pci_vtdtr_handle_mev(int pb, enum ev_type et __unused, int ne, void *vsc)
 	 * Testing purposes... good god.
 	 */
 
-	printf("ne = %d\n", ne);
 	if (ne & NOTE_PROBE_INSTALL)
 		ctrl.event = VTDTR_DEVICE_PROBE_INSTALL;
 	else if (ne & NOTE_PROBE_UNINSTALL)
@@ -332,7 +340,8 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 
 	vi_set_io_bar(&sc->vsd_vs, 0);
 
-	vtdtr_mev = mevent_add(0, EVF_DTRACE, pci_vtdtr_handle_mev, sc, (__intptr_t)&(sc->vsd_pbi));
+	sc->vtdtr_mev = mevent_add(0, EVF_DTRACE, pci_vtdtr_handle_mev,
+	    sc, (__intptr_t)&(sc->vsd_pbi));
 	return (0);
 }
 
