@@ -248,15 +248,18 @@ pci_vtdtr_notify_tx(void *vsc, struct vqueue_info *vq)
 	struct pci_vtdtr_softc *sc;
 	struct iovec iov[1];
 	uint16_t idx;
-	uint16_t n;
 	uint16_t flags[8];
+	int n;
 
 	sc = vsc;
 
 	while (vq_has_descs(vq)) {
 		n = vq_getchain(vq, &idx, iov, 1, flags);
+		fprintf(stderr, "TX: n = %d\n", n);
+		fprintf(stderr, "TX: idx = %u\n", idx);
+		fprintf(stderr, "TX: iov_base = %p\niov_len = %zu\n", iov[0].iov_base, iov[0].iov_len);
 		pci_vtdtr_control_tx(sc, iov, 1);
-		vq_relchain(vq, idx, 0);
+		vq_relchain(vq, idx, sizeof(struct dtrace_probeinfo));
 	}
 
 	vq_endchains(vq, 1);
@@ -268,15 +271,18 @@ pci_vtdtr_notify_rx(void *vsc, struct vqueue_info *vq)
 	struct pci_vtdtr_softc *sc;
 	struct iovec iov[1];
 	uint16_t idx;
-	uint16_t n;
 	uint16_t flags[8];
+	int n;
 
 	sc = vsc;
 
 	while (vq_has_descs(vq)) {
 		n = vq_getchain(vq, &idx, iov, 1, flags);
+		fprintf(stderr, "RX: n = %d\n", n);
+		fprintf(stderr, "RX: idx = %u\n", idx);
+		fprintf(stderr, "RX: iov_base = %p\niov_len = %zu\n", iov[0].iov_base, iov[0].iov_len);
 		pci_vtdtr_control_rx(sc, iov, 1);
-		vq_relchain(vq, idx, 0);
+		vq_relchain(vq, idx, sizeof(struct dtrace_probeinfo));
 	}
 
 	vq_endchains(vq, 1);
