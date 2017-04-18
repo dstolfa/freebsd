@@ -337,7 +337,7 @@ vtdtr_attach(device_t dev)
 		goto fail;
 	}
 	*/
-	vtdtr_queue_send_ctrl(&sc->vtdtr_txq, VIRTIO_DTRACE_DEVICE_READY, 1);
+//	vtdtr_queue_send_ctrl(&sc->vtdtr_txq, VIRTIO_DTRACE_DEVICE_READY, 1);
 fail:
 	if (error)
 		vtdtr_detach(dev);
@@ -446,10 +446,12 @@ vtdtr_alloc_virtqueues(struct vtdtr_softc *sc)
 	if (info == NULL)
 		return (ENOMEM);
 
-	VQ_ALLOC_INFO_INIT(&info[0], 2, rxq->vtdq_vqintr, sc, &rxq->vtdq_vq,
-	    "%s-control RX", device_get_nameunit(dev));
-	VQ_ALLOC_INFO_INIT(&info[1], 2, txq->vtdq_vqintr, sc, &txq->vtdq_vq,
-	    "%s-control TX", device_get_nameunit(dev));
+	device_printf(dev, "Calling VQ_ALLOC_INFO_INIT for RX\n");
+	VQ_ALLOC_INFO_INIT(&info[0], sc->vtdtr_rx_nseg, rxq->vtdq_vqintr, sc,
+	    &rxq->vtdq_vq, "%s-control RX", device_get_nameunit(dev));
+	device_printf(dev, "Calling VQ_ALLOC_INFO_INIT for TX\n");
+	VQ_ALLOC_INFO_INIT(&info[1], sc->vtdtr_tx_nseg, txq->vtdq_vqintr, sc,
+	    &txq->vtdq_vq, "%s-control TX", device_get_nameunit(dev));
 
 	error = virtio_alloc_virtqueues(dev, 0, 2, info);
 	free(info, M_TEMP);
@@ -955,7 +957,15 @@ vtdtr_tq_start(struct virtio_dtrace_queue *dtq)
 static void
 vtdtr_txq_tq_intr(void *xtxq, int pending)
 {
+	struct vtdtr_softc *sc;
+	struct virtio_dtrace_queue *txq;
+	device_t dev;
 
+	txq = xtxq;
+	sc = txq->vtdq_sc;
+	dev = sc->vtdtr_dev;
+
+	device_printf(dev, "Am I to process this?\n");
 }
 
 /*
@@ -971,11 +981,15 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 	struct virtio_dtrace_control *ctrl;
 	uint32_t len;
 	int error;
+	device_t dev;
 
 	rxq = xrxq;
 	sc = rxq->vtdq_sc;
 	error = 0;
+	dev = sc->vtdtr_dev;
 
+	device_printf(dev, "RX: Taskqueue interrupt\n");
+	
 	VTDTR_QUEUE_LOCK(rxq);
 
 	while ((ctrl = virtqueue_dequeue(rxq->vtdq_vq, &len)) != NULL) {
@@ -996,9 +1010,13 @@ vtdtr_rxq_vq_intr(void *xsc)
 {
 	struct vtdtr_softc *sc;
 	struct virtio_dtrace_queue *rxq;
+	device_t dev;
 
 	sc = xsc;
 	rxq = &sc->vtdtr_rxq;
+	dev = sc->vtdtr_dev;
+
+	device_printf(dev, "RX: VQ Interrupt\n");
 	taskqueue_enqueue(rxq->vtdq_tq, &rxq->vtdq_intrtask);
 }
 
@@ -1007,9 +1025,14 @@ vtdtr_txq_vq_intr(void *xsc)
 {
 	struct vtdtr_softc *sc;
 	struct virtio_dtrace_queue *txq;
+	device_t dev;
 
 	sc = xsc;
+	dev = sc->vtdtr_dev;
 	txq = &sc->vtdtr_txq;
+
+	device_printf(dev, "TX: VQ Interrupt\n");
+	
 	taskqueue_enqueue(txq->vtdq_tq, &txq->vtdq_intrtask);
 }
 

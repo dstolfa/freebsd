@@ -217,22 +217,11 @@ pci_vtdtr_control_send(struct pci_vtdtr_softc *sc,
 	struct iovec iov;
 	uint32_t len;
 	uint16_t idx;
-	int n;
 
-	vq = &sc->vsd_queues[1];
+	vq = &sc->vsd_queues[0];
 
-	if (!vq_has_descs(vq)) {
-		printf("vq_has_descs == 0\n");
-		return;
-	}
-
-	n = vq_getchain(vq, &idx, &iov, 1, NULL);
-	printf("n = %d\n", n);
-	assert (n == 1);
-
-	memcpy(iov.iov_base, ctrl, sizeof(struct pci_vtdtr_control));
-	len = iov.iov_len;
-	printf("len = %d\n", len);
+	len = sizeof(struct pci_vtdtr_control);
+	memcpy(iov.iov_base, ctrl, len);
 
 	vq_relchain(vq, idx, len);
 	vq_endchains(vq, 1);
@@ -297,7 +286,6 @@ pci_vtdtr_handle_mev(int pb, enum ev_type et __unused, int ne, void *vsc)
 
 	sc = vsc;
 	name = vm_get_name(sc->vsd_vmctx);
-	printf("name = %s\n, instance = %s\n", name, sc->vsd_pbi.instance);
 /*	if (strcmp(name, sc->vsd_pbi.instance) != 0)
 		return; */
 	/*

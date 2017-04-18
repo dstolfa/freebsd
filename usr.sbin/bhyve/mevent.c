@@ -212,8 +212,11 @@ mevent_build(int mfd, struct kevent *kev)
 				kev[i].ident = mevp->me_fd;
 				kev[i].data = mevp->me_data;
 			}
-			kev[i].filter = mevent_kq_filter(mevp);
 			kev[i].flags = mevent_kq_flags(mevp);
+			if (mevp->me_type == EVF_DTRACE)
+				kev[i].flags |= EV_CLEAR;
+
+			kev[i].filter = mevent_kq_filter(mevp);
 			kev[i].fflags = mevent_kq_fflags(mevp);
 			kev[i].udata = mevp;
 			i++;
