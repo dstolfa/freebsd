@@ -527,19 +527,19 @@ static int
 vtdtr_queue_enqueue_ctrl(struct virtio_dtrace_queue *q,
     struct virtio_dtrace_control *ctrl, int readable, int writable)
 {
-	struct sglist *sg;
+	struct sglist_seg seg;
+	struct sglist sg;
 	struct virtqueue *vq;
 	int error;
 
 	vq = q->vtdq_vq;
-	sg = q->vtdq_sg;
 
-	sglist_reset(sg);
-	error = sglist_append(sg, ctrl, sizeof(struct virtio_dtrace_control));
+	sglist_init(&sg, 1, &seg);
+	error = sglist_append(&sg, ctrl, sizeof(struct virtio_dtrace_control));
 	KASSERT(error == 0, ("%s: error %d adding control to sglist",
 	    __func__, error));
 	
-	return (virtqueue_enqueue(vq, ctrl, sg, readable, writable));
+	return (virtqueue_enqueue(vq, ctrl, &sg, readable, writable));
 }
 
 static int
@@ -735,13 +735,11 @@ vtdtr_queue_ctrl_poll(struct virtio_dtrace_queue *txq,
     struct virtio_dtrace_control *ctrl)
 {
 	struct vtdtr_softc *sc;
-	struct sglist *sg;
 	struct virtqueue *vq;
 	int error;
 
 	sc = txq->vtdq_sc;
 	vq = txq->vtdq_vq;
-	sg = txq->vtdq_sg;
 
 
 	VTDTR_QUEUE_LOCK(txq);
@@ -1061,10 +1059,6 @@ vtdtr_init_rxq(struct vtdtr_softc *sc, int id)
 	rxq->vtdq_sc = sc;
 	rxq->vtdq_id = id;
 
-	rxq->vtdq_sg = sglist_alloc(sc->vtdtr_rx_nseg, M_NOWAIT);
-	if (rxq->vtdq_sg == NULL)
-		return (ENOMEM);
-
 	TASK_INIT(&rxq->vtdq_intrtask, 0, vtdtr_rxq_tq_intr, rxq);
 	rxq->vtdq_tq = taskqueue_create(rxq->vtdq_name, M_NOWAIT,
 	    taskqueue_thread_enqueue, &rxq->vtdq_tq);
@@ -1096,10 +1090,6 @@ vtdtr_init_txq(struct vtdtr_softc *sc, int id)
 	txq->vtdq_sc = sc;
 	txq->vtdq_id = id;
 
-	txq->vtdq_sg = sglist_alloc(sc->vtdtr_tx_nseg, M_NOWAIT);
-	if (txq->vtdq_sg == NULL)
-		return (ENOMEM);
-
 	TASK_INIT(&txq->vtdq_intrtask, 0, vtdtr_txq_tq_intr, txq);
 	txq->vtdq_tq = taskqueue_create(txq->vtdq_name, M_NOWAIT,
 	    taskqueue_thread_enqueue, &txq->vtdq_tq);
@@ -1117,7 +1107,6 @@ vtdtr_destroy_rxq(struct vtdtr_softc *sc, int id)
 	mtx_destroy(&rxq->vtdq_mtx);
 	rxq->vtdq_sc = NULL;
 
-	sglist_free(rxq->vtdq_sg);
 	taskqueue_free(rxq->vtdq_tq);
 }
 
@@ -1131,6 +1120,5 @@ vtdtr_destroy_txq(struct vtdtr_softc *sc, int id)
 	mtx_destroy(&txq->vtdq_mtx);
 	txq->vtdq_sc = NULL;
 
-	sglist_free(txq->vtdq_sg);
 	taskqueue_free(txq->vtdq_tq);
 }

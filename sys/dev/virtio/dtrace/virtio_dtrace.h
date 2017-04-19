@@ -64,7 +64,6 @@ struct virtio_dtrace_queue {
 	struct vtdtr_softc	*vtdq_sc;
 	struct virtqueue	*vtdq_vq;
 	void			(*vtdq_vqintr)(void *);
-	struct sglist		*vtdq_sg;
 	int			 vtdq_id;
 	struct taskqueue	*vtdq_tq;
 	struct task		 vtdq_intrtask;

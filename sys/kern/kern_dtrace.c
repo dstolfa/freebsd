@@ -168,7 +168,7 @@ filt_dtraceattach(struct knote *kn)
 	return (kn->kn_iov == NULL);
 }
 
-static __inline void
+static void
 filt_dtracedetach(struct knote *kn)
 {
 	mtx_lock(&dtrace_knlist_mtx);
