@@ -149,7 +149,6 @@ static void	vtdtr_queue_send_ctrl(struct virtio_dtrace_queue *,
            	    uint32_t, uint32_t);
 static void	vtdtr_destroy_probelist(struct vtdtr_softc *);
 static void	vtdtr_start_taskqueues(struct vtdtr_softc *);
-static void	vtdtr_free_taskqueues(struct vtdtr_softc *);
 static void	vtdtr_drain_taskqueues(struct vtdtr_softc *);
 static int	vtdtr_vq_enable_intr(struct virtio_dtrace_queue *);
 static void	vtdtr_vq_disable_intr(struct virtio_dtrace_queue *);
@@ -160,8 +159,7 @@ static void	vtdtr_rxq_vq_intr(void *);
 static void	vtdtr_txq_vq_intr(void *);
 static int	vtdtr_init_txq(struct vtdtr_softc *, int);
 static int	vtdtr_init_rxq(struct vtdtr_softc *, int);
-static void	vtdtr_destroy_rxq(struct vtdtr_softc *, int);
-static void	vtdtr_destroy_txq(struct vtdtr_softc *, int);
+static void	vtdtr_queue_destroy(struct virtio_dtrace_queue *);
 
 static device_method_t vtdtr_methods[] = {
 	/* Device methods. */
@@ -338,6 +336,8 @@ vtdtr_attach(device_t dev)
 		error = ENXIO;
 	}
 	*/
+
+	vtdtr_start_taskqueues(sc);
 	vtdtr_queue_send_ctrl(&sc->vtdtr_txq, VIRTIO_DTRACE_DEVICE_READY, 1);
 fail:
 	if (error)
@@ -371,8 +371,8 @@ vtdtr_detach(device_t dev)
 	}
 
 	vtdtr_destroy_probelist(sc);
-	vtdtr_destroy_rxq(sc, 0);
-	vtdtr_destroy_txq(sc, 0);
+	vtdtr_queue_destroy(&sc->vtdtr_rxq);
+	vtdtr_queue_destroy(&sc->vtdtr_txq);
 	mtx_destroy(&sc->vtdtr_mtx);
 	
 	return (0);
@@ -825,30 +825,6 @@ vtdtr_start_taskqueues(struct vtdtr_softc *sc)
 }
 
 /*
- * Free all the taskqueues in the driver.
- * The taskqueues were allocated in vtdtr_init_txq()
- * and vtdtr_init_rxq() 
- */
-static void
-vtdtr_free_taskqueues(struct vtdtr_softc *sc)
-{
-	struct virtio_dtrace_queue *rxq, *txq;
-
-	rxq = &sc->vtdtr_rxq;
-	txq = &sc->vtdtr_txq;
-
-	if (rxq->vtdq_tq != NULL) {
-		taskqueue_free(rxq->vtdq_tq);
-		rxq->vtdq_tq = NULL;
-	}
-
-	if (txq->vtdq_tq != NULL) {
-		taskqueue_free(txq->vtdq_tq);
-		txq->vtdq_tq = NULL;
-	}
-}
-
-/*
  * Drain all the taskqueues in the driver
  */
 static void
@@ -942,9 +918,9 @@ vtdtr_vq_disable_intr(struct virtio_dtrace_queue *q)
 }
 
 static void
-vtdtr_tq_start(struct virtio_dtrace_queue *dtq)
+vtdtr_tq_start(struct virtio_dtrace_queue *q)
 {
-
+	
 }
 
 /*
@@ -992,12 +968,14 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 
 	while ((ctrl = virtqueue_dequeue(rxq->vtdq_vq, &len)) != NULL) {
 		VTDTR_QUEUE_UNLOCK(rxq);
-		printf("Event: (%s, %d)\n", ctrl->info, ctrl->value);
+		KASSERT(len == sizeof(struct virtio_dtrace_control),
+		    ("%s: wrong control message length", __func__));
+		printf("Event %u: (%s, %u)\n", ctrl->event, ctrl->info, ctrl->value);
 		error = vtdtr_ctrl_process_event(sc, ctrl);
 		KASSERT(error == 0, ("%s: error %d processing event: (%s, %d)",
 		    __func__, error, ctrl->info, ctrl->value));
 		VTDTR_QUEUE_LOCK(rxq);
-		vtdtr_queue_requeue_ctrl(rxq, ctrl, 1, 0);
+		vtdtr_queue_requeue_ctrl(rxq, ctrl, 0, 1);
 	}
 	
 	VTDTR_QUEUE_UNLOCK(rxq);
@@ -1097,27 +1075,10 @@ vtdtr_init_txq(struct vtdtr_softc *sc, int id)
 }
 
 static void
-vtdtr_destroy_rxq(struct vtdtr_softc *sc, int id)
+vtdtr_queue_destroy(struct virtio_dtrace_queue *q)
 {
-	struct virtio_dtrace_queue *rxq;
-
-	rxq = &sc->vtdtr_rxq;
-
-	mtx_destroy(&rxq->vtdq_mtx);
-	rxq->vtdq_sc = NULL;
-
-	taskqueue_free(rxq->vtdq_tq);
-}
-
-static void
-vtdtr_destroy_txq(struct vtdtr_softc *sc, int id)
-{
-	struct virtio_dtrace_queue *txq;
-
-	txq = &sc->vtdtr_txq;
-
-	mtx_destroy(&txq->vtdq_mtx);
-	txq->vtdq_sc = NULL;
-
-	taskqueue_free(txq->vtdq_tq);
+	mtx_destroy(&q->vtdq_mtx);
+	q->vtdq_sc = NULL;
+	if (q->vtdq_tq != NULL)
+		taskqueue_free(q->vtdq_tq);
 }
