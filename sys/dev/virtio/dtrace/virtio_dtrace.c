@@ -329,14 +329,15 @@ vtdtr_attach(device_t dev)
 		goto fail;
 	}
 
-	error = vtdtr_enable_interrupts(sc);
+	vtdtr_enable_interrupts(sc);
+	/*
 	if (error)
 		error = 0;
 	else {
 		device_printf(dev, "failed to enable the interrupts for virtqueues\n");
 		error = ENXIO;
 	}
-
+	*/
 	vtdtr_queue_send_ctrl(&sc->vtdtr_txq, VIRTIO_DTRACE_DEVICE_READY, 1);
 fail:
 	if (error)
