@@ -471,7 +471,7 @@ vtdtr_queue_requeue_ctrl(struct virtio_dtrace_queue *q,
 {
 	int error;
 
-	bzero(ctrl, sizeof(struct virtio_dtrace_control) + VTDTR_BULK_BUFSZ);
+	bzero(ctrl, sizeof(struct virtio_dtrace_control));
 	error = vtdtr_queue_enqueue_ctrl(q, ctrl, readable, writable);
 	KASSERT(error == 0, ("%s: cannot requeue control buffer %d",
 	    __func__, error));

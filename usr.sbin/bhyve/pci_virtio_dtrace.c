@@ -272,7 +272,7 @@ pci_vtdtr_notify_rx(void *vsc, struct vqueue_info *vq)
 }
 
 static void
-pci_vtdtr_handle_mev(int pb, enum ev_type et __unused, int ne, void *vsc)
+pci_vtdtr_handle_mev(int fd __unused, enum ev_type et __unused, int ne, void *vsc)
 {
 	struct pci_vtdtr_softc *sc;
 	struct pci_vtdtr_control ctrl;
@@ -292,7 +292,7 @@ pci_vtdtr_handle_mev(int pb, enum ev_type et __unused, int ne, void *vsc)
 		ctrl.event = VTDTR_DEVICE_PROBE_UNINSTALL;
 	else
 		return;
-	ctrl.value = pb;
+	ctrl.value = sc->vsd_pbi.id;
 	strcpy(ctrl.info, sc->vsd_pbi.instance);
 	
 	pci_vtdtr_control_send(sc, &ctrl);
