@@ -239,7 +239,7 @@ pci_vtdtr_control_send(struct pci_vtdtr_softc *sc,
 	memcpy(iov.iov_base, ctrl, len);
 
 	vq_relchain(vq, idx, len);
-	vq_endchains(vq, 1);
+	vq_endchains(vq, 0);
 }
 
 /*

@@ -62,7 +62,7 @@ __FBSDID("$FreeBSD$");
 
 struct vtdtr_pb {
 	uint32_t				vtdprobe_id;
-	SLIST_ENTRY(vtdtr_pb)			vtdprobe_next;
+	LIST_ENTRY(vtdtr_pb)			vtdprobe_next;
 };
 
 struct vtdtr_softc {
@@ -85,7 +85,7 @@ struct vtdtr_softc {
 	 * and host DTrace. The driver is the one asking to install
 	 * or uninstall the probes on the guest, as instructed by host.
 	 */
-	SLIST_HEAD(, vtdtr_pb)			vtdtr_enabled_probes;
+	LIST_HEAD(, vtdtr_pb)			vtdtr_enabled_probes;
 	struct mtx				vtdtr_probe_list_mtx;
 };
 
@@ -423,7 +423,7 @@ vtdtr_setup_features(struct vtdtr_softc *sc)
 static __inline void
 vtdtr_alloc_probelist(struct vtdtr_softc *sc)
 {
-	SLIST_INIT(&sc->vtdtr_enabled_probes);
+	LIST_INIT(&sc->vtdtr_enabled_probes);
 }
 
 /*
@@ -694,7 +694,7 @@ vtdtr_ctrl_process_probe_install(struct vtdtr_softc *sc,
 	if (probe == NULL)
 		return (ENOMEM);
 	probe->vtdprobe_id = ctrl->value;
-	SLIST_INSERT_HEAD(&sc->vtdtr_enabled_probes, probe, vtdprobe_next);
+	LIST_INSERT_HEAD(&sc->vtdtr_enabled_probes, probe, vtdprobe_next);
 /*	dtrace_probeid_disable(probe->vtdprobe_id); */
 	return (0);
 }
@@ -714,10 +714,11 @@ vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
 
 	/*dtrace_probeid_enable(ctrl->value); */
 
-	SLIST_FOREACH_SAFE(probe, &sc->vtdtr_enabled_probes, vtdprobe_next, ptmp) {
-		if (probe->vtdprobe_id == ctrl->value)
-			SLIST_REMOVE(&sc->vtdtr_enabled_probes, probe,
-			    vtdtr_pb, vtdprobe_next);
+	LIST_FOREACH_SAFE(probe, &sc->vtdtr_enabled_probes, vtdprobe_next, ptmp) {
+		if (probe->vtdprobe_id == ctrl->value) {
+			LIST_REMOVE(probe, vtdprobe_next);
+			free(probe, M_VIRTIO_DTRACE);
+		}
 	}
 
 	return (0);
@@ -788,9 +789,9 @@ static void
 vtdtr_destroy_probelist(struct vtdtr_softc *sc)
 {
 	struct vtdtr_pb *tmp = NULL;
-	while (!SLIST_EMPTY(&sc->vtdtr_enabled_probes)) {
-		tmp = SLIST_FIRST(&sc->vtdtr_enabled_probes);
-		SLIST_REMOVE_HEAD(&sc->vtdtr_enabled_probes, vtdprobe_next);
+	while (!LIST_EMPTY(&sc->vtdtr_enabled_probes)) {
+		tmp = LIST_FIRST(&sc->vtdtr_enabled_probes);
+		LIST_REMOVE(tmp, vtdprobe_next);
 		free(tmp, M_VIRTIO_DTRACE);
 	}
 }
@@ -966,18 +967,21 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 	
 	VTDTR_QUEUE_LOCK(rxq);
 
-	while ((ctrl = virtqueue_dequeue(rxq->vtdq_vq, &len)) != NULL) {
-		VTDTR_QUEUE_UNLOCK(rxq);
-		KASSERT(len == sizeof(struct virtio_dtrace_control),
-		    ("%s: wrong control message length", __func__));
-		printf("Event %u: (%s, %u)\n", ctrl->event, ctrl->info, ctrl->value);
-		error = vtdtr_ctrl_process_event(sc, ctrl);
-		KASSERT(error == 0, ("%s: error %d processing event: (%s, %d)",
-		    __func__, error, ctrl->info, ctrl->value));
-		VTDTR_QUEUE_LOCK(rxq);
-		vtdtr_queue_requeue_ctrl(rxq, ctrl, 0, 1);
-	}
-	
+	ctrl = virtqueue_dequeue(rxq->vtdq_vq, &len);
+	if (ctrl == NULL)
+		goto fail;
+
+	VTDTR_QUEUE_UNLOCK(rxq);
+	KASSERT(len == sizeof(struct virtio_dtrace_control),
+	    ("%s: wrong control message length", __func__));
+	printf("Event %u: (%s, %u)\n", ctrl->event, ctrl->info, ctrl->value);
+	error = vtdtr_ctrl_process_event(sc, ctrl);
+	KASSERT(error == 0, ("%s: error %d processing event: (%s, %d)",
+	    __func__, error, ctrl->info, ctrl->value));
+	VTDTR_QUEUE_LOCK(rxq);
+	vtdtr_queue_requeue_ctrl(rxq, ctrl, 0, 1);
+
+fail:
 	VTDTR_QUEUE_UNLOCK(rxq);
 }
 
