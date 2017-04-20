@@ -317,7 +317,6 @@ vtdtr_attach(device_t dev)
 		goto fail;
 	}
 
-	error = vtdtr_queue_populate(&sc->vtdtr_txq);
 	if (error) {
 		device_printf(dev, "cannot populate %s\n",
 		    sc->vtdtr_txq.vtdq_name);
@@ -338,7 +337,7 @@ vtdtr_attach(device_t dev)
 		error = ENXIO;
 	}
 
-	/*vtdtr_queue_send_ctrl(&sc->vtdtr_txq, VIRTIO_DTRACE_DEVICE_READY, 1);*/
+	vtdtr_queue_send_ctrl(&sc->vtdtr_txq, VIRTIO_DTRACE_DEVICE_READY, 1);
 fail:
 	if (error)
 		vtdtr_detach(dev);
@@ -447,10 +446,8 @@ vtdtr_alloc_virtqueues(struct vtdtr_softc *sc)
 	if (info == NULL)
 		return (ENOMEM);
 
-	device_printf(dev, "Calling VQ_ALLOC_INFO_INIT for RX\n");
 	VQ_ALLOC_INFO_INIT(&info[0], sc->vtdtr_rx_nseg, rxq->vtdq_vqintr, sc,
 	    &rxq->vtdq_vq, "%s-control RX", device_get_nameunit(dev));
-	device_printf(dev, "Calling VQ_ALLOC_INFO_INIT for TX\n");
 	VQ_ALLOC_INFO_INIT(&info[1], sc->vtdtr_tx_nseg, txq->vtdq_vqintr, sc,
 	    &txq->vtdq_vq, "%s-control TX", device_get_nameunit(dev));
 
@@ -736,9 +733,11 @@ vtdtr_queue_ctrl_poll(struct virtio_dtrace_queue *txq,
 {
 	struct vtdtr_softc *sc;
 	struct virtqueue *vq;
+	device_t dev;
 	int error;
 
 	sc = txq->vtdq_sc;
+	dev = sc->vtdtr_dev;
 	vq = txq->vtdq_vq;
 
 
@@ -747,13 +746,13 @@ vtdtr_queue_ctrl_poll(struct virtio_dtrace_queue *txq,
 	error = vtdtr_queue_enqueue_ctrl(txq, ctrl, 1, 0);
 	
 	if (error == 0) {
-		printf("error == 0\n");
 		virtqueue_notify(vq);
 		virtqueue_poll(vq, NULL);
-		printf("Just polled: ctrl->value = %u\n", ctrl->value);
 	} else {
-		printf("Failed\n");
-		printf("error = %d\n", error);
+		device_printf(dev, "Failed to poll:\n"
+		    "ctrl->event = %d\n"
+		    "ctrl->value = %d\n",
+		    ctrl->event, ctrl->value);
 	}
 	VTDTR_QUEUE_UNLOCK(txq);
 }
@@ -776,7 +775,6 @@ vtdtr_queue_send_ctrl(struct virtio_dtrace_queue *txq,
 
 	ctrl.event = event;
 	ctrl.value = value;
-	printf("ctrl.event = %u\nctrl.value = %u\n", ctrl.event, ctrl.value);
 
 	vtdtr_queue_ctrl_poll(txq, &ctrl);
 }

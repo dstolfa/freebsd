@@ -167,7 +167,6 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 	assert(niov == 1);
 
 	ctrl = (struct pci_vtdtr_control *)iov->iov_base;
-
 	switch (ctrl->event) {
 	case VTDTR_DEVICE_READY:
 		sc->vsd_ready = 1;
@@ -225,7 +224,8 @@ pci_vtdtr_control_send(struct pci_vtdtr_softc *sc,
 	 * have memory mapped
 	 */
 	if (!vq_has_descs(vq)) {
-		fprintf(stderr, "vq_has_descs(vq) == 0\n");
+		WPRINTF(("No available descriptors in order"
+		    " to send a control message\n"));
 		return;
 	}
 
