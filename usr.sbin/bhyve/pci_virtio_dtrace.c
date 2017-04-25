@@ -272,7 +272,8 @@ pci_vtdtr_notify_rx(void *vsc, struct vqueue_info *vq)
 }
 
 static void
-pci_vtdtr_handle_mev(int fd __unused, enum ev_type et __unused, int ne, void *vsc)
+pci_vtdtr_handle_mev(int fd __unused, enum ev_type et __unused, int ne,
+    void *vsc)
 {
 	struct pci_vtdtr_softc *sc;
 	struct pci_vtdtr_control ctrl;
@@ -305,7 +306,8 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 
 	sc = calloc(1, sizeof(struct pci_vtdtr_softc));
 
-	vi_softc_linkup(&sc->vsd_vs, &vtdtr_vi_consts, sc, pci_inst, sc->vsd_queues);
+	vi_softc_linkup(&sc->vsd_vs, &vtdtr_vi_consts,
+	    sc, pci_inst, sc->vsd_queues);
 	sc->vsd_vs.vs_mtx = &sc->vsd_mtx;
 	sc->vsd_vmctx = ctx;
 
