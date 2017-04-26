@@ -46,16 +46,12 @@ __FBSDID("$FreeBSD$");
 #include <machine/resource.h>
 #include <sys/bus.h>
 
-/*
- * DTrace communication layer
-#include <sys/dtrace.h>
-#include <sys/dtrace_bsd.h>
-*/
-
 #include <dev/virtio/virtio.h>
 #include <dev/virtio/virtqueue.h>
 #include <dev/virtio/dtrace/virtio_dtrace.h>
-
+/*
+#include <sys/dtrace.h>
+*/
 #include "virtio_if.h"
 
 #define	VTDTR_BULK_BUFSZ	128
@@ -469,8 +465,14 @@ static void
 vtdtr_queue_requeue_ctrl(struct virtio_dtrace_queue *q,
     struct virtio_dtrace_control *ctrl, int readable, int writable)
 {
+	struct vtdtr_softc *sc;
+	device_t dev;
 	int error;
 
+	sc = q->vtdq_sc;
+	dev = sc->vtdtr_dev;
+
+	device_printf(dev, "requeueing: (%d, %d)\n", readable, writable);
 	bzero(ctrl, sizeof(struct virtio_dtrace_control));
 	error = vtdtr_queue_enqueue_ctrl(q, ctrl, readable, writable);
 	KASSERT(error == 0, ("%s: cannot requeue control buffer %d",
@@ -693,7 +695,7 @@ vtdtr_ctrl_process_probe_install(struct vtdtr_softc *sc,
 	probe = malloc(sizeof(struct vtdtr_pb), M_VIRTIO_DTRACE, M_NOWAIT | M_ZERO);
 	if (probe == NULL)
 		return (ENOMEM);
-	probe->vtdprobe_id = ctrl->value;
+	probe->vtdprobe_id = ctrl->uctrl.probe_ev.probe;
 	LIST_INSERT_HEAD(&sc->vtdtr_enabled_probes, probe, vtdprobe_next);
 /*	dtrace_probeid_disable(probe->vtdprobe_id); */
 	return (0);
@@ -711,11 +713,13 @@ vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
 {
 	struct vtdtr_pb *probe;
 	struct vtdtr_pb *ptmp;
+	uint32_t probeid;
 
 	/*dtrace_probeid_enable(ctrl->value); */
 
+	probeid = ctrl->uctrl.probe_ev.probe;
 	LIST_FOREACH_SAFE(probe, &sc->vtdtr_enabled_probes, vtdprobe_next, ptmp) {
-		if (probe->vtdprobe_id == ctrl->value) {
+		if (probe->vtdprobe_id == probeid) {
 			LIST_REMOVE(probe, vtdprobe_next);
 			free(probe, M_VIRTIO_DTRACE);
 		}
@@ -752,9 +756,8 @@ vtdtr_queue_ctrl_poll(struct virtio_dtrace_queue *txq,
 		virtqueue_poll(vq, NULL);
 	} else {
 		device_printf(dev, "Failed to poll:\n"
-		    "ctrl->event = %d\n"
-		    "ctrl->value = %d\n",
-		    ctrl->event, ctrl->value);
+		    "ctrl->event = %d\n",
+		    ctrl->event);
 	}
 	VTDTR_QUEUE_UNLOCK(txq);
 }
@@ -776,7 +779,7 @@ vtdtr_queue_send_ctrl(struct virtio_dtrace_queue *txq,
 		return;
 
 	ctrl.event = event;
-	ctrl.value = value;
+	ctrl.uctrl.probe_ev.probe = value;
 
 	vtdtr_queue_ctrl_poll(txq, &ctrl);
 }
@@ -973,11 +976,12 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 
 	VTDTR_QUEUE_UNLOCK(rxq);
 	KASSERT(len == sizeof(struct virtio_dtrace_control),
-	    ("%s: wrong control message length", __func__));
-	printf("Event %u: (%s, %u)\n", ctrl->event, ctrl->info, ctrl->value);
+	    ("%s: wrong control message length: %u, expected %zu", __func__,
+	     len, sizeof(struct virtio_dtrace_control)));
+	printf("Event %u\n", ctrl->event);
 	error = vtdtr_ctrl_process_event(sc, ctrl);
-	KASSERT(error == 0, ("%s: error %d processing event: (%s, %d)",
-	    __func__, error, ctrl->info, ctrl->value));
+	KASSERT(error == 0, ("%s: error %d processing event: %d",
+	    __func__, error, ctrl->event));
 	VTDTR_QUEUE_LOCK(rxq);
 	vtdtr_queue_requeue_ctrl(rxq, ctrl, 0, 1);
 

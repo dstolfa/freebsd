@@ -29,6 +29,8 @@
 #ifndef _VIRTIO_DTRACE_H_
 #define _VIRTIO_DTRACE_H_
 
+#include <sys/dtrace_bsd.h>
+
 #define	VIRTIO_DTRACE_F_PROBE	0x01
 #define	VIRTIO_DTRACE_F_PROV	0x02
 
@@ -53,10 +55,38 @@
 
 struct vtdtr_softc;
 
+struct vtdtr_pbev_create_event {
+	uint32_t /* dtrace_provider_id_t */	prov;
+	char					mod[DTRACE_MODNAMELEN];
+	char					func[DTRACE_FUNCNAMELEN];
+	char					name[DTRACE_NAMELEN];
+	int					aframes;
+}__attribute__((packed));
+
+struct vtdtr_pbev_toggle_event {
+	char					*dif; /* TODO */
+}__attribute__((packed));
+
+struct vtdtr_ctrl_pbevent {
+	uint32_t probe;
+	union _upbev {
+		struct vtdtr_pbev_create_event	probe_evcreate;
+		struct vtdtr_pbev_toggle_event	probe_evtoggle;
+	} upbev;
+}__attribute__((packed));
+
+struct vtdtr_ctrl_provevent {
+	uint32_t /* dtrace_provider_id_t */	id;
+	
+}__attribute__((packed));
+
 struct virtio_dtrace_control {
 	uint32_t	event;
-	uint32_t	value;
-	char		info[VIRTIO_DTRACE_INFOSIZ];
+	char		info[DTRACE_INSTANCENAMELEN];
+	union _uctrl {
+		struct vtdtr_ctrl_pbevent	probe_ev;
+		struct vtdtr_ctrl_provevent	prov_ev;
+	} uctrl;
 }__attribute__((packed));
 
 struct virtio_dtrace_queue {
@@ -69,6 +99,7 @@ struct virtio_dtrace_queue {
 	struct task		 vtdq_intrtask;
 	char			 vtdq_name[16];
 };
+
 
 #define	VTDTR_QUEUE_LOCK(__q)			mtx_lock(&((__q)->vtdq_mtx))
 #define	VTDTR_QUEUE_UNLOCK(__q)			mtx_unlock(&((__q)->vtdq_mtx))

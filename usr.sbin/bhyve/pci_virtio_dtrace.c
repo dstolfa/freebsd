@@ -87,11 +87,39 @@ static int pci_vtdtr_debug;
 #define	DPRINTF(params)		if (pci_vtdtr_debug) printf params
 #define	WPRINTF(params)		printf params
 
+struct pci_vtdtr_probe_create_event {
+	uint32_t /* dtrace_provider_id_t */	prov;
+	char					mod[DTRACE_MODNAMELEN];
+	char					func[DTRACE_FUNCNAMELEN];
+	char					name[DTRACE_NAMELEN];
+	int					aframes;
+}__attribute__((packed));
+
+struct pci_vtdtr_probe_toggle_event {
+	char					*dif; /* TODO */
+}__attribute__((packed));
+
+struct pci_vtdtr_ctrl_pbevent {
+	uint32_t probe;
+	union _upbev {
+		struct pci_vtdtr_probe_create_event	probe_evcreate;
+		struct pci_vtdtr_probe_toggle_event	probe_evtoggle;
+	} upbev;
+}__attribute__((packed));
+
+struct pci_vtdtrl_ctrl_provevent {
+	uint32_t /* dtrace_provider_id_t */	id;
+	
+}__attribute__((packed));
+
 struct pci_vtdtr_control {
 	uint32_t	event;
-	uint32_t	value;
 	char		info[DTRACE_INSTANCENAMELEN];
-} __attribute__((packed));
+	union _uctrl {
+		struct pci_vtdtr_ctrl_pbevent		probe_ev;
+		struct pci_vtdtrl_ctrl_provevent	prov_ev;
+	} uctrl;
+}__attribute__((packed));
 
 struct pci_vtdtr_softc {
 	struct virtio_softc		 vsd_vs;
@@ -293,10 +321,95 @@ pci_vtdtr_handle_mev(int fd __unused, enum ev_type et __unused, int ne,
 		ctrl.event = VTDTR_DEVICE_PROBE_UNINSTALL;
 	else
 		return;
-	ctrl.value = sc->vsd_pbi.id;
+	ctrl.uctrl.probe_ev.probe = sc->vsd_pbi.id;
 	strcpy(ctrl.info, sc->vsd_pbi.instance);
 	
 	pci_vtdtr_control_send(sc, &ctrl);
+}
+
+static __inline int
+pci_vtdtr_queue_empty(struct pci_vtdtr_ctrlq *cq)
+{
+	return (STAILQ_EMPTY(&cq->head));
+}
+
+static struct pci_vtdtr_control *
+pci_vtdtr_queue_dequeue(struct pci_vtdtr_ctrlq *cq)
+{
+	struct pci_vtdtr_control *ctrl;
+	ctrl = STAILQ_FIRST(&cq->head);
+	if (ctrl != NULL)
+		STAILQ_REMOVE_HEAD(&cq->head, struct pci_vtdtr_control);
+	return (ctrl);
+}
+
+static void
+pci_vtdtr_fill_desc(struct vqueue_info *vq, struct pci_vtdtr_control *ctrl)
+{
+	int n;
+	uint16_t idx;
+
+	n = vq_getchain(vq, &idx, &iov, 1, NULL);
+	assert(n == 1);
+
+	len = sizeof(struct pci_vtdtr_control);
+	memcpy(iov.iov_base, ctrl, len);
+
+	vq_relchain(vq, idx, len);
+}
+
+static void
+pci_vtdtr_poll(struct vqueue_info *vq, int all_used)
+{
+	vq_endchains(vq, all_used);
+}
+
+static void
+pci_vtdtr_run(struct pci_vtdtr_softc *sc)
+{
+	struct pci_vtdtr_control *ctrl;
+	struct vqueue_info *vq;
+	uint32_t nent;
+	int error;
+	int all_used;
+
+	vq = &sc->vsd_queues[0];
+
+	for (;;) {
+		nent = 0;
+		error = 0;
+		all_used = 0;
+
+		/*
+		 * Wait for the conditions to be satisfied:
+		 *  - vsd_ready == 1
+		 *  - !queue_empty()
+		 */
+		while (sc->vsd_ready == 0 &&
+		    pci_vtdtr_queue_empty(sc->vsd_queue))
+			pthread_cond_wait(&cond, &cond_mtx);
+
+		assert(vq_has_descs(vq) != 0);
+		assert(!pci_vtdtr_queue_empty(sc->vsd_queue));
+
+		/*
+		 * While dealing with the entires, we will fill every single
+		 * entry as long as we have space or entries in the queue.
+		 */
+		while (vq_has_descs(vq) && !pci_vtdtr_queue_empty(sc->vsd_queue)) {
+			ctrl_entry = pci_vtdtr_queue_dequeue(sc->vsd_queue);
+			pci_vtdtr_fill_desc(vq, ctrl);
+			nent++;
+		}
+
+		if (nent) {
+			if (pci_vtdtr_queue_empty(sc->vsd_queue))
+				pci_vtdtr_fill_eof_desc(vq);
+
+			all_used = vq_has_descs(vq);
+			pci_vtdtr_poll(vq, all_used);
+		}
+	}
 }
 
 static int

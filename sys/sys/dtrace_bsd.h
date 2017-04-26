@@ -197,6 +197,10 @@ uint64_t	dtrace_gethrestime(void);
 #endif /* _KERNEL */
 
 #define	DTRACE_INSTANCENAMELEN	64
+#define	DTRACE_PROVNAMELEN	64
+#define	DTRACE_MODNAMELEN	64
+#define	DTRACE_FUNCNAMELEN	192
+#define	DTRACE_NAMELEN		64
 
 struct dtrace_probeinfo {
 	int	id;					/* ID of the probe to install */
