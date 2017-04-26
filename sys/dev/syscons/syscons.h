@@ -68,11 +68,11 @@
 #endif
 
 #ifndef SC_CURSOR_CHAR
-#define SC_CURSOR_CHAR	(0x07)
+#define SC_CURSOR_CHAR	7
 #endif
 
 #ifndef SC_MOUSE_CHAR
-#define SC_MOUSE_CHAR	(0xd0)
+#define SC_MOUSE_CHAR	8
 #endif
 
 #if SC_MOUSE_CHAR <= SC_CURSOR_CHAR && SC_CURSOR_CHAR < (SC_MOUSE_CHAR + 4)
@@ -312,8 +312,6 @@ typedef struct scr_stat {
 
 	int		cursor_pos;		/* cursor buffer position */
 	int		cursor_oldpos;		/* cursor old buffer position */
-	u_short		cursor_saveunder_char;	/* saved char under cursor */
-	u_short		cursor_saveunder_attr;	/* saved attr under cursor */
 	struct cursor_attr dflt_curs_attr;
 	struct cursor_attr curr_curs_attr;
 	struct cursor_attr curs_attr;
