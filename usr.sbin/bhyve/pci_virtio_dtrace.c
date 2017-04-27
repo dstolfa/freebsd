@@ -150,6 +150,8 @@ static void	pci_vtdtr_reset(void *);
 static void	pci_vtdtr_neg_features(void *, uint64_t);
 static void	pci_vtdtr_control_tx(struct pci_vtdtr_softc *,
            	    struct iovec *, int);
+static void	pci_vtdtr_signal_ready(struct pci_vtdtr_softc *);
+static int	pci_vtdtr_control_rx(struct pci_vtdtr_softc *, struct iovec *, int);
 static void	pci_vtdtr_process_prov_evt(struct pci_vtdtr_softc *,
            	    struct pci_vtdtr_control *);
 static void	pci_vtdtr_process_probe_evt(struct pci_vtdtr_softc *,
@@ -205,7 +207,15 @@ pci_vtdtr_control_tx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 	 */
 }
 
-static void
+static __inline void
+pci_vtdtr_signal_ready(struct pci_vtdtr_softc *sc)
+{
+	pthread_mutex_lock(&sc->vsd_condmtx);
+	pthread_cond_signal(&sc->vsd_cond);
+	pthread_mutex_unlock(&sc->vsd_condmtx);
+}
+
+static int
 pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 {
 	struct pci_vtdtr_control *ctrl;
@@ -215,6 +225,7 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 	ctrl = (struct pci_vtdtr_control *)iov->iov_base;
 	switch (ctrl->event) {
 	case VTDTR_DEVICE_READY:
+		pci_vtdtr_signal_ready(sc);
 		sc->vsd_ready = 1;
 		break;
 	case VTDTR_DEVICE_REGISTER:
@@ -229,7 +240,14 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 		if (sc->vsd_features & VTDTR_F_PROBE)
 			pci_vtdtr_process_probe_evt(sc, ctrl);
 		break;
+	case VTDTR_DEVICE_EOF:
+		return (1);
+	default:
+		WPRINTF(("Warning: Unknown event: %u\n", ctrl->event));
+		break;
 	}
+
+	return (0);
 }
 
 static void
@@ -267,16 +285,22 @@ pci_vtdtr_notify_rx(void *vsc, struct vqueue_info *vq)
 	uint16_t idx;
 	uint16_t flags[8];
 	int n;
+	int all_used;
+	int retval;
 
 	sc = vsc;
+	all_used = 0;
 
 	while (vq_has_descs(vq)) {
 		n = vq_getchain(vq, &idx, iov, 1, flags);
-		pci_vtdtr_control_rx(sc, iov, 1);
+		retval = pci_vtdtr_control_rx(sc, iov, 1);
 		vq_relchain(vq, idx, sizeof(struct dtrace_probeinfo));
+		if (retval == 1)
+			break;
 	}
 
-	vq_endchains(vq, 1);
+	all_used = vq_has_descs(vq);
+	vq_endchains(vq, all_used);
 }
 
 static void
@@ -429,6 +453,7 @@ pci_vtdtr_run(void *xsc)
 
 			all_used = vq_has_descs(vq);
 			pci_vtdtr_poll(vq, all_used);
+			sc->vsd_ready = 0;
 		}
 	}
 
