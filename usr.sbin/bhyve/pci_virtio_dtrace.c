@@ -34,24 +34,18 @@ __FBSDID("$FreeBSD$");
 #include <sys/capsicum.h>
 #endif
 #include <sys/event.h>
-#include <sys/linker_set.h>
 #include <sys/uio.h>
 #include <sys/types.h>
 #include <sys/dtrace_bsd.h>
 
 #include <machine/vmm.h>
 
-#include <err.h>
-#include <errno.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <assert.h>
 #include <pthread.h>
-#include <libgen.h>
-#include <sysexits.h>
 
 #include <vmmapi.h>
 
@@ -59,7 +53,6 @@ __FBSDID("$FreeBSD$");
 #include "pci_emul.h"
 #include "virtio.h"
 #include "mevent.h"
-#include "sockstream.h"
 
 #define	VTDTR_RINGSZ			64
 #define	VTDTR_MAXQ			4
