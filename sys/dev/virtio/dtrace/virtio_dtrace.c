@@ -311,12 +311,6 @@ vtdtr_attach(device_t dev)
 		goto fail;
 	}
 
-	if (error) {
-		device_printf(dev, "cannot populate %s\n",
-		    sc->vtdtr_txq.vtdq_name);
-		goto fail;
-	}
-
 	error = virtio_setup_intr(dev, INTR_TYPE_MISC);
 	if (error) {
 		device_printf(dev, "cannot set up virtio interrupts\n");
@@ -324,14 +318,6 @@ vtdtr_attach(device_t dev)
 	}
 
 	vtdtr_enable_interrupts(sc);
-	/*
-	if (error)
-		error = 0;
-	else {
-		device_printf(dev, "failed to enable the interrupts for virtqueues\n");
-		error = ENXIO;
-	}
-	*/
 
 	vtdtr_start_taskqueues(sc);
 	vtdtr_queue_send_ctrl(&sc->vtdtr_txq, VIRTIO_DTRACE_DEVICE_READY, 1);

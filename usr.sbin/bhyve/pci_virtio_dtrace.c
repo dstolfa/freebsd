@@ -309,7 +309,14 @@ pci_vtdtr_handle_mev(int fd __unused, enum ev_type et __unused, int ne,
 
 	ctrl->uctrl.probe_ev.probe = sc->vsd_pbi.id;
 	strcpy(ctrl->info, sc->vsd_pbi.instance);
+
+	pthread_mutex_lock(&sc->vsd_queue->mtx);
 	STAILQ_INSERT_TAIL(&sc->vsd_queue->head, ctrl_entry, entries);
+	pthread_mutex_unlock(&sc->vsd_queue->mtx);
+
+	pthread_mutex_lock(&sc->vsd_condmtx);
+	pthread_cond_signal(&sc->vsd_cond);
+	pthread_mutex_unlock(&sc->vsd_condmtx);
 }
 
 static __inline int
