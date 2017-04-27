@@ -187,9 +187,11 @@ pci_vtdtr_reset(void *vsc)
 
 	sc = vsc;
 
+	pthread_mutex_lock(&sc->vsd_mtx);
 	DPRINTF(("vtdtr: device reset requested!\n"));
 	pci_vtdtr_reset_queue(sc);
 	vi_reset_dev(&sc->vsd_vs);
+	pthread_mutex_unlock(&sc->vsd_mtx);
 }
 
 static __inline void
@@ -210,6 +212,7 @@ pci_vtdtr_control_tx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 static __inline void
 pci_vtdtr_signal_ready(struct pci_vtdtr_softc *sc)
 {
+	sc->vsd_ready = 1;
 	pthread_mutex_lock(&sc->vsd_condmtx);
 	pthread_cond_signal(&sc->vsd_cond);
 	pthread_mutex_unlock(&sc->vsd_condmtx);
@@ -226,7 +229,6 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 	switch (ctrl->event) {
 	case VTDTR_DEVICE_READY:
 		pci_vtdtr_signal_ready(sc);
-		sc->vsd_ready = 1;
 		break;
 	case VTDTR_DEVICE_REGISTER:
 	case VTDTR_DEVICE_UNREGISTER:
@@ -468,6 +470,7 @@ pci_vtdtr_reset_queue(struct pci_vtdtr_softc *sc)
 
 	q = sc->vsd_queue;
 
+	pthread_mutex_lock(&q->mtx);
 	n1 = STAILQ_FIRST(&q->head);
 	while (n1 != NULL) {
 		n2 = STAILQ_NEXT(n1, entries);
@@ -476,6 +479,7 @@ pci_vtdtr_reset_queue(struct pci_vtdtr_softc *sc)
 	}
 
 	STAILQ_INIT(&q->head);
+	pthread_mutex_unlock(&q->mtx);
 }
 
 static int
