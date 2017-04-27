@@ -71,7 +71,7 @@ __FBSDID("$FreeBSD$");
 #define	VTDTR_DEVICE_PROBE_CREATE	0x04
 #define	VTDTR_DEVICE_PROBE_INSTALL	0x05
 #define	VTDTR_DEVICE_PROBE_UNINSTALL	0x06
-#define	VTDTR_MAXEV			0x05 /* 0x02 - 0x06 */
+#define	VTDTR_DEVICE_EOF		0x07
 
 #define	VTDTR_INDEX(x) ((x) - 2)
 
@@ -121,12 +121,25 @@ struct pci_vtdtr_control {
 	} uctrl;
 }__attribute__((packed));
 
+struct pci_vtdtr_ctrl_entry {
+	struct pci_vtdtr_control		ctrl;
+	STAILQ_ENTRY(pci_vtdtr_ctrl_entry)	entries;
+};
+
+struct pci_vtdtr_ctrlq {
+	STAILQ_HEAD(ctrlq, pci_vtdtr_ctrl_entry)	head;
+	pthread_mutex_t					mtx;
+};
+
 struct pci_vtdtr_softc {
 	struct virtio_softc		 vsd_vs;
 	struct vqueue_info		 vsd_queues[VTDTR_MAXQ];
 	struct vmctx			*vsd_vmctx;
 	struct dtrace_probeinfo		 vsd_pbi;
-	struct mevent			*vtdtr_mev;
+	struct mevent			*vsd_mev;
+	struct pci_vtdtr_ctrlq		*vsd_queue;
+	pthread_mutex_t			 vsd_condmtx;
+	pthread_cond_t			 vsd_cond;
 	pthread_mutex_t			 vsd_mtx;
 	uint64_t			 vsd_features;
 	uint64_t			 vsd_cfg;
@@ -141,11 +154,16 @@ static void	pci_vtdtr_process_prov_evt(struct pci_vtdtr_softc *,
            	    struct pci_vtdtr_control *);
 static void	pci_vtdtr_process_probe_evt(struct pci_vtdtr_softc *,
            	    struct pci_vtdtr_control *);
-static void	pci_vtdtr_control_send(struct pci_vtdtr_softc *,
-           	    struct pci_vtdtr_control *);
 static void	pci_vtdtr_notify_tx(void *, struct vqueue_info *);
 static void	pci_vtdtr_notify_rx(void *, struct vqueue_info *);
+static int	pci_vtdtr_queue_empty(struct pci_vtdtr_ctrlq *);
+static struct pci_vtdtr_ctrl_entry *pci_vtdtr_queue_dequeue(struct pci_vtdtr_ctrlq *);
+static void	pci_vtdtr_fill_desc(struct vqueue_info *, struct pci_vtdtr_control *);
+static void	pci_vtdtr_poll(struct vqueue_info *, int);
+static void	pci_vtdtr_fill_eof_desc(struct vqueue_info *);
+static void *	pci_vtdtr_run(void *);
 static void	pci_vtdtr_handle_mev(int, enum ev_type, int, void *);
+static void	pci_vtdtr_reset_queue(struct pci_vtdtr_softc *);
 static int	pci_vtdtr_init(struct vmctx *, struct pci_devinst *, char *);
 
 static struct virtio_consts vtdtr_vi_consts = {
@@ -168,6 +186,7 @@ pci_vtdtr_reset(void *vsc)
 	sc = vsc;
 
 	DPRINTF(("vtdtr: device reset requested!\n"));
+	pci_vtdtr_reset_queue(sc);
 	vi_reset_dev(&sc->vsd_vs);
 }
 
@@ -189,7 +208,6 @@ pci_vtdtr_control_tx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 static void
 pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 {
-	/*struct pci_vtdtr_control  resp;*/
 	struct pci_vtdtr_control *ctrl;
 
 	assert(niov == 1);
@@ -232,44 +250,6 @@ pci_vtdtr_process_probe_evt(struct pci_vtdtr_softc *sc,
 
 }
 
-static void
-pci_vtdtr_control_send(struct pci_vtdtr_softc *sc,
-    struct pci_vtdtr_control *ctrl)
-{
-	/*
-	 * FIXME: This outright does not work
-	 */
-	struct vqueue_info *vq;
-	struct iovec iov;
-	uint32_t len;
-	uint16_t idx;
-	int n;
-
-	vq = &sc->vsd_queues[0];
-
-	/*
-	 * Can't fill the descs if the guest does not
-	 * have memory mapped
-	 */
-	if (!vq_has_descs(vq)) {
-		WPRINTF(("No available descriptors in order"
-		    " to send a control message\n"));
-		return;
-	}
-
-	/*
-	 * Retrieve the iovec with the memory location
-	 */
-	n = vq_getchain(vq, &idx, &iov, 1, NULL);
-	assert(n == 1);
-		
-	len = sizeof(struct pci_vtdtr_control);
-	memcpy(iov.iov_base, ctrl, len);
-
-	vq_relchain(vq, idx, len);
-	vq_endchains(vq, 0);
-}
-
 /*
  * XXX: These two routines are practically the same, is TX
  * really necessary here? We don't really need to do anything
@@ -304,27 +284,32 @@ pci_vtdtr_handle_mev(int fd __unused, enum ev_type et __unused, int ne,
     void *vsc)
 {
 	struct pci_vtdtr_softc *sc;
-	struct pci_vtdtr_control ctrl;
+	struct pci_vtdtr_control *ctrl;
+	struct pci_vtdtr_ctrl_entry *ctrl_entry;
 	char *name;
 
 	sc = vsc;
 	name = vm_get_name(sc->vsd_vmctx);
+
 /*	if (strcmp(name, sc->vsd_pbi.instance) != 0)
 		return; */
 	/*
 	 * Testing purposes... good god.
 	 */
 
+	ctrl_entry = malloc(sizeof(struct pci_vtdtr_ctrl_entry));
+	assert(ctrl_entry != NULL);
+	ctrl = &ctrl_entry->ctrl;
+
+	assert((ne & (NOTE_PROBE_INSTALL | NOTE_PROBE_UNINSTALL)) != 0);
 	if (ne & NOTE_PROBE_INSTALL)
-		ctrl.event = VTDTR_DEVICE_PROBE_INSTALL;
-	else if (ne & NOTE_PROBE_UNINSTALL)
-		ctrl.event = VTDTR_DEVICE_PROBE_UNINSTALL;
+		ctrl->event = VTDTR_DEVICE_PROBE_INSTALL;
 	else
-		return;
-	ctrl.uctrl.probe_ev.probe = sc->vsd_pbi.id;
-	strcpy(ctrl.info, sc->vsd_pbi.instance);
-	
-	pci_vtdtr_control_send(sc, &ctrl);
+		ctrl->event = VTDTR_DEVICE_PROBE_UNINSTALL;
+
+	ctrl->uctrl.probe_ev.probe = sc->vsd_pbi.id;
+	strcpy(ctrl->info, sc->vsd_pbi.instance);
+	STAILQ_INSERT_TAIL(&sc->vsd_queue->head, ctrl_entry, entries);
 }
 
 static __inline int
@@ -333,19 +318,21 @@ pci_vtdtr_queue_empty(struct pci_vtdtr_ctrlq *cq)
 	return (STAILQ_EMPTY(&cq->head));
 }
 
-static struct pci_vtdtr_control *
+static struct pci_vtdtr_ctrl_entry *
 pci_vtdtr_queue_dequeue(struct pci_vtdtr_ctrlq *cq)
 {
-	struct pci_vtdtr_control *ctrl;
-	ctrl = STAILQ_FIRST(&cq->head);
-	if (ctrl != NULL)
-		STAILQ_REMOVE_HEAD(&cq->head, struct pci_vtdtr_control);
-	return (ctrl);
+	struct pci_vtdtr_ctrl_entry *ctrl_entry;
+	ctrl_entry = STAILQ_FIRST(&cq->head);
+	if (ctrl_entry != NULL)
+		STAILQ_REMOVE_HEAD(&cq->head, entries);
+	return (ctrl_entry);
 }
 
 static void
 pci_vtdtr_fill_desc(struct vqueue_info *vq, struct pci_vtdtr_control *ctrl)
 {
+	struct iovec iov;
+	size_t len;
 	int n;
 	uint16_t idx;
 
@@ -365,14 +352,24 @@ pci_vtdtr_poll(struct vqueue_info *vq, int all_used)
 }
 
 static void
-pci_vtdtr_run(struct pci_vtdtr_softc *sc)
+pci_vtdtr_fill_eof_desc(struct vqueue_info *vq)
 {
-	struct pci_vtdtr_control *ctrl;
+	struct pci_vtdtr_control ctrl;
+	ctrl.event = VTDTR_DEVICE_EOF;
+	pci_vtdtr_fill_desc(vq, &ctrl);
+}
+
+static void *
+pci_vtdtr_run(void *xsc)
+{
+	struct pci_vtdtr_softc *sc;
+	struct pci_vtdtr_ctrl_entry *ctrl_entry;
 	struct vqueue_info *vq;
 	uint32_t nent;
 	int error;
 	int all_used;
 
+	sc = xsc;
 	vq = &sc->vsd_queues[0];
 
 	for (;;) {
@@ -385,9 +382,11 @@ pci_vtdtr_run(struct pci_vtdtr_softc *sc)
 		 *  - vsd_ready == 1
 		 *  - !queue_empty()
 		 */
+		pthread_mutex_lock(&sc->vsd_condmtx);
 		while (sc->vsd_ready == 0 &&
 		    pci_vtdtr_queue_empty(sc->vsd_queue))
-			pthread_cond_wait(&cond, &cond_mtx);
+			pthread_cond_wait(&sc->vsd_cond, &sc->vsd_condmtx);
+		pthread_mutex_unlock(&sc->vsd_condmtx);
 
 		assert(vq_has_descs(vq) != 0);
 		assert(!pci_vtdtr_queue_empty(sc->vsd_queue));
@@ -396,27 +395,65 @@ pci_vtdtr_run(struct pci_vtdtr_softc *sc)
 		 * While dealing with the entires, we will fill every single
 		 * entry as long as we have space or entries in the queue.
 		 */
+		pthread_mutex_lock(&sc->vsd_queue->mtx);
 		while (vq_has_descs(vq) && !pci_vtdtr_queue_empty(sc->vsd_queue)) {
 			ctrl_entry = pci_vtdtr_queue_dequeue(sc->vsd_queue);
-			pci_vtdtr_fill_desc(vq, ctrl);
+			pthread_mutex_unlock(&sc->vsd_queue->mtx);
+			pci_vtdtr_fill_desc(vq, &ctrl_entry->ctrl);
+			free(ctrl_entry);
 			nent++;
+			pthread_mutex_lock(&sc->vsd_queue->mtx);
 		}
 
+		/*
+		 * If we've filled >= 1 entry in the descriptor queue, we first
+		 * check if the queue is empty, and if so, we append a special
+		 * EOF descriptor to send to the guest. Following that, we end
+		 * the chains and force an interrupt in the guest
+		 */
 		if (nent) {
-			if (pci_vtdtr_queue_empty(sc->vsd_queue))
+			if (pci_vtdtr_queue_empty(sc->vsd_queue) &&
+			    vq_has_descs(vq)) {
+				pthread_mutex_unlock(&sc->vsd_queue->mtx);
 				pci_vtdtr_fill_eof_desc(vq);
+			} else {
+				pthread_mutex_unlock(&sc->vsd_queue->mtx);
+			}
 
 			all_used = vq_has_descs(vq);
 			pci_vtdtr_poll(vq, all_used);
 		}
 	}
+
+	pthread_exit(NULL);
+}
+
+static void
+pci_vtdtr_reset_queue(struct pci_vtdtr_softc *sc)
+{
+	struct pci_vtdtr_ctrl_entry *n1, *n2;
+	struct pci_vtdtr_ctrlq *q;
+
+	q = sc->vsd_queue;
+
+	n1 = STAILQ_FIRST(&q->head);
+	while (n1 != NULL) {
+		n2 = STAILQ_NEXT(n1, entries);
+		free(n1);
+		n1 = n2;
+	}
+
+	STAILQ_INIT(&q->head);
 }
 
 static int
 pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 {
 	struct pci_vtdtr_softc *sc;
+	pthread_t communicator;
+	int error;
 
+	error = 0;
 	sc = calloc(1, sizeof(struct pci_vtdtr_softc));
 
 	vi_softc_linkup(&sc->vsd_vs, &vtdtr_vi_consts,
@@ -435,12 +472,19 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 	pci_set_cfgdata16(pci_inst, PCIR_SUBDEV_0, VIRTIO_TYPE_DTRACE);
 	pci_set_cfgdata16(pci_inst, PCIR_SUBVEND_0, VIRTIO_VENDOR);
 
+	error = pthread_mutex_init(&sc->vsd_queue->mtx, NULL);
+	assert(error == 0);
+	error = pthread_cond_init(&sc->vsd_cond, NULL);
+	assert(error == 0);
+	error = pthread_create(&communicator, NULL, pci_vtdtr_run, sc);
+	assert(error == 0);
+	
 	if (vi_intr_init(&sc->vsd_vs, 1, fbsdrun_virtio_msix()))
 		return (1);
 
 	vi_set_io_bar(&sc->vsd_vs, 0);
 
-	sc->vtdtr_mev = mevent_add(0, EVF_DTRACE, pci_vtdtr_handle_mev,
+	sc->vsd_mev = mevent_add(0, EVF_DTRACE, pci_vtdtr_handle_mev,
 	    sc, (__intptr_t)&(sc->vsd_pbi));
 	return (0);
 }
