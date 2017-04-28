@@ -99,8 +99,6 @@ struct vtdtr_softc {
 #define	VTDTR_LOCK_ASSERT_NOTOWNED(__sc) \
     (mtx_assert(&((__sc)->vtdtr_mtx), MA_NOTOWNED))
 
-static MALLOC_DEFINE(M_VIRTIO_DTRACE, "dtvirtio", "DTrace VirtIO");
-
 static int	vtdtr_modevent(module_t, int, void *);
 static void	vtdtr_cleanup(void);
 
@@ -269,6 +267,7 @@ static int
 vtdtr_attach(device_t dev)
 {
 	struct vtdtr_softc *sc;
+	struct kthread *communicator;
 	int error;
 
 	sc = device_get_softc(dev);
@@ -458,7 +457,6 @@ vtdtr_queue_requeue_ctrl(struct virtio_dtrace_queue *q,
 	sc = q->vtdq_sc;
 	dev = sc->vtdtr_dev;
 
-	device_printf(dev, "requeueing: (%d, %d)\n", readable, writable);
 	bzero(ctrl, sizeof(struct virtio_dtrace_control));
 	error = vtdtr_queue_enqueue_ctrl(q, ctrl, readable, writable);
 	KASSERT(error == 0, ("%s: cannot requeue control buffer %d",
@@ -498,13 +496,13 @@ vtdtr_queue_new_ctrl(struct virtio_dtrace_queue *q)
 
 	sc = q->vtdq_sc;
 	ctrl = malloc(sizeof(struct virtio_dtrace_control),
-	    M_VIRTIO_DTRACE, M_NOWAIT | M_ZERO);
+	    M_DEVBUF, M_NOWAIT | M_ZERO);
 	if (ctrl == NULL)
 		return (ENOMEM);
 
 	error = vtdtr_queue_enqueue_ctrl(q, ctrl, 0, 1);
 	if (error)
-		free(ctrl, M_VIRTIO_DTRACE);
+		free(ctrl, M_DEVBUF);
 
 	return (error);
 }
@@ -556,6 +554,10 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 		if (sc->vtdtr_flags & VTDTR_FLAG_PROBEACTION)
 			error = vtdtr_ctrl_process_probeaction(sc, ctrl);
 		break;
+	case VIRTIO_DTRACE_EOF:
+		return (1);
+	default:
+		device_printf(dev, "WARNING: Wrong control event: %u\n", ctrl->event);
 	}
 
 	return (error);
@@ -678,7 +680,7 @@ vtdtr_ctrl_process_probe_install(struct vtdtr_softc *sc,
 {
 	struct vtdtr_pb *probe;
 
-	probe = malloc(sizeof(struct vtdtr_pb), M_VIRTIO_DTRACE, M_NOWAIT | M_ZERO);
+	probe = malloc(sizeof(struct vtdtr_pb), M_DEVBUF, M_NOWAIT | M_ZERO);
 	if (probe == NULL)
 		return (ENOMEM);
 	probe->vtdprobe_id = ctrl->uctrl.probe_ev.probe;
@@ -707,7 +709,7 @@ vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
 	LIST_FOREACH_SAFE(probe, &sc->vtdtr_enabled_probes, vtdprobe_next, ptmp) {
 		if (probe->vtdprobe_id == probeid) {
 			LIST_REMOVE(probe, vtdprobe_next);
-			free(probe, M_VIRTIO_DTRACE);
+			free(probe, M_DEVBUF);
 		}
 	}
 
@@ -753,7 +755,7 @@ vtdtr_queue_ctrl_poll(struct virtio_dtrace_queue *txq,
  */
 static void
 vtdtr_queue_send_ctrl(struct virtio_dtrace_queue *txq,
-    uint32_t event, uint32_t value)
+    struct virtio_dtrace_control *ctrl)
 {
 	struct virtio_dtrace_control ctrl;
 	struct vtdtr_softc *sc;
@@ -781,7 +783,7 @@ vtdtr_destroy_probelist(struct vtdtr_softc *sc)
 	while (!LIST_EMPTY(&sc->vtdtr_enabled_probes)) {
 		tmp = LIST_FIRST(&sc->vtdtr_enabled_probes);
 		LIST_REMOVE(tmp, vtdprobe_next);
-		free(tmp, M_VIRTIO_DTRACE);
+		free(tmp, M_DEVBUF);
 	}
 }
 
@@ -932,6 +934,36 @@ vtdtr_txq_tq_intr(void *xtxq, int pending)
 	device_printf(dev, "Am I to process this?\n");
 }
 
+static void
+vtdtr_send_eof(struct vtdtr_softc *sc)
+{
+	struct virtio_dtrace_queue *q;
+	struct virtio_dtrace_control *ctrl;
+
+	q = sc->vtdtr_txq;
+	ctrl = malloc(sizeof(struct virtio_dtrace_control),
+	    M_DEVBUF, M_NOWAIT | M_ZERO);
+
+	ctrl->event = VIRTIO_DTRACE_EOF;
+	vtdtr_queue_enqueue_ctrl(q, ctrl, 1, 0);
+}
+
+static void
+vtdtr_notify_ready(struct vtdtr_softc *sc)
+{
+	struct virtio_dtrace_queue *q;
+	struct virtio_dtrace_control *ctrl;
+
+	q = sc->vtdtr_txq;
+	ctrl = malloc(sizeof(struct virtio_dtrace_control),
+	    M_DEVBUF, M_NOWAIT | M_ZERO);
+
+	ctrl->event = VIRTIO_DTRACE_DEVICE_READY;
+	vtdtr_queue_enqueue_ctrl(q, ctrl, 1, 0);
+
+	vtdtr_send_eof(sc);
+}
+
 /*
  * TODO:
  * This is the function that is called when an interrupt is
@@ -943,6 +975,7 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 	struct vtdtr_softc *sc;
 	struct virtio_dtrace_queue *rxq;
 	struct virtio_dtrace_control *ctrl;
+	struct virtio_dtrace_control resp = { 0 };
 	uint32_t len;
 	int error;
 	device_t dev;
@@ -956,23 +989,25 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 	
 	VTDTR_QUEUE_LOCK(rxq);
 
-	ctrl = virtqueue_dequeue(rxq->vtdq_vq, &len);
-	if (ctrl == NULL)
-		goto fail;
+	while ((ctrl = virtqueue_dequeue(rxq->vtdq_vq, &len)) != NULL) {
+		VTDTR_QUEUE_UNLOCK(rxq);
+		KASSERT(len == sizeof(struct virtio_dtrace_control),
+		    ("%s: wrong control message length: %u, expected %zu", __func__,
+		     len, sizeof(struct virtio_dtrace_control)));
+
+		retval = vtdtr_ctrl_process_event(sc, ctrl);
+		KASSERT(error == 0, ("%s: error %d processing event: %d",
+		    __func__, error, ctrl->event));
+
+		VTDTR_QUEUE_LOCK(rxq);
+		vtdtr_queue_requeue_ctrl(rxq, ctrl, 0, 1);
+		if (retval == 1)
+			break;
+	}
 
 	VTDTR_QUEUE_UNLOCK(rxq);
-	KASSERT(len == sizeof(struct virtio_dtrace_control),
-	    ("%s: wrong control message length: %u, expected %zu", __func__,
-	     len, sizeof(struct virtio_dtrace_control)));
-	printf("Event %u\n", ctrl->event);
-	error = vtdtr_ctrl_process_event(sc, ctrl);
-	KASSERT(error == 0, ("%s: error %d processing event: %d",
-	    __func__, error, ctrl->event));
-	VTDTR_QUEUE_LOCK(rxq);
-	vtdtr_queue_requeue_ctrl(rxq, ctrl, 0, 1);
 
-fail:
-	VTDTR_QUEUE_UNLOCK(rxq);
+	vtdtr_notify_ready(sc);
 }
 
 static void
@@ -988,6 +1023,9 @@ vtdtr_rxq_vq_intr(void *xsc)
 
 	device_printf(dev, "RX: VQ Interrupt\n");
 	taskqueue_enqueue(rxq->vtdq_tq, &rxq->vtdq_intrtask);
+	VTDTR_LOCK(sc);
+	vtdtr_vq_enable_intr(rxq);
+	VTDTR_UNLOCK(sc);
 }
 
 static void
