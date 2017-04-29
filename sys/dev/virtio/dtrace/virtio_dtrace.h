@@ -29,6 +29,7 @@
 #ifndef _VIRTIO_DTRACE_H_
 #define _VIRTIO_DTRACE_H_
 
+#include <sys/queue.h>
 #include <sys/dtrace_bsd.h>
 
 #define	VIRTIO_DTRACE_F_PROBE	0x01
@@ -50,6 +51,7 @@
 #define	VIRTIO_DTRACE_PROBE_CREATE	0x04	/* Probe Creation */
 #define	VIRTIO_DTRACE_PROBE_INSTALL	0x05	/* Probe Installation */
 #define	VIRTIO_DTRACE_PROBE_UNINSTALL	0x06	/* Probe Uninstallation */
+#define	VIRTIO_DTRACE_EOF		0x07	/* EOF Signal */
 
 #define	VIRTIO_DTRACE_INFOSIZ		64
 
@@ -98,6 +100,17 @@ struct virtio_dtrace_queue {
 	struct taskqueue	*vtdq_tq;
 	struct task		 vtdq_intrtask;
 	char			 vtdq_name[16];
+};
+
+struct vtdtr_ctrl_entry {
+	struct virtio_dtrace_control	ctrl;
+	STAILQ_ENTRY(vtdtr_ctrl_entry)	entries;
+};
+
+struct vtdtr_ctrlq {
+	STAILQ_HEAD(ctrlq, vtdtr_ctrl_entry)	head;
+	struct mtx				mtx;
+	size_t					n_entries;
 };
 
 
