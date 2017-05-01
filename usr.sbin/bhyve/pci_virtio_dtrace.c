@@ -66,16 +66,6 @@ __FBSDID("$FreeBSD$");
 #define	VTDTR_DEVICE_PROBE_UNINSTALL	0x06
 #define	VTDTR_DEVICE_EOF		0x07
 
-#define	VTDTR_INDEX(x) ((x) - 2)
-
-#define	VTDTR_F_PROBE			0x01
-#define	VTDTR_F_PROV			0x02
-/*
- * We only support probe operations right now
- */
-#define	VTDTR_S_HOSTFEATURES		\
-    (VTDTR_F_PROBE)
-
 static int pci_vtdtr_debug;
 #define	DPRINTF(params)		if (pci_vtdtr_debug) printf params
 #define	WPRINTF(params)		printf params
@@ -175,7 +165,6 @@ static struct virtio_consts vtdtr_vi_consts = {
 	NULL,				/* read virtio config */
 	NULL,				/* write virtio config */
 	pci_vtdtr_neg_features,		/* apply negotiated features */
-	VTDTR_S_HOSTFEATURES		/* features */
 };
 
 static void
@@ -231,14 +220,12 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 	case VTDTR_DEVICE_REGISTER:
 	case VTDTR_DEVICE_UNREGISTER:
 	case VTDTR_DEVICE_DESTROY:
-		if (sc->vsd_features & VTDTR_F_PROV)
-			pci_vtdtr_process_prov_evt(sc, ctrl);
+		pci_vtdtr_process_prov_evt(sc, ctrl);
 		break;
 	case VTDTR_DEVICE_PROBE_CREATE:
 	case VTDTR_DEVICE_PROBE_INSTALL:
 	case VTDTR_DEVICE_PROBE_UNINSTALL:
-		if (sc->vsd_features & VTDTR_F_PROBE)
-			pci_vtdtr_process_probe_evt(sc, ctrl);
+		pci_vtdtr_process_probe_evt(sc, ctrl);
 		break;
 	case VTDTR_DEVICE_EOF:
 		return (1);
@@ -361,8 +348,9 @@ pci_vtdtr_cq_dequeue(struct pci_vtdtr_ctrlq *cq)
 {
 	struct pci_vtdtr_ctrl_entry *ctrl_entry;
 	ctrl_entry = STAILQ_FIRST(&cq->head);
-	if (ctrl_entry != NULL)
+	if (ctrl_entry != NULL) {
 		STAILQ_REMOVE_HEAD(&cq->head, entries);
+	}
 
 	return (ctrl_entry);
 }
@@ -421,27 +409,34 @@ pci_vtdtr_run(void *xsc)
 		 *  - vsd_ready == 1
 		 *  - !queue_empty()
 		 */
-		pthread_mutex_lock(&sc->vsd_condmtx);
-		while (sc->vsd_ready == 0 &&
-		    pci_vtdtr_cq_empty(sc->vsd_ctrlq))
-			pthread_cond_wait(&sc->vsd_cond, &sc->vsd_condmtx);
-		pthread_mutex_unlock(&sc->vsd_condmtx);
+		error = pthread_mutex_lock(&sc->vsd_condmtx);
+		assert(error == 0);
+		while (!vq_has_descs(vq) ||
+		    pci_vtdtr_cq_empty(sc->vsd_ctrlq)) {
+			error = pthread_cond_wait(&sc->vsd_cond, &sc->vsd_condmtx);
+			assert(error == 0);
+		}
+		error = pthread_mutex_unlock(&sc->vsd_condmtx);
+		assert(error == 0);
 
 		assert(vq_has_descs(vq) != 0);
+		error = pthread_mutex_lock(&sc->vsd_ctrlq->mtx);
+		assert(error == 0);
 		assert(!pci_vtdtr_cq_empty(sc->vsd_ctrlq));
 
 		/*
 		 * While dealing with the entires, we will fill every single
 		 * entry as long as we have space or entries in the queue.
 		 */
-		pthread_mutex_lock(&sc->vsd_ctrlq->mtx);
 		while (vq_has_descs(vq) && !pci_vtdtr_cq_empty(sc->vsd_ctrlq)) {
 			ctrl_entry = pci_vtdtr_cq_dequeue(sc->vsd_ctrlq);
-			pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
+			error = pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
+			assert(error == 0);
 			pci_vtdtr_fill_desc(vq, &ctrl_entry->ctrl);
 			free(ctrl_entry);
 			nent++;
-			pthread_mutex_lock(&sc->vsd_ctrlq->mtx);
+			error = pthread_mutex_lock(&sc->vsd_ctrlq->mtx);
+			assert(error == 0);
 		}
 
 		/*
@@ -450,15 +445,19 @@ pci_vtdtr_run(void *xsc)
 		 * EOF descriptor to send to the guest. Following that, we end
 		 * the chains and force an interrupt in the guest
 		 */
-		if (nent) {
-			if (pci_vtdtr_cq_empty(sc->vsd_ctrlq) &&
-			    vq_has_descs(vq)) {
-				pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
+		if (pci_vtdtr_cq_empty(sc->vsd_ctrlq) &&
+		    vq_has_descs(vq)) {
+			error = pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
+			assert(error == 0);
+			if (nent) {
 				pci_vtdtr_fill_eof_desc(vq);
-			} else {
-				pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
 			}
+		} else {
+			error = pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
+			assert(error == 0);
+		}
 
+		if (nent) {
 			all_used = vq_has_descs(vq);
 			pci_vtdtr_poll(vq, all_used);
 			sc->vsd_ready = 0;
@@ -497,6 +496,7 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 
 	error = 0;
 	sc = calloc(1, sizeof(struct pci_vtdtr_softc));
+	sc->vsd_ctrlq = calloc(1, sizeof(struct pci_vtdtr_ctrlq));
 
 	vi_softc_linkup(&sc->vsd_vs, &vtdtr_vi_consts,
 	    sc, pci_inst, sc->vsd_queues);

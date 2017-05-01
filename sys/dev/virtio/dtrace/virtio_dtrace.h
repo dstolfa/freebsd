@@ -32,9 +32,6 @@
 #include <sys/queue.h>
 #include <sys/dtrace_bsd.h>
 
-#define	VIRTIO_DTRACE_F_PROBE	0x01
-#define	VIRTIO_DTRACE_F_PROV	0x02
-
 /*
  * The only ones used presently are:
  * 	VIRTIO_DTRACE_PROBE_INSTALL
@@ -52,8 +49,6 @@
 #define	VIRTIO_DTRACE_PROBE_INSTALL	0x05	/* Probe Installation */
 #define	VIRTIO_DTRACE_PROBE_UNINSTALL	0x06	/* Probe Uninstallation */
 #define	VIRTIO_DTRACE_EOF		0x07	/* EOF Signal */
-
-#define	VIRTIO_DTRACE_INFOSIZ		64
 
 struct vtdtr_softc;
 
