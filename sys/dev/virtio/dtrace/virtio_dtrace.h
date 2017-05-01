@@ -97,8 +97,8 @@ struct virtio_dtrace_queue {
 };
 
 struct vtdtr_ctrl_entry {
-	struct virtio_dtrace_control	ctrl;
-	STAILQ_ENTRY(vtdtr_ctrl_entry)	entries;
+	struct virtio_dtrace_control	*ctrl;
+	STAILQ_ENTRY(vtdtr_ctrl_entry)	 entries;
 };
 
 struct vtdtr_ctrlq {

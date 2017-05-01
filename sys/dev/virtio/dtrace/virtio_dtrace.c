@@ -89,6 +89,7 @@ struct vtdtr_softc {
 	struct mtx				vtdtr_probe_list_mtx;
 
 	int					vtdtr_shutdown;
+	int					vtdtr_ready;
 };
 
 /*
@@ -123,6 +124,7 @@ static void	vtdtr_drain_virtqueues(struct vtdtr_softc *);
 static int	vtdtr_queue_populate(struct virtio_dtrace_queue *);
 static int	vtdtr_queue_enqueue_ctrl(struct virtio_dtrace_queue *,
           	    struct virtio_dtrace_control *, int, int);
+static void	vtdtr_drain_virtqueue(struct virtio_dtrace_queue *);
 static void	vtdtr_queue_requeue_ctrl(struct virtio_dtrace_queue *,
            	    struct virtio_dtrace_control *, int, int);
 static int	vtdtr_queue_new_ctrl(struct virtio_dtrace_queue *);
@@ -155,6 +157,7 @@ static void	vtdtr_vq_disable_intr(struct virtio_dtrace_queue *);
 static void	vtdtr_rxq_tq_intr(void *, int);
 static void	vtdtr_notify_ready(struct vtdtr_softc *);
 static void	vtdtr_rxq_vq_intr(void *);
+static void	vtdtr_txq_vq_intr(void *);
 static int	vtdtr_init_txq(struct vtdtr_softc *, int);
 static int	vtdtr_init_rxq(struct vtdtr_softc *, int);
 static void	vtdtr_queue_destroy(struct virtio_dtrace_queue *);
@@ -479,7 +482,7 @@ vtdtr_alloc_virtqueues(struct vtdtr_softc *sc)
 	rxq = &sc->vtdtr_rxq;
 	txq = &sc->vtdtr_txq;
 	rxq->vtdq_vqintr = vtdtr_rxq_vq_intr;
-	txq->vtdq_vqintr = NULL;
+	txq->vtdq_vqintr = vtdtr_txq_vq_intr;
 	
 	info = malloc(sizeof(struct vq_alloc_info), M_TEMP, M_NOWAIT);
 	if (info == NULL)
@@ -487,7 +490,7 @@ vtdtr_alloc_virtqueues(struct vtdtr_softc *sc)
 
 	VQ_ALLOC_INFO_INIT(&info[0], sc->vtdtr_rx_nseg, rxq->vtdq_vqintr, sc,
 	    &rxq->vtdq_vq, "%s-control RX", device_get_nameunit(dev));
-	VQ_ALLOC_INFO_INIT(&info[1], sc->vtdtr_tx_nseg, NULL, sc,
+	VQ_ALLOC_INFO_INIT(&info[1], sc->vtdtr_tx_nseg, txq->vtdq_vqintr, sc,
 	    &txq->vtdq_vq, "%s-control TX", device_get_nameunit(dev));
 
 	error = virtio_alloc_virtqueues(dev, 0, 2, info);
@@ -518,7 +521,6 @@ vtdtr_queue_requeue_ctrl(struct virtio_dtrace_queue *q,
 	dev = sc->vtdtr_dev;
 
 	bzero(ctrl, sizeof(struct virtio_dtrace_control));
-	device_printf(dev, "Enqueueing the same one again\n");
 	error = vtdtr_queue_enqueue_ctrl(q, ctrl, readable, writable);
 	KASSERT(error == 0, ("%s: cannot requeue control buffer %d",
 	    __func__, error));
@@ -584,7 +586,30 @@ vtdtr_queue_enqueue_ctrl(struct virtio_dtrace_queue *q,
 	KASSERT(error == 0, ("%s: error %d adding control to sglist",
 	    __func__, error));
 
-	return (virtqueue_enqueue(vq, ctrl, &sg, readable, writable));
+	error = virtqueue_enqueue(vq, ctrl, &sg, readable, writable);
+
+	return (error);
+}
+
+static void
+vtdtr_drain_virtqueue(struct virtio_dtrace_queue *q)
+{
+	struct vtdtr_softc *sc;
+	struct virtqueue *vq;
+	struct virtio_dtrace_control *ctrl;
+	int last;
+
+	sc = q->vtdq_sc;
+	last = 0;
+	vq = q->vtdq_vq;
+
+	VTDTR_QUEUE_LOCK(q);
+	while ((ctrl = virtqueue_drain(vq, &last)) != NULL) {
+		free(ctrl, M_DEVBUF);
+	}
+	VTDTR_QUEUE_UNLOCK(q);
+	sc->vtdtr_ready = 1;
+	cv_signal(&sc->vtdtr_condvar);
 }
 
 static int
@@ -600,24 +625,31 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 	/*
 	 * XXX: Double switch statement... meh.
 	 */
-	device_printf(dev, "ctrl->event = %u\n", ctrl->event);
 	switch (ctrl->event) {
+	case VIRTIO_DTRACE_DEVICE_READY:
+		device_printf(dev, "VIRTIO_DTRACE_DEVICE_READY\n");
+		vtdtr_drain_virtqueue(&sc->vtdtr_txq);
+		break;
 	case VIRTIO_DTRACE_REGISTER:
 	case VIRTIO_DTRACE_UNREGISTER:
+		device_printf(dev, "VIRTIO_DTRACE_PROVEVENT\n");
 		error = vtdtr_ctrl_process_provaction(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_DESTROY:
+		device_printf(dev, "VIRTIO_DTRACE_SELFDESTROY\n");
 		vtdtr_ctrl_process_selfdestroy(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_PROBE_CREATE:
 	case VIRTIO_DTRACE_PROBE_INSTALL:
 	case VIRTIO_DTRACE_PROBE_UNINSTALL:
+		device_printf(dev, "VIRTIO_DTRACE_PROBEEVENT\n");
 		error = vtdtr_ctrl_process_probeaction(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_EOF:
+		device_printf(dev, "VIRTIO_DTRACE_EOF\n");
 		return (1);
 	default:
-		device_printf(dev, "WARNING: Wrong control event: %u\n", ctrl->event);
+		device_printf(dev, "WARNING: Wrong control event: %x\n", ctrl->event);
 	}
 
 	return (error);
@@ -745,6 +777,7 @@ vtdtr_ctrl_process_probe_install(struct vtdtr_softc *sc,
 		return (ENOMEM);
 	probe->vtdprobe_id = ctrl->uctrl.probe_ev.probe;
 	LIST_INSERT_HEAD(&sc->vtdtr_enabled_probes, probe, vtdprobe_next);
+	printf("Probe = %d\n", probe->vtdprobe_id);
 /*	dtrace_probeid_disable(probe->vtdprobe_id); */
 	return (0);
 }
@@ -766,6 +799,7 @@ vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
 	/*dtrace_probeid_enable(ctrl->value); */
 
 	probeid = ctrl->uctrl.probe_ev.probe;
+	printf("Probe = %d\n", probeid);
 	LIST_FOREACH_SAFE(probe, &sc->vtdtr_enabled_probes, vtdprobe_next, ptmp) {
 		if (probe->vtdprobe_id == probeid) {
 			LIST_REMOVE(probe, vtdprobe_next);
@@ -865,6 +899,7 @@ vtdtr_disable_interrupts(struct vtdtr_softc *sc)
 {
 	VTDTR_LOCK(sc);
 	vtdtr_vq_disable_intr(&sc->vtdtr_rxq);
+	vtdtr_vq_disable_intr(&sc->vtdtr_txq);
 	VTDTR_UNLOCK(sc);
 }
 
@@ -878,6 +913,7 @@ vtdtr_enable_interrupts(struct vtdtr_softc *sc)
 	int retval;
 	VTDTR_LOCK(sc);
 	retval = vtdtr_vq_enable_intr(&sc->vtdtr_rxq);
+	retval = vtdtr_vq_enable_intr(&sc->vtdtr_txq);
 	VTDTR_UNLOCK(sc);
 
 	return (retval);
@@ -906,9 +942,13 @@ vtdtr_vq_disable_intr(struct virtio_dtrace_queue *q)
 static void
 vtdtr_send_eof(struct virtio_dtrace_queue *q)
 {
-	struct virtio_dtrace_control ctrl;
-	ctrl.event = VIRTIO_DTRACE_EOF;
-	vtdtr_fill_desc(q, &ctrl);
+	struct virtio_dtrace_control *ctrl;
+	ctrl = malloc(sizeof(struct virtio_dtrace_control),
+	    M_DEVBUF, M_NOWAIT | M_ZERO);
+	KASSERT(ctrl != NULL,
+	    ("%s: no memory to allocate a control message", __func__));
+	ctrl->event = VIRTIO_DTRACE_EOF;
+	vtdtr_fill_desc(q, ctrl);
 }
 
 static void
@@ -930,7 +970,16 @@ vtdtr_notify_ready(struct vtdtr_softc *sc)
 		return;
 	}
 
-	ctrl = &(ctrl_entry->ctrl);
+	ctrl_entry->ctrl = malloc(sizeof(struct virtio_dtrace_control),
+	    M_DEVBUF, M_NOWAIT | M_ZERO);
+
+	if (ctrl_entry->ctrl == NULL) {
+		device_printf(dev, "no memory to allocate a control entry");
+		free(ctrl_entry, M_DEVBUF);
+		return;
+	}
+
+	ctrl = ctrl_entry->ctrl;
 
 	ctrl->event = VIRTIO_DTRACE_DEVICE_READY;
 
@@ -958,8 +1007,6 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 	dev = sc->vtdtr_dev;
 	retval = 0;
 
-	device_printf(dev, "RX: Taskqueue interrupt\n");
-	
 	VTDTR_QUEUE_LOCK(rxq);
 
 	while ((ctrl = virtqueue_dequeue(rxq->vtdq_vq, &len)) != NULL) {
@@ -992,10 +1039,23 @@ vtdtr_rxq_vq_intr(void *xsc)
 	rxq = &sc->vtdtr_rxq;
 	dev = sc->vtdtr_dev;
 
-	device_printf(dev, "RX: VQ Interrupt\n");
 	taskqueue_enqueue(rxq->vtdq_tq, &rxq->vtdq_intrtask);
 	VTDTR_LOCK(sc);
 	vtdtr_vq_enable_intr(rxq);
+	VTDTR_UNLOCK(sc);
+}
+
+static void
+vtdtr_txq_vq_intr(void *xsc)
+{
+	struct vtdtr_softc *sc;
+	struct virtio_dtrace_queue *txq;
+
+	sc = xsc;
+	txq = &sc->vtdtr_txq;
+
+	VTDTR_LOCK(sc);
+	vtdtr_vq_enable_intr(txq);
 	VTDTR_UNLOCK(sc);
 }
 
@@ -1145,6 +1205,7 @@ vtdtr_run(void *xsc)
 
 	txq = &sc->vtdtr_txq;
 	vq = txq->vtdq_vq;
+	sc->vtdtr_ready = 1;
 
 	for (;;) {
 		nent = 0;
@@ -1153,25 +1214,28 @@ vtdtr_run(void *xsc)
 
 		mtx_lock(&sc->vtdtr_condmtx);
 		while ((vtdtr_cq_empty(sc->vtdtr_ctrlq) ||
-		    virtqueue_size(vq) <= 0)   ||
-		    sc->vtdtr_shutdown != 0) {
+		    virtqueue_full(vq) ||
+		    sc->vtdtr_ready == 0) &&
+		    (!sc->vtdtr_shutdown)) {
 			cv_wait(&sc->vtdtr_condvar, &sc->vtdtr_condmtx);
 		}
 		mtx_unlock(&sc->vtdtr_condmtx);
 
 		kthread_suspend_check();
 
-		KASSERT(vtdtr_cq_count(sc->vtdtr_ctrlq) > 0,
-		    ("%s: vtdtr_cq_count() == 0", __func__));
-		KASSERT(virtqueue_size(vq) > 0,
-		    ("%s: virtqueue_size() <= 0", __func__));
+		if (sc->vtdtr_shutdown == 0) {
+			KASSERT(!virtqueue_full(vq),
+			    ("%s: virtqueue is full", __func__));
+			KASSERT(!vtdtr_cq_empty(sc->vtdtr_ctrlq),
+			    ("%s: control queue is empty", __func__));
+		}
 
 		mtx_lock(&sc->vtdtr_ctrlq->mtx);
-		while (virtqueue_size(vq) > 0 &&
+		while (!virtqueue_full(vq) &&
 		    !vtdtr_cq_empty(sc->vtdtr_ctrlq)) {
 			ctrl_entry = vtdtr_cq_dequeue(sc->vtdtr_ctrlq);
 			mtx_unlock(&sc->vtdtr_ctrlq->mtx);
-			vtdtr_fill_desc(txq, &ctrl_entry->ctrl);
+			vtdtr_fill_desc(txq, ctrl_entry->ctrl);
 			free(ctrl_entry, M_DEVBUF);
 			nent++;
 			mtx_lock(&sc->vtdtr_ctrlq->mtx);
@@ -1192,7 +1256,9 @@ vtdtr_run(void *xsc)
 		if (mtx_owned(&sc->vtdtr_ctrlq->mtx))
 			mtx_unlock(&sc->vtdtr_ctrlq->mtx);
 
-		if (sc->vtdtr_shutdown != 0)
+		if (sc->vtdtr_shutdown == 1)
 			kthread_exit();
+
+		sc->vtdtr_ready = 0;
 	}
 }
