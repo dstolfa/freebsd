@@ -54,8 +54,8 @@ __FBSDID("$FreeBSD$");
 #include "virtio.h"
 #include "mevent.h"
 
-#define	VTDTR_RINGSZ			64
-#define	VTDTR_MAXQ			4
+#define	VTDTR_RINGSZ			512
+#define	VTDTR_MAXQ			2
 
 #define	VTDTR_DEVICE_READY		0x00
 #define	VTDTR_DEVICE_DESTROY		0x01
@@ -97,7 +97,6 @@ struct pci_vtdtrl_ctrl_provevent {
 
 struct pci_vtdtr_control {
 	uint32_t	event;
-	char		info[DTRACE_INSTANCENAMELEN];
 	union _uctrl {
 		struct pci_vtdtr_ctrl_pbevent		probe_ev;
 		struct pci_vtdtrl_ctrl_provevent	prov_ev;
@@ -124,13 +123,11 @@ struct pci_vtdtr_softc {
 	pthread_mutex_t			 vsd_condmtx;
 	pthread_cond_t			 vsd_cond;
 	pthread_mutex_t			 vsd_mtx;
-	uint64_t			 vsd_features;
 	uint64_t			 vsd_cfg;
 	int				 vsd_ready;
 };
 
 static void	pci_vtdtr_reset(void *);
-static void	pci_vtdtr_neg_features(void *, uint64_t);
 static void	pci_vtdtr_control_tx(struct pci_vtdtr_softc *,
            	    struct iovec *, int);
 static void	pci_vtdtr_signal_ready(struct pci_vtdtr_softc *);
@@ -164,7 +161,8 @@ static struct virtio_consts vtdtr_vi_consts = {
 	NULL,				/* device-wide qnotify */
 	NULL,				/* read virtio config */
 	NULL,				/* write virtio config */
-	pci_vtdtr_neg_features,		/* apply negotiated features */
+	NULL,				/* apply negotiated features */
+	0,				/* capabilities */
 };
 
 static void
@@ -179,13 +177,6 @@ pci_vtdtr_reset(void *vsc)
 	pci_vtdtr_reset_queue(sc);
 	vi_reset_dev(&sc->vsd_vs);
 	pthread_mutex_unlock(&sc->vsd_mtx);
-}
-
-static __inline void
-pci_vtdtr_neg_features(void *vsc, uint64_t negotiated_features)
-{
-	struct pci_vtdtr_softc *sc = vsc;
-	sc->vsd_features = negotiated_features;
 }
 
 static void
@@ -215,19 +206,23 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 	ctrl = (struct pci_vtdtr_control *)iov->iov_base;
 	switch (ctrl->event) {
 	case VTDTR_DEVICE_READY:
+		WPRINTF(("VTDTR_DEVICE_READY\n"));
 		pci_vtdtr_signal_ready(sc);
 		break;
 	case VTDTR_DEVICE_REGISTER:
 	case VTDTR_DEVICE_UNREGISTER:
 	case VTDTR_DEVICE_DESTROY:
+		WPRINTF(("VTDTR_PROVEVENT\n"));
 		pci_vtdtr_process_prov_evt(sc, ctrl);
 		break;
 	case VTDTR_DEVICE_PROBE_CREATE:
 	case VTDTR_DEVICE_PROBE_INSTALL:
 	case VTDTR_DEVICE_PROBE_UNINSTALL:
+		WPRINTF(("VTDTR_PROBEEVENT\n"));
 		pci_vtdtr_process_probe_evt(sc, ctrl);
 		break;
 	case VTDTR_DEVICE_EOF:
+		WPRINTF(("VTDTR_DEVICE_EOF\n"));
 		return (1);
 	default:
 		WPRINTF(("Warning: Unknown event: %u\n", ctrl->event));
@@ -272,12 +267,9 @@ pci_vtdtr_notify_rx(void *vsc, struct vqueue_info *vq)
 	uint16_t idx;
 	uint16_t flags[8];
 	int n;
-	int all_used;
 	int retval;
 
 	sc = vsc;
-	all_used = 0;
-
 	while (vq_has_descs(vq)) {
 		n = vq_getchain(vq, &idx, iov, 1, flags);
 		retval = pci_vtdtr_control_rx(sc, iov, 1);
@@ -286,8 +278,7 @@ pci_vtdtr_notify_rx(void *vsc, struct vqueue_info *vq)
 			break;
 	}
 
-	all_used = vq_has_descs(vq);
-	vq_endchains(vq, all_used);
+	vq_endchains(vq, 1);
 }
 
 static void
@@ -319,7 +310,6 @@ pci_vtdtr_handle_mev(int fd __unused, enum ev_type et __unused, int ne,
 		ctrl->event = VTDTR_DEVICE_PROBE_UNINSTALL;
 
 	ctrl->uctrl.probe_ev.probe = sc->vsd_pbi.id;
-	strcpy(ctrl->info, sc->vsd_pbi.instance);
 
 	pthread_mutex_lock(&sc->vsd_ctrlq->mtx);
 	pci_vtdtr_cq_enqueue(sc->vsd_ctrlq, ctrl_entry);
@@ -394,7 +384,6 @@ pci_vtdtr_run(void *xsc)
 	struct vqueue_info *vq;
 	uint32_t nent;
 	int error;
-	int all_used;
 
 	sc = xsc;
 	vq = &sc->vsd_queues[0];
@@ -402,7 +391,6 @@ pci_vtdtr_run(void *xsc)
 	for (;;) {
 		nent = 0;
 		error = 0;
-		all_used = 0;
 
 		/*
 		 * Wait for the conditions to be satisfied:
@@ -411,7 +399,7 @@ pci_vtdtr_run(void *xsc)
 		 */
 		error = pthread_mutex_lock(&sc->vsd_condmtx);
 		assert(error == 0);
-		while (!vq_has_descs(vq) ||
+		while (sc->vsd_ready == 0 || !vq_has_descs(vq) ||
 		    pci_vtdtr_cq_empty(sc->vsd_ctrlq)) {
 			error = pthread_cond_wait(&sc->vsd_cond, &sc->vsd_condmtx);
 			assert(error == 0);
@@ -458,8 +446,7 @@ pci_vtdtr_run(void *xsc)
 		}
 
 		if (nent) {
-			all_used = vq_has_descs(vq);
-			pci_vtdtr_poll(vq, all_used);
+			pci_vtdtr_poll(vq, 1);
 			sc->vsd_ready = 0;
 		}
 	}

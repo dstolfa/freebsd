@@ -79,7 +79,6 @@ struct vtdtr_ctrl_provevent {
 
 struct virtio_dtrace_control {
 	uint32_t	event;
-	char		info[DTRACE_INSTANCENAMELEN];
 	union _uctrl {
 		struct vtdtr_ctrl_pbevent	probe_ev;
 		struct vtdtr_ctrl_provevent	prov_ev;

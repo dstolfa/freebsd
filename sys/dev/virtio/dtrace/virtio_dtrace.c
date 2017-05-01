@@ -57,8 +57,6 @@ __FBSDID("$FreeBSD$");
 */
 #include "virtio_if.h"
 
-#define	VTDTR_BULK_BUFSZ	128
-
 struct vtdtr_pb {
 	uint32_t				vtdprobe_id;
 	LIST_ENTRY(vtdtr_pb)			vtdprobe_next;
@@ -154,12 +152,9 @@ static void	vtdtr_start_taskqueues(struct vtdtr_softc *);
 static void	vtdtr_drain_taskqueues(struct vtdtr_softc *);
 static int	vtdtr_vq_enable_intr(struct virtio_dtrace_queue *);
 static void	vtdtr_vq_disable_intr(struct virtio_dtrace_queue *);
-static void	vtdtr_tq_start(struct virtio_dtrace_queue *);
-static void	vtdtr_txq_tq_intr(void *, int);
 static void	vtdtr_rxq_tq_intr(void *, int);
 static void	vtdtr_notify_ready(struct vtdtr_softc *);
 static void	vtdtr_rxq_vq_intr(void *);
-static void	vtdtr_txq_vq_intr(void *);
 static int	vtdtr_init_txq(struct vtdtr_softc *, int);
 static int	vtdtr_init_rxq(struct vtdtr_softc *, int);
 static void	vtdtr_queue_destroy(struct virtio_dtrace_queue *);
@@ -484,7 +479,7 @@ vtdtr_alloc_virtqueues(struct vtdtr_softc *sc)
 	rxq = &sc->vtdtr_rxq;
 	txq = &sc->vtdtr_txq;
 	rxq->vtdq_vqintr = vtdtr_rxq_vq_intr;
-	txq->vtdq_vqintr = vtdtr_txq_vq_intr;
+	txq->vtdq_vqintr = NULL;
 	
 	info = malloc(sizeof(struct vq_alloc_info), M_TEMP, M_NOWAIT);
 	if (info == NULL)
@@ -492,7 +487,7 @@ vtdtr_alloc_virtqueues(struct vtdtr_softc *sc)
 
 	VQ_ALLOC_INFO_INIT(&info[0], sc->vtdtr_rx_nseg, rxq->vtdq_vqintr, sc,
 	    &rxq->vtdq_vq, "%s-control RX", device_get_nameunit(dev));
-	VQ_ALLOC_INFO_INIT(&info[1], sc->vtdtr_tx_nseg, txq->vtdq_vqintr, sc,
+	VQ_ALLOC_INFO_INIT(&info[1], sc->vtdtr_tx_nseg, NULL, sc,
 	    &txq->vtdq_vq, "%s-control TX", device_get_nameunit(dev));
 
 	error = virtio_alloc_virtqueues(dev, 0, 2, info);
@@ -588,7 +583,7 @@ vtdtr_queue_enqueue_ctrl(struct virtio_dtrace_queue *q,
 	error = sglist_append(&sg, ctrl, sizeof(struct virtio_dtrace_control));
 	KASSERT(error == 0, ("%s: error %d adding control to sglist",
 	    __func__, error));
-	
+
 	return (virtqueue_enqueue(vq, ctrl, &sg, readable, writable));
 }
 
@@ -818,11 +813,6 @@ vtdtr_start_taskqueues(struct vtdtr_softc *sc)
 	if (error)
 		device_printf(dev, "failed to start rx taskq %d\n",
 		    txq->vtdq_id);
-	error = taskqueue_start_threads(&txq->vtdq_tq, 1, PI_SOFT,
-	    "%s txq %d", device_get_nameunit(dev), txq->vtdq_id);
-	if (error)
-		device_printf(dev, "failed to start tx taskq %d\n",
-		    txq->vtdq_id);
 }
 
 /*
@@ -875,7 +865,6 @@ vtdtr_disable_interrupts(struct vtdtr_softc *sc)
 {
 	VTDTR_LOCK(sc);
 	vtdtr_vq_disable_intr(&sc->vtdtr_rxq);
-	vtdtr_vq_disable_intr(&sc->vtdtr_txq);
 	VTDTR_UNLOCK(sc);
 }
 
@@ -888,11 +877,7 @@ vtdtr_enable_interrupts(struct vtdtr_softc *sc)
 {
 	int retval;
 	VTDTR_LOCK(sc);
-	retval = vtdtr_vq_enable_intr(&sc->vtdtr_txq);
-	if (retval != 0)
-		goto end;
 	retval = vtdtr_vq_enable_intr(&sc->vtdtr_rxq);
-end:
 	VTDTR_UNLOCK(sc);
 
 	return (retval);
@@ -919,53 +904,11 @@ vtdtr_vq_disable_intr(struct virtio_dtrace_queue *q)
 }
 
 static void
-vtdtr_tq_start(struct virtio_dtrace_queue *q)
+vtdtr_send_eof(struct virtio_dtrace_queue *q)
 {
-	
-}
-
-/*
- * TODO:
- * This is the function that is called when an interrupt is
- * generated in the TX taskqueue.
- */
-static void
-vtdtr_txq_tq_intr(void *xtxq, int pending)
-{
-	struct vtdtr_softc *sc;
-	struct virtio_dtrace_queue *txq;
-	device_t dev;
-
-	txq = xtxq;
-	sc = txq->vtdq_sc;
-	dev = sc->vtdtr_dev;
-
-	device_printf(dev, "Am I to process this?\n");
-}
-
-static void
-vtdtr_send_eof(struct vtdtr_softc *sc)
-{
-	struct virtio_dtrace_queue *q;
-	struct virtio_dtrace_control *ctrl;
-	struct vtdtr_ctrl_entry *ctrl_entry;
-	device_t dev;
-
-	dev = sc->vtdtr_dev;
-	q = &sc->vtdtr_txq;
-
-	ctrl_entry = malloc(sizeof(struct vtdtr_ctrl_entry),
-	    M_DEVBUF, M_NOWAIT | M_ZERO);
-	if (ctrl_entry == NULL) {
-		device_printf(dev, "no memory to allocate a control entry");
-		return;
-	}
-
-	ctrl = &ctrl_entry->ctrl;
-
-	ctrl->event = VIRTIO_DTRACE_EOF;
-
-	vtdtr_cq_enqueue(sc->vtdtr_ctrlq, ctrl_entry);
+	struct virtio_dtrace_control ctrl;
+	ctrl.event = VIRTIO_DTRACE_EOF;
+	vtdtr_fill_desc(q, &ctrl);
 }
 
 static void
@@ -987,11 +930,12 @@ vtdtr_notify_ready(struct vtdtr_softc *sc)
 		return;
 	}
 
-	ctrl = &ctrl_entry->ctrl;
+	ctrl = &(ctrl_entry->ctrl);
 
 	ctrl->event = VIRTIO_DTRACE_DEVICE_READY;
 
 	vtdtr_cq_enqueue(sc->vtdtr_ctrlq, ctrl_entry);
+	cv_signal(&sc->vtdtr_condvar);
 }
 
 /*
@@ -1055,22 +999,6 @@ vtdtr_rxq_vq_intr(void *xsc)
 	VTDTR_UNLOCK(sc);
 }
 
-static void
-vtdtr_txq_vq_intr(void *xsc)
-{
-	struct vtdtr_softc *sc;
-	struct virtio_dtrace_queue *txq;
-	device_t dev;
-
-	sc = xsc;
-	dev = sc->vtdtr_dev;
-	txq = &sc->vtdtr_txq;
-
-	device_printf(dev, "TX: VQ Interrupt\n");
-	
-	taskqueue_enqueue(txq->vtdq_tq, &txq->vtdq_intrtask);
-}
-
 /*
  * This functions sets up all the necessary data for the correct
  * operation of a RX taskqueue of the VirtIO driver:
@@ -1126,11 +1054,7 @@ vtdtr_init_txq(struct vtdtr_softc *sc, int id)
 	txq->vtdq_sc = sc;
 	txq->vtdq_id = id;
 
-	TASK_INIT(&txq->vtdq_intrtask, 0, vtdtr_txq_tq_intr, txq);
-	txq->vtdq_tq = taskqueue_create(txq->vtdq_name, M_NOWAIT,
-	    taskqueue_thread_enqueue, &txq->vtdq_tq);
-
-	return (txq->vtdq_tq == NULL ? ENOMEM : 0);
+	return (0);
 }
 
 static void
@@ -1155,6 +1079,7 @@ static void
 vtdtr_cq_init(struct vtdtr_ctrlq *cq)
 {
 	STAILQ_INIT(&cq->head);
+	cq->n_entries = 0;
 }
 
 static __inline void
@@ -1226,11 +1151,13 @@ vtdtr_run(void *xsc)
 		error = 0;
 		all_used = 0;
 
-		while ((vtdtr_cq_empty(sc->vtdtr_ctrlq) &&
+		mtx_lock(&sc->vtdtr_condmtx);
+		while ((vtdtr_cq_empty(sc->vtdtr_ctrlq) ||
 		    virtqueue_size(vq) <= 0)   ||
 		    sc->vtdtr_shutdown != 0) {
 			cv_wait(&sc->vtdtr_condvar, &sc->vtdtr_condmtx);
 		}
+		mtx_unlock(&sc->vtdtr_condmtx);
 
 		kthread_suspend_check();
 
@@ -1254,7 +1181,7 @@ vtdtr_run(void *xsc)
 			if (vtdtr_cq_empty(sc->vtdtr_ctrlq) &&
 			   virtqueue_size(vq) > 0) {
 				mtx_unlock(&sc->vtdtr_ctrlq->mtx);
-				vtdtr_send_eof(sc);
+				vtdtr_send_eof(txq);
 			} else {
 				mtx_unlock(&sc->vtdtr_ctrlq->mtx);
 			}
