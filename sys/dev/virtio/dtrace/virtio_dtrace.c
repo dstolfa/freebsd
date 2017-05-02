@@ -1009,6 +1009,10 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 
 	VTDTR_QUEUE_LOCK(rxq);
 
+	/*
+	 * TODO: Handle when only ready gets sent -- we do not want to
+	 * recurse between the guest and host
+	 */
 	while ((ctrl = virtqueue_dequeue(rxq->vtdq_vq, &len)) != NULL) {
 		VTDTR_QUEUE_UNLOCK(rxq);
 		KASSERT(len == sizeof(struct virtio_dtrace_control),
@@ -1222,6 +1226,7 @@ vtdtr_run(void *xsc)
 		mtx_unlock(&sc->vtdtr_condmtx);
 
 		kthread_suspend_check();
+		sc->vtdtr_ready = 0;
 
 		if (sc->vtdtr_shutdown == 0) {
 			KASSERT(!virtqueue_full(vq),
@@ -1259,6 +1264,5 @@ vtdtr_run(void *xsc)
 		if (sc->vtdtr_shutdown == 1)
 			kthread_exit();
 
-		sc->vtdtr_ready = 0;
 	}
 }
