@@ -166,6 +166,8 @@ static void	vtdtr_fill_desc(struct virtio_dtrace_queue *,
 static void	vtdtr_cq_init(struct vtdtr_ctrlq *);
 static void	vtdtr_cq_enqueue(struct vtdtr_ctrlq *,
            	    struct vtdtr_ctrl_entry *);
+static void	vtdtr_cq_enqueue_front(struct vtdtr_ctrlq *,
+           	    struct vtdtr_ctrl_entry *);
 static int	vtdtr_cq_empty(struct vtdtr_ctrlq *);
 static size_t	vtdtr_cq_count(struct vtdtr_ctrlq *);
 static struct vtdtr_ctrl_entry * vtdtr_cq_dequeue(struct vtdtr_ctrlq *);
@@ -358,6 +360,7 @@ vtdtr_attach(device_t dev)
 	vtdtr_start_taskqueues(sc);
 	kthread_add(vtdtr_run, sc, NULL, &sc->vtdtr_commtd,
 	    0, 0, NULL, "vtdtr_communicator");
+	sc->vtdtr_ready = 1;
 	vtdtr_notify_ready(sc);
 fail:
 	if (error)
@@ -608,7 +611,7 @@ vtdtr_drain_virtqueue(struct virtio_dtrace_queue *q)
 		free(ctrl, M_DEVBUF);
 	}
 	VTDTR_QUEUE_UNLOCK(q);
-	sc->vtdtr_ready = 1;
+	q->vtdq_ready = 1;
 	cv_signal(&sc->vtdtr_condvar);
 }
 
@@ -617,10 +620,10 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
 {
 	device_t dev;
-	int error;
+	int retval;
 	
 	dev = sc->vtdtr_dev;
-	error = 0;
+	retval = 0;
 
 	/*
 	 * XXX: Double switch statement... meh.
@@ -633,7 +636,7 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 	case VIRTIO_DTRACE_REGISTER:
 	case VIRTIO_DTRACE_UNREGISTER:
 		device_printf(dev, "VIRTIO_DTRACE_PROVEVENT\n");
-		error = vtdtr_ctrl_process_provaction(sc, ctrl);
+		retval = vtdtr_ctrl_process_provaction(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_DESTROY:
 		device_printf(dev, "VIRTIO_DTRACE_SELFDESTROY\n");
@@ -643,16 +646,17 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 	case VIRTIO_DTRACE_PROBE_INSTALL:
 	case VIRTIO_DTRACE_PROBE_UNINSTALL:
 		device_printf(dev, "VIRTIO_DTRACE_PROBEEVENT\n");
-		error = vtdtr_ctrl_process_probeaction(sc, ctrl);
+		retval = vtdtr_ctrl_process_probeaction(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_EOF:
 		device_printf(dev, "VIRTIO_DTRACE_EOF\n");
-		return (1);
+		retval = 1;
+		break;
 	default:
 		device_printf(dev, "WARNING: Wrong control event: %x\n", ctrl->event);
 	}
 
-	return (error);
+	return (retval);
 }
 
 static int
@@ -983,7 +987,9 @@ vtdtr_notify_ready(struct vtdtr_softc *sc)
 
 	ctrl->event = VIRTIO_DTRACE_DEVICE_READY;
 
-	vtdtr_cq_enqueue(sc->vtdtr_ctrlq, ctrl_entry);
+	mtx_lock(&sc->vtdtr_ctrlq->mtx);
+	vtdtr_cq_enqueue_front(sc->vtdtr_ctrlq, ctrl_entry);
+	mtx_unlock(&sc->vtdtr_ctrlq->mtx);
 	cv_signal(&sc->vtdtr_condvar);
 }
 
@@ -1018,6 +1024,12 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 		KASSERT(len == sizeof(struct virtio_dtrace_control),
 		    ("%s: wrong control message length: %u, expected %zu",
 		     __func__, len, sizeof(struct virtio_dtrace_control)));
+		VTDTR_LOCK(sc);
+		if (sc->vtdtr_ready == 1 &&
+		    ctrl->event != VIRTIO_DTRACE_DEVICE_READY &&
+		    ctrl->event != VIRTIO_DTRACE_EOF)
+			sc->vtdtr_ready = 0;
+		VTDTR_UNLOCK(sc);
 
 		retval = vtdtr_ctrl_process_event(sc, ctrl);
 
@@ -1029,7 +1041,12 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 
 	VTDTR_QUEUE_UNLOCK(rxq);
 
-	vtdtr_notify_ready(sc);
+	VTDTR_LOCK(sc);
+	if (sc->vtdtr_ready == 0) {
+		sc->vtdtr_ready = 1;
+		vtdtr_notify_ready(sc);
+	}
+	VTDTR_UNLOCK(sc);
 }
 
 static void
@@ -1154,6 +1171,14 @@ vtdtr_cq_enqueue(struct vtdtr_ctrlq *cq,
 	cq->n_entries++;
 }
 
+static __inline void
+vtdtr_cq_enqueue_front(struct vtdtr_ctrlq *cq,
+    struct vtdtr_ctrl_entry *ctrl_entry)
+{
+	STAILQ_INSERT_HEAD(&cq->head, ctrl_entry, entries);
+	cq->n_entries++;
+}
+
 static __inline int
 vtdtr_cq_empty(struct vtdtr_ctrlq *cq)
 {
@@ -1209,7 +1234,7 @@ vtdtr_run(void *xsc)
 
 	txq = &sc->vtdtr_txq;
 	vq = txq->vtdq_vq;
-	sc->vtdtr_ready = 1;
+	txq->vtdq_ready = 1;
 
 	for (;;) {
 		nent = 0;
@@ -1219,14 +1244,14 @@ vtdtr_run(void *xsc)
 		mtx_lock(&sc->vtdtr_condmtx);
 		while ((vtdtr_cq_empty(sc->vtdtr_ctrlq) ||
 		    virtqueue_full(vq) ||
-		    sc->vtdtr_ready == 0) &&
+		    txq->vtdq_ready == 0) &&
 		    (!sc->vtdtr_shutdown)) {
 			cv_wait(&sc->vtdtr_condvar, &sc->vtdtr_condmtx);
 		}
 		mtx_unlock(&sc->vtdtr_condmtx);
 
 		kthread_suspend_check();
-		sc->vtdtr_ready = 0;
+		txq->vtdq_ready = 0;
 
 		if (sc->vtdtr_shutdown == 0) {
 			KASSERT(!virtqueue_full(vq),

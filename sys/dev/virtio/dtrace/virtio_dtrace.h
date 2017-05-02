@@ -94,6 +94,7 @@ struct virtio_dtrace_queue {
 	struct taskqueue	*vtdq_tq;
 	struct task		 vtdq_intrtask;
 	char			 vtdq_name[16];
+	int			 vtdq_ready;
 };
 
 struct vtdtr_ctrl_entry {
