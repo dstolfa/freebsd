@@ -126,7 +126,6 @@ struct pci_vtdtr_softc {
 	uint64_t			 vsd_cfg;
 	int				 vsd_guest_ready;
 	int				 vsd_ready;
-	int				 vsd_intr;
 };
 
 static void	pci_vtdtr_reset(void *);
@@ -500,7 +499,6 @@ pci_vtdtr_run(void *xsc)
 			pci_vtdtr_poll(vq, 1);
 		}
 
-		sc->vsd_intr = 0;
 	}
 
 	pthread_exit(NULL);
@@ -545,7 +543,6 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 	sc->vsd_vs.vs_mtx = &sc->vsd_mtx;
 	sc->vsd_vmctx = ctx;
 	sc->vsd_ready = 0;
-	sc->vsd_intr = 0;
 
 	sc->vsd_queues[0].vq_qsize = VTDTR_RINGSZ;
 	sc->vsd_queues[0].vq_notify = pci_vtdtr_notify_tx;
