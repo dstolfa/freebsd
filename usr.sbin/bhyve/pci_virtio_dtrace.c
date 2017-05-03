@@ -126,6 +126,7 @@ struct pci_vtdtr_softc {
 	uint64_t			 vsd_cfg;
 	int				 vsd_guest_ready;
 	int				 vsd_ready;
+	int				 vsd_intr;
 };
 
 static void	pci_vtdtr_reset(void *);
@@ -289,7 +290,6 @@ pci_vtdtr_notify_rx(void *xsc, struct vqueue_info *vq)
 
 	pthread_mutex_lock(&sc->vsd_mtx);
 	if (sc->vsd_ready == 0) {
-		sc->vsd_ready = 1;
 		pci_vtdtr_notify_ready(sc);
 	}
 	pthread_mutex_unlock(&sc->vsd_mtx);
@@ -408,6 +408,7 @@ pci_vtdtr_notify_ready(struct pci_vtdtr_softc *sc)
 	pci_vtdtr_cq_enqueue_front(sc->vsd_ctrlq, ctrl_entry);
 	pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
 
+	sc->vsd_ready = 1;
 	pthread_mutex_lock(&sc->vsd_condmtx);
 	pthread_cond_signal(&sc->vsd_cond);
 	pthread_mutex_unlock(&sc->vsd_condmtx);
@@ -484,26 +485,22 @@ pci_vtdtr_run(void *xsc)
 		 * EOF descriptor to send to the guest. Following that, we end
 		 * the chains and force an interrupt in the guest
 		 */
-		if (pci_vtdtr_cq_empty(sc->vsd_ctrlq) &&
-		    vq_has_descs(vq)) {
-			error = pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
-			assert(error == 0);
-			if (nent) {
-				pci_vtdtr_fill_eof_desc(vq);
-			}
-		} else {
-			error = pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
-			assert(error == 0);
-		}
 
 		if (nent) {
+			if (pci_vtdtr_cq_empty(sc->vsd_ctrlq) &&
+			    vq_has_descs(vq)) {
+				pci_vtdtr_fill_eof_desc(vq);
+			}
 			printf("ready flag = %d\n", ready_flag);
 			sc->vsd_guest_ready = ready_flag;
 			pthread_mutex_lock(&sc->vsd_mtx);
 			sc->vsd_ready = ready_flag;
 			pthread_mutex_unlock(&sc->vsd_mtx);
+			error = pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
 			pci_vtdtr_poll(vq, 1);
 		}
+
+		sc->vsd_intr = 0;
 	}
 
 	pthread_exit(NULL);
@@ -548,6 +545,7 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 	sc->vsd_vs.vs_mtx = &sc->vsd_mtx;
 	sc->vsd_vmctx = ctx;
 	sc->vsd_ready = 0;
+	sc->vsd_intr = 0;
 
 	sc->vsd_queues[0].vq_qsize = VTDTR_RINGSZ;
 	sc->vsd_queues[0].vq_notify = pci_vtdtr_notify_tx;
