@@ -785,7 +785,15 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROVIDER\n",__func__,__LINE__);
 
+		pvd->dtvd_instance[DTRACE_INSTANCENAMELEN - 1] = '\0';
 		pvd->dtvd_name[DTRACE_PROVNAMELEN - 1] = '\0';
+
+		if (pvd->dtvd_uuid != NULL) {
+			if ((puuid = dtrace_uuid_copyin(
+			    (uintptr_t) pvd->dtvd_uuid, &reval)) == NULL)
+				return (EINVAL);
+		}
+
 		mutex_enter(&dtrace_provider_lock);
 
 		for (pvp = dtrace_provider; pvp != NULL; pvp = pvp->dtpv_next) {
@@ -908,6 +916,39 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		mutex_exit(&dtrace_lock);
 
 		return (rval);
+	}
+	case DTRACEIOC_PROVCREATE: {
+		dtrace_providerdesc_t *pvd = (dtrace_providerdesc_t *) addr;
+		dtrace_provider_id_t provid;
+		dtrace_pops_t *ppops;
+		struct uuid *puuid;
+		dtrace_pattr_t pattr;
+		dtrace_ppriv_t priv;
+		int purpose;
+
+		puuid = NULL;
+		pvd->dtvd_instance[DTRACE_INSTANCENAMELEN - 1] = '\0';
+		pvd->dtvd_name[DTRACE_PROVNAMELEN - 1] = '\0';
+
+		purpose = pvd->dtvd_purpose;
+		
+		if (pvd->dtvd_uuid != NULL) {
+			if ((puuid = dtrace_uuid_copyin(
+			    (uintptr_t) pvd->dtvd_uuid, &reval)) == NULL)
+				return (EINVAL);
+		}
+
+		ASSERT(purpose < DTRACE_PURPOSE_POPS_MAX);
+		ppops = provider_ops[purpose];
+		bcopy(&priv, &pvd->dtvd_priv, sizeof (dtrace_ppriv_t));
+		bcopy(&pattr, &pvd->dtvd_attr, sizeof (dtrace_pattr_t));
+
+		dtrace_distributed_register(pvd->dtvd_name, pvd->dtvd_instance,
+		    puuid, &pattr, priv.dtpp_flags, NULL, ppops, NULL, &provid);
+
+		pvd->dtvd_id = provid;
+
+		return (0);
 	}
 	default:
 		error = ENOTTY;

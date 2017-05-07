@@ -1277,10 +1277,16 @@ typedef struct dtrace_pattr {
 } dtrace_pattr_t;
 
 typedef struct dtrace_providerdesc {
-	char dtvd_instance[DTRACE_INSTANCENAMELEN];	/* instance name */
-	char dtvd_name[DTRACE_PROVNAMELEN];		/* provider name */
-	dtrace_pattr_t dtvd_attr;			/* stability attributes */
-	dtrace_ppriv_t dtvd_priv;			/* privileges required */
+	char		dtvd_instance[DTRACE_INSTANCENAMELEN];
+	    						/* instance name */
+	char		dtvd_name[DTRACE_PROVNAMELEN];
+	    						/* provider name */
+	struct uuid	*dtvd_uuid;			/* guest UUID */
+	dtrace_pattr_t	dtvd_attr;			/* stability attributes */
+	dtrace_ppriv_t	dtvd_priv;			/* privileges required */
+	int		dtvd_purpose;			/* provider purpose */
+#define	DTRACE_PROV_PURPOSE_NONE	0x00
+#define	DTRACE_PROV_PURPOSE_VIRT	0x01
 } dtrace_providerdesc_t;
 
 /*
@@ -1345,6 +1351,8 @@ typedef struct {
 							/* get DOF */
 #define	DTRACEIOC_REPLICATE	_IOW('x',18,dtrace_repldesc_t)	
 							/* replicate enab */
+#define	DTRACEIOC_PROVCREATE	_IOWR('x',19,dtrace_providerdesc_t)
+                            	                        /* create provider */
 #endif
 
 /*

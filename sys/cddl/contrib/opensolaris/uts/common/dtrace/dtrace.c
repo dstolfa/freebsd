@@ -8856,7 +8856,7 @@ dtrace_instance_lookup(const char *name)
  */
 int
 dtrace_distributed_register(const char *name, const char *istcname,
-    const dtrace_pattr_t *pap, uint32_t priv, cred_t *cr,
+    struct uuid *uuid, const dtrace_pattr_t *pap, uint32_t priv, cred_t *cr,
     const dtrace_pops_t *pops, void *arg, dtrace_provider_id_t *idp)
 {
 
@@ -8993,10 +8993,12 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	 * UUIDs across different machines.
 	 */
 	if (strcmp(provider->dtpv_instance, "host") != 0) {
-		*(provider->dtpv_advuuid) = *(provider->dtpv_uuid);
+		ASSERT(uuid != NULL);
+		*(provider->dtpv_advuuid) = uuid;
 		uuid_generate_version5(provider->dtpv_uuid, provider->dtpv_advuuid,
 		    provider->dtpv_instance, strlen(provider->dtpv_instance));
 	} else {
+		ASSERT(uuid == NULL);
 		provider->dtpv_uuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
 		(void) kern_uuidgen(provider->dtpv_uuid, 1);
 	}
@@ -9055,7 +9057,27 @@ inline int
 dtrace_register(const char *name, const dtrace_pattr_t *pap, uint32_t priv,
     cred_t *cr, const dtrace_pops_t *pops, void *arg, dtrace_provider_id_t *idp)
 {
-	return (dtrace_distributed_register(name, "host", pap, priv, cr, pops, arg, idp));
+	return (dtrace_distributed_register(name, "host", NULL, pap,
+	    priv, cr, pops, arg, idp));
+}
+
+static uuid *
+dtrace_uuid_copyin(uintptr_t uarg, int *errp)
+{
+	struct uuid *uuid;
+
+	ASSERT(!MUTEX_HELD(&dtrace_lock));
+
+	uuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
+
+	if (copyin((void *)uarg, uuid, sizeof (struct uuid)) != 0) {
+		if (dtrace_err_verbose)
+			cmn_err(CE_WARN, "failed to copyin the provider UUID", str);
+		*errp = EFAULT;
+		return (NULL);
+	}
+
+	return (uuid);
 }
 
 /*
