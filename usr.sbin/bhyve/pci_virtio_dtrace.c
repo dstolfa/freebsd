@@ -212,25 +212,21 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 	ctrl = (struct pci_vtdtr_control *)iov->iov_base;
 	switch (ctrl->event) {
 	case VTDTR_DEVICE_READY:
-		WPRINTF(("VTDTR_DEVICE_READY\n"));
 		pci_vtdtr_signal_ready(sc);
 		break;
 	case VTDTR_DEVICE_REGISTER:
 	case VTDTR_DEVICE_UNREGISTER:
 	case VTDTR_DEVICE_DESTROY:
-		WPRINTF(("VTDTR_PROVEVENT\n"));
 		pci_vtdtr_process_prov_evt(sc, ctrl);
 		retval = 2;
 		break;
 	case VTDTR_DEVICE_PROBE_CREATE:
 	case VTDTR_DEVICE_PROBE_INSTALL:
 	case VTDTR_DEVICE_PROBE_UNINSTALL:
-		WPRINTF(("VTDTR_PROBEEVENT\n"));
 		pci_vtdtr_process_probe_evt(sc, ctrl);
 		retval = 2;
 		break;
 	case VTDTR_DEVICE_EOF:
-		WPRINTF(("VTDTR_DEVICE_EOF\n"));
 		break;
 	default:
 		WPRINTF(("Warning: Unknown event: %u\n", ctrl->event));
@@ -249,6 +245,9 @@ pci_vtdtr_process_prov_evt(struct pci_vtdtr_softc *sc,
 	 * necessary, or do we want a layer that DTrace talks
 	 * to and simply delegates it towards the virtio driver?
 	 */
+
+	dtrace_hdl_t *dtp;
+	dtrace_probedesc_t *pdp;
 }
 
 static void
@@ -490,14 +489,14 @@ pci_vtdtr_run(void *xsc)
 			    vq_has_descs(vq)) {
 				pci_vtdtr_fill_eof_desc(vq);
 			}
-			printf("ready flag = %d\n", ready_flag);
 			sc->vsd_guest_ready = ready_flag;
 			pthread_mutex_lock(&sc->vsd_mtx);
 			sc->vsd_ready = ready_flag;
 			pthread_mutex_unlock(&sc->vsd_mtx);
-			error = pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
 			pci_vtdtr_poll(vq, 1);
 		}
+
+		error = pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
 
 	}
 

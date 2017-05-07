@@ -34,6 +34,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/malloc.h>
 #include <sys/module.h>
+#include <sys/sysctl.h>
 #include <sys/condvar.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
@@ -57,9 +58,14 @@ __FBSDID("$FreeBSD$");
 */
 #include "virtio_if.h"
 
-struct vtdtr_pb {
+struct vtdtr_probe {
 	uint32_t				vtdprobe_id;
-	LIST_ENTRY(vtdtr_pb)			vtdprobe_next;
+	LIST_ENTRY(vtdtr_probe)			vtdprobe_next;
+};
+
+struct vtdtr_probelist {
+	LIST_HEAD(, vtdtr_probe)	head;
+	struct mtx			mtx;
 };
 
 struct vtdtr_softc {
@@ -85,8 +91,7 @@ struct vtdtr_softc {
 	 * and host DTrace. The driver is the one asking to install
 	 * or uninstall the probes on the guest, as instructed by host.
 	 */
-	LIST_HEAD(, vtdtr_pb)			vtdtr_enabled_probes;
-	struct mtx				vtdtr_probe_list_mtx;
+	struct vtdtr_probelist			*vtdtr_probelist;
 
 	int					vtdtr_shutdown;
 	int					vtdtr_ready;
@@ -107,6 +112,12 @@ static MALLOC_DEFINE(M_VTDTR, "vtdtr", "VirtIO DTrace memory");
     (mtx_assert(&((__sc)->vtdtr_mtx), MA_OWNED))
 #define	VTDTR_LOCK_ASSERT_NOTOWNED(__sc) \
     (mtx_assert(&((__sc)->vtdtr_mtx), MA_NOTOWNED))
+
+SYSCTL_NODE(_dev, OID_AUTO, vtdtr, CTLFLAG_RD, NULL, NULL);
+
+static uint32_t num_dtprobes;
+SYSCTL_U32(_dev_vtdtr, OID_AUTO, nprobes, CTLFLAG_RD, &num_dtprobes, 0,
+    "Number of installed probes through virtio-dtrace");
 
 static int	vtdtr_modevent(module_t, int, void *);
 static void	vtdtr_cleanup(void);
@@ -284,6 +295,7 @@ vtdtr_attach(device_t dev)
 
 	sc = device_get_softc(dev);
 	sc->vtdtr_dev = dev;
+	mtx_init(&sc->vtdtr_mtx, "vtdtrmtx", NULL, MTX_DEF);
 	sc->vtdtr_rx_nseg = 1;
 	sc->vtdtr_tx_nseg = 1;
 	sc->vtdtr_shutdown = 0;
@@ -296,10 +308,20 @@ vtdtr_attach(device_t dev)
 		    " for the control queue");
 		goto fail;
 	}
+	mtx_init(&sc->vtdtr_ctrlq->mtx, "vtdtrctrlqmtx", NULL, MTX_DEF);
 
 	vtdtr_cq_init(sc->vtdtr_ctrlq);
 
-	mtx_init(&sc->vtdtr_mtx, "vtdtrmtx", NULL, MTX_DEF);
+	sc->vtdtr_probelist = malloc(sizeof(struct vtdtr_probelist),
+	    M_VTDTR, M_NOWAIT | M_ZERO);
+	if (sc->vtdtr_probelist == NULL) {
+		error = ENOMEM;
+		device_printf(dev, "cannot allocate memory"
+		    " for the probe list");
+		goto fail;
+	}
+	mtx_init(&sc->vtdtr_probelist->mtx, "vtdtrpblistmtx", NULL, MTX_DEF);
+
 
 	virtio_set_feature_desc(dev, vtdtr_feature_desc);
 	vtdtr_setup_features(sc);
@@ -340,10 +362,7 @@ vtdtr_attach(device_t dev)
 		goto fail;
 	}
 
-	mtx_init(&sc->vtdtr_ctrlq->mtx, "vtdtrctrlqmtx", NULL, MTX_DEF);
 
-	cv_init(&sc->vtdtr_condvar, "Virtio DTrace CV");
-	mtx_init(&sc->vtdtr_condmtx, "vtdtrcondmtx", NULL, MTX_DEF);
 
 	sc->vtdtr_commtd = malloc(sizeof(struct thread), M_VTDTR,
 	    M_NOWAIT | M_ZERO);
@@ -354,6 +373,8 @@ vtdtr_attach(device_t dev)
 		    " for the communicator thread");
 		goto fail;
 	}
+	cv_init(&sc->vtdtr_condvar, "Virtio DTrace CV");
+	mtx_init(&sc->vtdtr_condmtx, "vtdtrcondmtx", NULL, MTX_DEF);
 
 	vtdtr_enable_interrupts(sc);
 
@@ -467,7 +488,9 @@ vtdtr_setup_features(struct vtdtr_softc *sc)
 static __inline void
 vtdtr_alloc_probelist(struct vtdtr_softc *sc)
 {
-	LIST_INIT(&sc->vtdtr_enabled_probes);
+	mtx_lock(&sc->vtdtr_probelist->mtx);
+	LIST_INIT(&sc->vtdtr_probelist->head);
+	mtx_unlock(&sc->vtdtr_probelist->mtx);
 }
 
 /*
@@ -630,26 +653,21 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 	 */
 	switch (ctrl->event) {
 	case VIRTIO_DTRACE_DEVICE_READY:
-		device_printf(dev, "VIRTIO_DTRACE_DEVICE_READY\n");
 		vtdtr_drain_virtqueue(&sc->vtdtr_txq);
 		break;
 	case VIRTIO_DTRACE_REGISTER:
 	case VIRTIO_DTRACE_UNREGISTER:
-		device_printf(dev, "VIRTIO_DTRACE_PROVEVENT\n");
 		retval = vtdtr_ctrl_process_provaction(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_DESTROY:
-		device_printf(dev, "VIRTIO_DTRACE_SELFDESTROY\n");
 		vtdtr_ctrl_process_selfdestroy(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_PROBE_CREATE:
 	case VIRTIO_DTRACE_PROBE_INSTALL:
 	case VIRTIO_DTRACE_PROBE_UNINSTALL:
-		device_printf(dev, "VIRTIO_DTRACE_PROBEEVENT\n");
 		retval = vtdtr_ctrl_process_probeaction(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_EOF:
-		device_printf(dev, "VIRTIO_DTRACE_EOF\n");
 		retval = 1;
 		break;
 	default:
@@ -774,14 +792,19 @@ static int
 vtdtr_ctrl_process_probe_install(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl /* UNUSED */)
 {
-	struct vtdtr_pb *probe;
+	struct vtdtr_probelist *list;
+	struct vtdtr_probe *probe;
 
-	probe = malloc(sizeof(struct vtdtr_pb), M_VTDTR, M_NOWAIT | M_ZERO);
+	list = sc->vtdtr_probelist;
+	probe = malloc(sizeof(struct vtdtr_probe), M_VTDTR, M_NOWAIT | M_ZERO);
 	if (probe == NULL)
 		return (ENOMEM);
+
 	probe->vtdprobe_id = ctrl->uctrl.probe_ev.probe;
-	LIST_INSERT_HEAD(&sc->vtdtr_enabled_probes, probe, vtdprobe_next);
-	printf("Probe = %d\n", probe->vtdprobe_id);
+	mtx_lock(&list->mtx);
+	LIST_INSERT_HEAD(&list->head, probe, vtdprobe_next);
+	num_dtprobes++;
+	mtx_unlock(&list->mtx);
 /*	dtrace_probeid_disable(probe->vtdprobe_id); */
 	return (0);
 }
@@ -796,20 +819,25 @@ static int
 vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
 {
-	struct vtdtr_pb *probe;
-	struct vtdtr_pb *ptmp;
+	struct vtdtr_probelist *list;
+	struct vtdtr_probe *probe;
+	struct vtdtr_probe *ptmp;
 	uint32_t probeid;
 
 	/*dtrace_probeid_enable(ctrl->value); */
 
 	probeid = ctrl->uctrl.probe_ev.probe;
-	printf("Probe = %d\n", probeid);
-	LIST_FOREACH_SAFE(probe, &sc->vtdtr_enabled_probes, vtdprobe_next, ptmp) {
+	list = sc->vtdtr_probelist;
+
+	mtx_lock(&list->mtx);
+	LIST_FOREACH_SAFE(probe, &list->head, vtdprobe_next, ptmp) {
 		if (probe->vtdprobe_id == probeid) {
 			LIST_REMOVE(probe, vtdprobe_next);
 			free(probe, M_VTDTR);
+			num_dtprobes--;
 		}
 	}
+	mtx_unlock(&list->mtx);
 
 	return (0);
 }
@@ -821,12 +849,19 @@ vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
 static void
 vtdtr_destroy_probelist(struct vtdtr_softc *sc)
 {
-	struct vtdtr_pb *tmp = NULL;
-	while (!LIST_EMPTY(&sc->vtdtr_enabled_probes)) {
-		tmp = LIST_FIRST(&sc->vtdtr_enabled_probes);
+	struct vtdtr_probelist *list;
+	struct vtdtr_probe *tmp;
+
+	list = sc->vtdtr_probelist;
+	tmp = NULL;
+
+	mtx_lock(&list->mtx);
+	while (!LIST_EMPTY(&list->head)) {
+		tmp = LIST_FIRST(&list->head);
 		LIST_REMOVE(tmp, vtdprobe_next);
 		free(tmp, M_VTDTR);
 	}
+	mtx_unlock(&list->mtx);
 }
 
 /*
@@ -1241,6 +1276,7 @@ vtdtr_run(void *xsc)
 		error = 0;
 		all_used = 0;
 
+		printf("vtdq_ready = %d\n", txq->vtdq_ready);
 		mtx_lock(&sc->vtdtr_condmtx);
 		while ((vtdtr_cq_empty(sc->vtdtr_ctrlq) ||
 		    virtqueue_full(vq) ||
@@ -1252,6 +1288,7 @@ vtdtr_run(void *xsc)
 
 		kthread_suspend_check();
 		txq->vtdq_ready = 0;
+		printf("vtdq_ready = %d\n", txq->vtdq_ready);
 
 		if (sc->vtdtr_shutdown == 0) {
 			KASSERT(!virtqueue_full(vq),
@@ -1273,18 +1310,15 @@ vtdtr_run(void *xsc)
 
 		if (nent) {
 			if (vtdtr_cq_empty(sc->vtdtr_ctrlq) &&
-			   virtqueue_size(vq) > 0) {
-				mtx_unlock(&sc->vtdtr_ctrlq->mtx);
+			   !virtqueue_full(vq)) {
 				vtdtr_send_eof(txq);
-			} else {
-				mtx_unlock(&sc->vtdtr_ctrlq->mtx);
 			}
 
 			vtdtr_poll(txq);
 		}
 
-		if (mtx_owned(&sc->vtdtr_ctrlq->mtx))
-			mtx_unlock(&sc->vtdtr_ctrlq->mtx);
+		mtx_unlock(&sc->vtdtr_ctrlq->mtx);
+		printf("vtdq_ready = %d\n", txq->vtdq_ready);
 
 		if (sc->vtdtr_shutdown == 1)
 			kthread_exit();
