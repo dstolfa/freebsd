@@ -950,6 +950,9 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 
 		return (0);
 	}
+	case DTRACEIOC_PROBECREATE: {
+		return (0);
+	}
 	default:
 		error = ENOTTY;
 	}

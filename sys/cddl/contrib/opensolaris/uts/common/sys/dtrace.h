@@ -1353,6 +1353,8 @@ typedef struct {
 							/* replicate enab */
 #define	DTRACEIOC_PROVCREATE	_IOWR('x',19,dtrace_providerdesc_t)
                             	                        /* create provider */
+#define	DTRACEIOC_PROBECREATE	_IOWR('x',19,dtrace_providerdesc_t)
+                            	                        /* create probe */
 #endif
 
 /*
