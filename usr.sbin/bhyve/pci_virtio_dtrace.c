@@ -245,9 +245,6 @@ pci_vtdtr_process_prov_evt(struct pci_vtdtr_softc *sc,
 	 * necessary, or do we want a layer that DTrace talks
 	 * to and simply delegates it towards the virtio driver?
 	 */
-
-	dtrace_hdl_t *dtp;
-	dtrace_probedesc_t *pdp;
 }
 
 static void

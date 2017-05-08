@@ -273,6 +273,7 @@ cddl/dev/profile/profile.c		optional dtrace_profile  | dtraceall compile-with "$
 cddl/dev/sdt/sdt.c			optional dtrace_sdt      | dtraceall compile-with "${CDDL_C}"
 cddl/dev/fbt/fbt.c			optional dtrace_fbt      | dtraceall compile-with "${FBT_C}"
 cddl/dev/systrace/systrace.c		optional dtrace_systrace | dtraceall compile-with "${CDDL_C}"
+cddl/dev/dtvirt/dtvirt.c		optional dtrace_virt     | dtraceall compile-with "${CDDL_C}"
 cddl/dev/prototype.c			optional dtrace_prototype | dtraceall compile-with "${CDDL_C}"
 fs/nfsclient/nfs_clkdtrace.c		optional dtnfscl nfscl   | dtraceall nfscl compile-with "${CDDL_C}"
 compat/cloudabi/cloudabi_clock.c	optional compat_cloudabi32 | compat_cloudabi64

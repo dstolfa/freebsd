@@ -28,65 +28,29 @@
 
 #include <sys/dtrace.h>
 
-typedef struct dtrace_virt_probes {
+typedef struct dtrace_virt_probe {
 	char		(*arg_types)[DTRACE_ARGTYPELEN];
 	dtrace_id_t	id;
 	int		enabled;
-} dtrace_virt_probes_t;
-
-/*
- * XXX(dstolfa): It's still questionable whether this should be a tree, a hash
- * table or simply an array. For the sake of simplicity, keep it an array for
- * now
- */
-typedef struct dtrace_virt_params {
-	dtrace_virt_probe **probe_array;
-} dtrace_virt_params_t;
+} dtrace_virt_probe_t;
 
 extern void	(*dtvirt_hook_commit)(const char *, dtrace_id_t,
            	    uintptr_t, uintptr_t, uintptr_t,
 		    uintptr_t, uintptr_t);
+extern void	(*dtvirt_hook_provide)(void *, dtrace_probedesc_t *);
+extern void	(*dtvirt_hook_enable)(void *, dtrace_id_t, void *);
+extern void	(*dtvirt_hook_disable)(void *, dtrace_id_t, void *);
+extern void	(*dtvirt_hook_getargdesc)(void *, dtrace_id_t,
+           	    void *, dtrace_argdesc_t *);
+extern void	(*dtvirt_hook_destroy)(void *, dtrace_id_t, void *);
 
 /*
  * These operations need to be handled with great care. They are meant as a
  * generic set of operations for a DTvirt "provider generator".
  */
 extern void dtps_virt_provide(void *, dtrace_probedesc_t *);
-extern void dtps_virt_provide_module(void *, modctl_t *);
 extern void dtps_virt_enable(void *, dtrace_id_t, void *);
 extern void dtps_virt_disable(void *, dtrace_id_t, void *);
 extern void dtps_virt_getargdesc(void *, dtrace_id_t, void *, dtrace_argdesc_t *);
 extern void dtps_virt_destroy(void *, dtrace_id_t, void *);
 
-/*
- * FIXME: This should not be here, but including sys/dtrace.h in this file would
- * cause a circular include when including the dtps_virt_* operations back into
- * dtrace.h
- */
-dtrace_pops_t provider_ops[] = {
-	[DTRACE_PROV_PURPOSE_NONE] = {
-		.dtps_provide		= NULL,
-		.dtps_provide_module	= NULL,
-		.dtps_enable		= NULL,
-		.dtps_disable		= NULL,
-		.dtps_suspend		= NULL,
-		.dtps_resume		= NULL,
-		.dtps_getargdesc	= NULL,
-		.dtps_getargval		= NULL,
-		.dtps_usermode		= NULL,
-		.dtps_destroy		= NULL
-	}
-
-	[DTRACE_PROV_PURPOSE_VIRT] = {
-		.dtps_provide		= dtps_virt_provide,
-		.dtps_provide_module	= NULL,
-		.dtps_enable		= dtps_virt_enable,
-		.dtps_disable		= dtps_virt_disable,
-		.dtps_suspend		= NULL,
-		.dtps_resume		= NULL,
-		.dtps_getargdesc	= dtps_virt_getargdesc,
-		.dtps_getargval		= NULL,
-		.dtps_usermode		= NULL,
-		.dtps_destroy		= dtps_virt_destroy
-	}
-}

@@ -1622,18 +1622,6 @@ vm_handle_reqidle(struct vm *vm, int vcpuid, bool *retu)
 	return (0);
 }
 
-static int64_t
-hc_handle_dtrace_probe(uint32_t probe_id, uintptr_t arg0,
-    uintptr_t arg1, uintptr_t arg2, uintptr_t arg3, uintptr_t arg4)
-{
-	/*
-	 * TODO:
-	 * (1) Get the information of data structures from the DTvirt layer.
-	 * (2) Load each of the arguments in using the base + length approach
-	 * (3) Call dtrace_distributed_probe() from the host context
-	 */
-}
-
 static __inline int64_t
 hypercall_dispatch(uint64_t hcid, struct vm *vm, int vcpuid,
     uint64_t *args, struct vm_guest_paging *paging)
@@ -1773,52 +1761,16 @@ hc_handle_prototype(struct vm *vm, int vcpuid,
 	return (HYPERCALL_RET_SUCCESS);
 }
 
-static __inline int64_t
-hc_handle_dtrace_install(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
-{
-	return (HYPERCALL_RET_SUCCESS);
-}
-
-static __inline int64_t
-hc_handle_dtrace_uninstall(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
-{
-	return (HYPERCALL_RET_SUCCESS);
-}
-
-static __inline int64_t
-hc_handle_dtrace_unregister(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
-{
-	return (HYPERCALL_RET_SUCCESS);
-}
-
-static __inline int64_t
-hc_handle_dtrace_probe_create(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
-{
-	return (HYPERCALL_RET_SUCCESS);
-}
-
-static __inline int64_t
+static int64_t
 hc_handle_dtrace_probe(struct vm *vm, int vcpuid,
     uint64_t *args, struct vm_guest_paging *paging)
 {
-	return (HYPERCALL_RET_SUCCESS);
-}
-
-static __inline int64_t
-hc_handle_dtps_getargval(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
-{
-	return (HYPERCALL_RET_SUCCESS);
-}
-
-static __inline int64_t
-hc_handle_dtps_getargdesc(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
-{
+	/*
+	 * TODO:
+	 * (1) Get the information of data structures from the DTvirt layer.
+	 * (2) Load each of the arguments in using the base + length approach
+	 * (3) Call dtrace_distributed_probe() from the host context
+	 */
 	return (HYPERCALL_RET_SUCCESS);
 }
 

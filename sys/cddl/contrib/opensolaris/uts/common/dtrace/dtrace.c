@@ -145,7 +145,6 @@
 #endif
 
 #include "dtrace_xoroshiro128_plus.h"
-#include "dtrace_event.h"
 
 #define rol32(i32, n) ((i32) << (n) | (i32) >> (32 - (n)))
 
@@ -356,6 +355,36 @@ static dtrace_pattr_t	dtrace_provider_attr = {
 static void
 dtrace_nullop(void)
 {}
+
+/*
+ * Used as a placeholder for DTvirt operations
+ */
+static void
+dtrace_virtop(void)
+{}
+
+void	(*dtvirt_hook_commit)(const char *, dtrace_id_t,
+           	    uintptr_t, uintptr_t, uintptr_t,
+		    uintptr_t, uintptr_t);
+void	(*dtvirt_hook_provide)(void *, dtrace_probedesc_t *);
+void	(*dtvirt_hook_enable)(void *, dtrace_id_t, void *);
+void	(*dtvirt_hook_disable)(void *, dtrace_id_t, void *);
+void	(*dtvirt_hook_getargdesc)(void *, dtrace_id_t,
+           	    void *, dtrace_argdesc_t *);
+void	(*dtvirt_hook_destroy)(void *, dtrace_id_t, void *);
+
+static dtrace_pops_t dtvirt_pops = {
+	(void (*)(void *, dtrace_probedesc_t *))dtrace_virtop,
+	NULL,
+	(void (*)(void *, dtrace_id_t, void *))dtrace_virtop,
+	(void (*)(void *, dtrace_id_t, void *))dtrace_virtop,
+	NULL,
+	NULL,
+	(void (*)(void *, dtrace_id_t, void *, dtrace_argdesc_t *))dtrace_virtop,
+	NULL,
+	NULL,
+	(void (*)(void *, dtrace_id_t, void *))dtrace_virtop
+};
 
 static dtrace_pops_t	dtrace_provider_ops = {
 	(void (*)(void *, dtrace_probedesc_t *))dtrace_nullop,
@@ -8994,7 +9023,7 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	 */
 	if (strcmp(provider->dtpv_instance, "host") != 0) {
 		ASSERT(uuid != NULL);
-		*(provider->dtpv_advuuid) = uuid;
+		provider->dtpv_advuuid = uuid;
 		uuid_generate_version5(provider->dtpv_uuid, provider->dtpv_advuuid,
 		    provider->dtpv_instance, strlen(provider->dtpv_instance));
 	} else {
@@ -9061,7 +9090,7 @@ dtrace_register(const char *name, const dtrace_pattr_t *pap, uint32_t priv,
 	    priv, cr, pops, arg, idp));
 }
 
-static uuid *
+static struct uuid *
 dtrace_uuid_copyin(uintptr_t uarg, int *errp)
 {
 	struct uuid *uuid;
@@ -9072,7 +9101,7 @@ dtrace_uuid_copyin(uintptr_t uarg, int *errp)
 
 	if (copyin((void *)uarg, uuid, sizeof (struct uuid)) != 0) {
 		if (dtrace_err_verbose)
-			cmn_err(CE_WARN, "failed to copyin the provider UUID", str);
+			cmn_err(CE_WARN, "failed to copyin the provider UUID");
 		*errp = EFAULT;
 		return (NULL);
 	}
@@ -9254,8 +9283,14 @@ dtrace_unregister(dtrace_provider_id_t id)
 	for (probe = first; probe != NULL; probe = first) {
 		first = probe->dtpr_nextmod;
 
-		old->dtpv_pops.dtps_destroy(old->dtpv_arg, probe->dtpr_id,
-		    probe->dtpr_arg);
+		if (old->dtpv_pops.dtps_destroy ==
+		    (void (*)(void *, dtrace_id_t, void *))dtrace_virtop) {
+			ASSERT(dtvirt_hook_destroy != NULL);
+			dtvirt_hook_destroy(old->dtpv_arg, probe->dtpr_id, probe->dtpr_arg);
+		} else {
+			old->dtpv_pops.dtps_destroy(old->dtpv_arg, probe->dtpr_id,
+			    probe->dtpr_arg);
+		}
 		kmem_free(probe->dtpr_instance, strlen(probe->dtpr_instance) + 1);
 		kmem_free(probe->dtpr_mod, strlen(probe->dtpr_mod) + 1);
 		kmem_free(probe->dtpr_func, strlen(probe->dtpr_func) + 1);
@@ -9416,8 +9451,14 @@ dtrace_condense(dtrace_provider_id_t id)
 		dtrace_hash_remove(dtrace_byfunc, probe);
 		dtrace_hash_remove(dtrace_byname, probe);
 
-		prov->dtpv_pops.dtps_destroy(prov->dtpv_arg, i + 1,
-		    probe->dtpr_arg);
+		if (prov->dtpv_pops.dtps_destroy ==
+		    (void (*)(void *, dtrace_id_t, void *))dtrace_virtop) {
+			ASSERT(dtvirt_hook_destroy != NULL);
+			dtvirt_hook_destroy(prov->dtpv_arg, i + 1, probe->dtpr_arg);
+		} else {
+			prov->dtpv_pops.dtps_destroy(prov->dtpv_arg, i + 1,
+			    probe->dtpr_arg);
+		}
 		kmem_free(probe->dtpr_instance, strlen(probe->dtpr_instance) + 1);
 		kmem_free(probe->dtpr_mod, strlen(probe->dtpr_mod) + 1);
 		kmem_free(probe->dtpr_func, strlen(probe->dtpr_func) + 1);
@@ -9703,7 +9744,11 @@ dtrace_probe_provide(dtrace_probedesc_t *desc, dtrace_provider_t *prv)
 		/*
 		 * First, call the blanket provide operation.
 		 */
-		prv->dtpv_pops.dtps_provide(prv->dtpv_arg, desc);
+		if (prv->dtpv_pops.dtps_provide ==
+		    (void (*)(void *, dtrace_probedesc_t *))dtrace_virtop)
+			dtvirt_hook_provide(prv->dtpv_arg, desc);
+		else
+			prv->dtpv_pops.dtps_provide(prv->dtpv_arg, desc);
 
 #ifdef illumos
 		/*
@@ -11594,8 +11639,15 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 			probe->dtpr_predcache = ecb->dte_predicate->dtp_cacheid;
 
 		if (probe->dtpr_mode == DTRACE_PROBE_MODE_LOCAL) {
-			prov->dtpv_pops.dtps_enable(prov->dtpv_arg,
-			    probe->dtpr_id, probe->dtpr_arg);
+			if (prov->dtpv_pops.dtps_enable ==
+			    (void (*)(void *, dtrace_id_t, void *))dtrace_virtop) {
+				ASSERT(dtvirt_hook_enable != NULL);
+				dtvirt_hook_enable(prov->dtpv_arg,
+				    probe->dtpr_id, probe->dtpr_arg);
+			} else {
+				prov->dtpv_pops.dtps_enable(prov->dtpv_arg,
+				    probe->dtpr_id, probe->dtpr_arg);
+			}
 		}
 	} else {
 		/*
@@ -12294,8 +12346,15 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 		ASSERT(probe->dtpr_ecb_last == NULL);
 		probe->dtpr_predcache = DTRACE_CACHEIDNONE;
 		if (probe->dtpr_mode == DTRACE_PROBE_MODE_DISABLED) {
-			prov->dtpv_pops.dtps_disable(prov->dtpv_arg,
-			    probe->dtpr_id, probe->dtpr_arg);
+			if (prov->dtpv_pops.dtps_disable ==
+			    (void (*)(void *, dtrace_id_t, void *))dtrace_virtop) {
+				ASSERT(dtvirt_hook_disable != NULL);
+				dtvirt_hook_disable(prov->dtpv_arg,
+				    probe->dtpr_id, probe->dtpr_arg);
+			} else {
+				prov->dtpv_pops.dtps_disable(prov->dtpv_arg,
+				    probe->dtpr_id, probe->dtpr_arg);
+			}
 		}
 		dtrace_sync();
 	} else {
@@ -13568,7 +13627,13 @@ retry:
 			for (i = 0; i < enab->dten_ndesc; i++) {
 				desc = enab->dten_desc[i]->dted_probe;
 				mutex_exit(&dtrace_lock);
-				prv->dtpv_pops.dtps_provide(parg, &desc);
+				if (prv->dtpv_pops.dtps_provide ==
+				    (void (*)(void *, dtrace_probedesc_t *))dtrace_virtop) {
+					ASSERT(dtvirt_hook_provide != NULL);
+					dtvirt_hook_provide(parg, &desc);
+				} else {
+					prv->dtpv_pops.dtps_provide(parg, &desc);
+				}
 				mutex_enter(&dtrace_lock);
 				/*
 				 * Process the retained enablings again if
@@ -18450,8 +18515,15 @@ dtrace_ioctl(dev_t dev, int cmd, intptr_t arg, int md, cred_t *cr, int *rv)
 			desc.dtargd_xlate[0] = '\0';
 			desc.dtargd_mapping = desc.dtargd_ndx;
 
-			prov->dtpv_pops.dtps_getargdesc(prov->dtpv_arg,
-			    probe->dtpr_id, probe->dtpr_arg, &desc);
+			if (prov->dtpv_pops.dtps_getargdesc ==
+			    (void (*)(void *, dtrace_id_t, void *, dtrace_probedesc_t *))dtrace_virtop) {
+				ASSERT(dtvirt_getargdesc_hook != NULL);
+				dtvirt_getargdesc_hook(prov->dtpv_arg,
+				    probe->dtpr_id, probe->dtpr_arg, &desc);
+			} else {
+				prov->dtpv_pops.dtps_getargdesc(prov->dtpv_arg,
+				    probe->dtpr_id, probe->dtpr_arg, &desc);
+			}
 			/*
 			 * This code takes care of:
 			 * dtps_getargdesc()

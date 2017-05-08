@@ -782,15 +782,19 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 	case DTRACEIOC_PROVIDER: {
 		dtrace_providerdesc_t *pvd = (dtrace_providerdesc_t *) addr;
 		dtrace_provider_t *pvp;
+		struct uuid *puuid;
+		int retval;
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROVIDER\n",__func__,__LINE__);
 
+		puuid = NULL;
 		pvd->dtvd_instance[DTRACE_INSTANCENAMELEN - 1] = '\0';
 		pvd->dtvd_name[DTRACE_PROVNAMELEN - 1] = '\0';
+		retval = 0;
 
 		if (pvd->dtvd_uuid != NULL) {
 			if ((puuid = dtrace_uuid_copyin(
-			    (uintptr_t) pvd->dtvd_uuid, &reval)) == NULL)
+			    (uintptr_t) pvd->dtvd_uuid, &retval)) == NULL)
 				return (EINVAL);
 		}
 
@@ -925,28 +929,46 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		dtrace_pattr_t pattr;
 		dtrace_ppriv_t priv;
 		int purpose;
+		int retval;
 
 		puuid = NULL;
 		pvd->dtvd_instance[DTRACE_INSTANCENAMELEN - 1] = '\0';
 		pvd->dtvd_name[DTRACE_PROVNAMELEN - 1] = '\0';
+		retval = 0;
 
 		purpose = pvd->dtvd_purpose;
 		
+		switch (purpose) {
+		case DTRACE_PURPOSE_VIRT:
+			if (dtvirt_hook_enable == NULL ||
+			    dtvirt_hook_disable == NULL ||
+			    dtvirt_hook_provide == NULL ||
+			    dtvirt_hook_destroy == NULL ||
+			    dtvirt_hook_getargdesc == NULL ||
+			    dtvirt_hook_commit == NULL)
+				return (EINVAL);
+			ppops = &dtvirt_pops;
+			break;
+		default:
+			return (EINVAL);
+		}
+
 		if (pvd->dtvd_uuid != NULL) {
 			if ((puuid = dtrace_uuid_copyin(
-			    (uintptr_t) pvd->dtvd_uuid, &reval)) == NULL)
+			    (uintptr_t) pvd->dtvd_uuid, &retval)) == NULL)
 				return (EINVAL);
 		}
 
-		ASSERT(purpose < DTRACE_PURPOSE_POPS_MAX);
-		ppops = provider_ops[purpose];
 		bcopy(&priv, &pvd->dtvd_priv, sizeof (dtrace_ppriv_t));
 		bcopy(&pattr, &pvd->dtvd_attr, sizeof (dtrace_pattr_t));
 
 		dtrace_distributed_register(pvd->dtvd_name, pvd->dtvd_instance,
 		    puuid, &pattr, priv.dtpp_flags, NULL, ppops, NULL, &provid);
 
-		pvd->dtvd_id = provid;
+		/*
+		 * XXX: How does userspace know what provider to create probes
+		 * for? Should we give it the ID? Is that a security liability?
+		 */
 
 		return (0);
 	}

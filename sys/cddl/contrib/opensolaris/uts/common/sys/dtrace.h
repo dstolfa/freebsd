@@ -1285,8 +1285,7 @@ typedef struct dtrace_providerdesc {
 	dtrace_pattr_t	dtvd_attr;			/* stability attributes */
 	dtrace_ppriv_t	dtvd_priv;			/* privileges required */
 	int		dtvd_purpose;			/* provider purpose */
-#define	DTRACE_PROV_PURPOSE_NONE	0x00
-#define	DTRACE_PROV_PURPOSE_VIRT	0x01
+#define	DTRACE_PURPOSE_VIRT	0x00
 } dtrace_providerdesc_t;
 
 /*
@@ -1353,7 +1352,7 @@ typedef struct {
 							/* replicate enab */
 #define	DTRACEIOC_PROVCREATE	_IOWR('x',19,dtrace_providerdesc_t)
                             	                        /* create provider */
-#define	DTRACEIOC_PROBECREATE	_IOWR('x',19,dtrace_providerdesc_t)
+#define	DTRACEIOC_PROBECREATE	_IOWR('x',20,dtrace_providerdesc_t)
                             	                        /* create probe */
 #endif
 
@@ -2169,7 +2168,7 @@ typedef struct dtrace_pops {
 
 typedef uintptr_t	dtrace_provider_id_t;
 
-extern int dtrace_distributed_register(const char *, const char *,
+extern int dtrace_distributed_register(const char *, const char *, struct uuid *,
     const dtrace_pattr_t *, uint32_t, cred_t *, const dtrace_pops_t *,
     void *, dtrace_provider_id_t *);
 extern int dtrace_register(const char *, const dtrace_pattr_t *, uint32_t,

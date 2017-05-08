@@ -26,31 +26,9 @@
  * $FreeBSD$
  */
 
-#ifndef _MACHINE_HYPERCALL_H_
-#define _MACHINE_HYPERCALL_H_
 
-#define	HYPERCALL_PROTOTYPE		0
-#define	HYPERCALL_DTRACE_PROBE		1
-#define	HYPERCALL_INDEX_MAX		2
+extern void	(*vmmdt_hook_add)(int);
+extern void	(*vmmdt_hook_rm)(int);
+extern void	(*vmmdt_hook_enable)(int);
+extern void	(*vmmdt_hook_disable)(int);
 
-#define	HYPERCALL_RET_SUCCESS		0
-#define	HYPERCALL_RET_ERROR		1
-#define	HYPERCALL_RET_NOT_IMPL		-1
-
-#ifndef __asm__
-
-#include <sys/stdint.h>
-
-/*
- * Arguments are only specified in this header file.
- * Do not move the arguments around in the assembly
- * file as the convention used is the SystemV ABI
- * calling convention.
- */
-int	hypercall_prototype(void /* args */);
-int	hypercall_dtrace_probe(uint32_t, uintptr_t, uintptr_t, uintptr_t,
-   	    uintptr_t, uintptr_t);
-
-#endif
-
-#endif

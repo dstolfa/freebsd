@@ -82,3 +82,4 @@ MODULE_DEPEND(dtraceall, systrace, 1, 1, 1);
 MODULE_DEPEND(dtraceall, systrace_freebsd32, 1, 1, 1);
 #endif
 MODULE_DEPEND(dtraceall, profile, 1, 1, 1);
+MODULE_DEPEND(dtraceall, dtvirt, 1, 1, 1);
