@@ -30,15 +30,8 @@
 #define _MACHINE_HYPERCALL_H_
 
 #define	HYPERCALL_PROTOTYPE		0
-#define	HYPERCALL_DTRACE_PROBE_CREATE	1
-#define	HYPERCALL_DTRACE_PROBE		2
-#define	HYPERCALL_DTRACE_REGISTER	3
-#define	HYPERCALL_DTRACE_UNREGISTER	4
-#define	HYPERCALL_DTPS_GETARGVAL	5
-#define	HYPERCALL_DTPS_GETARGDESC	6
-#define	HYPERCALL_DTRACE_INSTALL	7
-#define	HYPERCALL_DTRACE_UNINSTALL	8
-#define	HYPERCALL_INDEX_MAX		9
+#define	HYPERCALL_DTRACE_PROBE		1
+#define	HYPERCALL_INDEX_MAX		2
 
 #define	HYPERCALL_RET_SUCCESS		0
 #define	HYPERCALL_RET_ERROR		1
@@ -53,12 +46,8 @@
  * calling convention.
  */
 int	hypercall_prototype(void /* args */);
-int	hypercall_dtrace_register(uintptr_t /* dtrace_provider_t */);
-int	hypercall_dtrace_unregister(uintptr_t /* dtrace_provider_t */);
-int	hypercall_dtrace_probe_create(uintptr_t /* dtrace_probe_t */);
-int	hypercall_dtrace_probe(int /* probe_id_t */, uintptr_t /* args[] */);
-int	hypercall_dtps_getargval(uint64_t /* value or ptr */);
-int	hypercall_dtps_getargdesc(uintptr_t /* dtrace_argdesc_t */);
+int	hypercall_dtrace_probe(uint32_t, uintptr_t, uintptr_t, uintptr_t
+   	    uintptr_t, uintptr_t);
 
 #endif
 

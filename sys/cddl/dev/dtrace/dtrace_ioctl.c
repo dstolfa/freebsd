@@ -951,6 +951,11 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		return (0);
 	}
 	case DTRACEIOC_PROBECREATE: {
+		/*
+		 * TODO: Create the necessary probes here, the dtps_virt_provide
+		 * callback makes no sense as we cannot access the argtypes of
+		 * the given probe.
+		 */
 		return (0);
 	}
 	default:

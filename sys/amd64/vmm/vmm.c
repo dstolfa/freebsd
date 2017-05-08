@@ -272,28 +272,7 @@ hypercall_copy_arg(struct vm *, int, uint64_t,
 static int64_t hc_handle_prototype(struct vm *, int,
     uint64_t *, struct vm_guest_paging *);
 
-static int64_t hc_handle_dtrace_install(struct vm *, int,
-    uint64_t *, struct vm_guest_paging *);
-
-static int64_t hc_handle_dtrace_uninstall(struct vm *, int,
-    uint64_t *, struct vm_guest_paging *);
-
-static int64_t hc_handle_dtrace_register(struct vm *, int,
-    uint64_t *, struct vm_guest_paging *);
-
-static int64_t hc_handle_dtrace_unregister(struct vm *, int,
-    uint64_t *, struct vm_guest_paging *);
-
-static int64_t hc_handle_dtrace_probe_create(struct vm *, int,
-    uint64_t *, struct vm_guest_paging *);
-
 static int64_t hc_handle_dtrace_probe(struct vm *, int,
-    uint64_t *, struct vm_guest_paging *);
-
-static int64_t hc_handle_dtps_getargval(struct vm *, int,
-    uint64_t *, struct vm_guest_paging *);
-
-static int64_t hc_handle_dtps_getargdesc(struct vm *, int,
     uint64_t *, struct vm_guest_paging *);
 
 /*
@@ -309,15 +288,7 @@ static int64_t hc_handle_dtps_getargdesc(struct vm *, int,
 hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
 		[HYPERCALL_PROTOTYPE]		= hc_handle_prototype,
-		[HYPERCALL_DTRACE_INSTALL]	= hc_handle_dtrace_install,
-		[HYPERCALL_DTRACE_UNINSTALL]	= hc_handle_dtrace_uninstall,
-		[HYPERCALL_DTRACE_REGISTER]	= hc_handle_dtrace_register,
-		[HYPERCALL_DTRACE_UNREGISTER]	= hc_handle_dtrace_unregister,
-		[HYPERCALL_DTRACE_PROBE_CREATE]	= hc_handle_dtrace_probe_create,
 		[HYPERCALL_DTRACE_PROBE]	= hc_handle_dtrace_probe,
-		[HYPERCALL_DTPS_GETARGVAL]	= hc_handle_dtps_getargval,
-		[HYPERCALL_DTPS_GETARGDESC]	= hc_handle_dtps_getargdesc,
-
 	}
 };
 
@@ -331,12 +302,7 @@ hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 static int8_t	ring_plevel[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
 	[BHYVE_MODE] = {
 		[HYPERCALL_PROTOTYPE]		= 0,
-		[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
-		[HYPERCALL_DTRACE_PROBE]	= 0,
-		[HYPERCALL_DTRACE_REGISTER]	= 0,
-		[HYPERCALL_DTRACE_UNREGISTER]	= 0,
-		[HYPERCALL_DTPS_GETARGVAL]	= 0,
-		[HYPERCALL_DTPS_GETARGDESC]	= 0
+		[HYPERCALL_DTRACE_PROBE]	= 0
 	}
 };
 
@@ -1656,74 +1622,16 @@ vm_handle_reqidle(struct vm *vm, int vcpuid, bool *retu)
 	return (0);
 }
 
-/*
- * XXX: When probes are created, we need a provider ID.
- * This is where one is acquired. The problem is that
- * once the provider ID is created, we would need to keep
- * some form of global array with provider IDs. That
- * does not sound very appealing.
- */
-static __inline int64_t
-hc_handle_dtrace_register(struct vm *vm, int vcpuid,
-    uint64_t *args, struct vm_guest_paging *paging)
+static int64_t
+hc_handle_dtrace_probe(uint32_t probe_id, uintptr_t arg0,
+    uintptr_t arg1, uintptr_t arg2, uintptr_t arg3, uintptr_t arg4)
 {
 	/*
-	 * It's necessary to create a new provider here.
-	 * We need to actually build up a provider in a way
-	 * that allows for operation in virtual machines.
-	 * This can be done by having generic dtrace_pops_t.
+	 * TODO:
+	 * (1) Get the information of data structures from the DTvirt layer.
+	 * (2) Load each of the arguments in using the base + length approach
+	 * (3) Call dtrace_distributed_probe() from the host context
 	 */
-	dtrace_provider_t *prov;
-	dtrace_provider_id_t prov_id;
-	dtrace_pops_t *prov_ops;
-	/*
-	dtrace_pattr_t prov_attr = {
-	{ DTRACE_STABILITY_STABLE, DTRACE_STABILITY_STABLE, DTRACE_CLASS_COMMON },
-	{ DTRACE_STABILITY_STABLE, DTRACE_STABILITY_STABLE, DTRACE_CLASS_COMMON },
-	{ DTRACE_STABILITY_STABLE, DTRACE_STABILITY_STABLE, DTRACE_CLASS_COMMON },
-	{ DTRACE_STABILITY_STABLE, DTRACE_STABILITY_STABLE, DTRACE_CLASS_COMMON },
-	{ DTRACE_STABILITY_STABLE, DTRACE_STABILITY_STABLE, DTRACE_CLASS_COMMON },
-	};
-	*/
-	struct seg_desc ds;
-	char prov_name[DTRACE_PROVNAMELEN];
-	char instance[DTRACE_INSTANCENAMELEN];
-	uintptr_t prov_addr;
-	int error;
-
-	(void) strcpy(instance, vm->name);
-	prov = malloc(sizeof(dtrace_provider_t), M_DTVM, M_WAITOK | M_ZERO);
-	KASSERT(prov != NULL, ("%s: prov allocation failed\n",
-	    __func__));
-	prov_id = (dtrace_provider_id_t)prov;
-	prov_ops = malloc(sizeof(dtrace_pops_t), M_DTVM, M_WAITOK | M_ZERO);
-	KASSERT(prov_ops != NULL, ("%s: prov_ops allocation failed\n",
-	    __func__));
-	prov_addr = args[0];
-
-	vm_get_seg_desc(vm, vcpuid, VM_REG_GUEST_DS, &ds);
-	error = hypercall_copy_arg(vm, vcpuid, ds.base, prov_addr,
-	    sizeof(dtrace_provider_t), paging, prov);
-	KASSERT(error == 0, ("%s: error %d copying argument\n",
-	    __func__, error));
-	/*
-	 * We now have a provider from the guest.
-	 */
-
-	error = hypercall_copy_arg(vm, vcpuid, ds.base, (uintptr_t)prov->dtpv_name,
-	    DTRACE_PROVNAMELEN, paging, prov_name);
-
-	/*
-	dtrace_distributed_register(prov_name, instance, &prov_attr,
-	    DTRACE_PRIV_USER, NULL*/ /* cred_t, for now *//*, prov_ops,
-	    NULL, &prov_id*/ /* have to store it *//*);
-	*/
-	/*
-	 * dtrace_provider_id_t -> is it really necessary?
-	 * -- shouldn't be?
-	 */
-
-	return (HYPERCALL_RET_SUCCESS);
 }
 
 static __inline int64_t
