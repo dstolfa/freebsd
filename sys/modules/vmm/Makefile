@@ -19,7 +19,6 @@ CFLAGS_INCLUDE_SOLARIS+= -I${.CURDIR}/../../cddl/contrib/opensolaris/uts/common
 .PATH: ${SRCTOP}/sys/amd64/vmm
 SRCS+=	vmm.c		\
 	vmm_dev.c	\
-	vmm_dtrace.c	\
 	vmm_host.c	\
 	vmm_instruction_emul.c	\
 	vmm_ioport.c	\

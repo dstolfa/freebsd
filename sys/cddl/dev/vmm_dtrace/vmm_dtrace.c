@@ -27,8 +27,10 @@
  */
 
 #include <sys/param.h>
+#include <sys/types.h>
 #include <sys/kernel.h>
 #include <sys/module.h>
+#include <sys/malloc.h>
 
 #include <sys/dtvirt.h>
 
@@ -47,7 +49,18 @@ struct vmmdt_table {
 	int			 largest;
 };
 
-static struct vmmdt_table *vmmdt_probes
+static MALLOC_DEFINE(M_VMMDT, "VMM DTrace buffer", "Holds the data related to the VMM layer for DTvirt");
+
+static struct vmmdt_table *vmmdt_probes;
+static int vmmdt_initialized = 0;
+
+static int			vmmdt_init(void);
+static struct vmmdt_table *	vmmdt_alloc_table(void);
+static void			vmmdt_cleanup(void);
+static void			vmmdt_add_probe(int id);
+static void			vmmdt_rm_probe(int id);
+static void			vmmdt_enable_probe(int id);
+static void			vmmdt_disable_probe(int id);
 
 static int
 vmmdt_handler(module_t mod, int what, void *arg)
@@ -85,9 +98,11 @@ MODULE_DEPEND(vmmdt, dtrace, 1, 1, 1);
 DECLARE_MODULE(vmmdt, vmmdt_kmod, SI_SUB_SMP + 1, SI_ORDER_ANY);
 
 static int
-vmmdt_init()
+vmmdt_init(void)
 {
 	int error;
+
+	error = 0;
 
 	vmmdt_probes = vmmdt_alloc_table();
 	
@@ -98,38 +113,41 @@ vmmdt_init()
 }
 
 static struct vmmdt_table *
-vmmdt_alloc_table()
+vmmdt_alloc_table(void)
 {
 	struct vmmdt_table *table;
 
 	table = malloc(sizeof(struct vmmdt_table),
 	    M_VMMDT, M_ZERO | M_NOWAIT);
 
-	table->
-
 	return (table);
 }
 
-void
-vmmdt_add_probe(int id)
+static void
+vmmdt_cleanup(void)
 {
-	if (largest < id)
-	vmmdt_probes->entries[id] = 
+
 }
 
-void
+static void
+vmmdt_add_probe(int id)
+{
+
+}
+
+static void
 vmmdt_rm_probe(int id)
 {
 
 }
 
-void
+static void
 vmmdt_enable_probe(int id)
 {
 
 }
 
-void
+static void
 vmmdt_disable_probe(int id)
 {
 
