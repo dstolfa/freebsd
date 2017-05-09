@@ -29,18 +29,40 @@
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/module.h>
+#include <sys/systm.h>
+#include <sys/tree.h>
 #include <sys/dtvirt.h>
+
+struct dtvirt_prov {
+	RB_ENTRY(dtvirt_prov)	 node;
+	dtrace_provider_id_t	 dtvp_id;
+	struct uuid		*dtvp_uuid;
+};
 
 static void	dtvirt_load(void);
 static void	dtvirt_unload(void);
 static void	dtvirt_commit(const char *, dtrace_id_t,
            	    uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t);
-static void	dtvirt_provide(void *, dtrace_probedesc_t *);
+static int	dtvirt_probe_create(struct uuid *, dtrace_probedesc_t *,
+          	    const char (*)[DTRACE_ARGTYPELEN], uint8_t);
+static int	dtvirt_provider_register(const char *,
+          	    const char *, struct uuid *,
+		    dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
+static int	dtvirt_provider_unregister(struct uuid *);
 static void	dtvirt_enable(void *, dtrace_id_t, void *);
 static void	dtvirt_disable(void *, dtrace_id_t, void *);
 static void	dtvirt_getargdesc(void *, dtrace_id_t,
            	    void *, dtrace_argdesc_t *);
 static void	dtvirt_destroy(void *, dtrace_id_t, void *);
+static int	dtvirt_prov_cmp(struct dtvirt_prov *p1, struct dtvirt_prov *p2);
+
+RB_HEAD(dtvirt_provtree, dtvirt_prov) dtvirt_provider_tree =
+    RB_INITIALIZER(_dtvirt_prov);
+
+RB_GENERATE_STATIC(dtvirt_provtree, dtvirt_prov, node,
+    dtvirt_prov_cmp);
+
+static MALLOC_DEFINE(M_DTVIRT, "dtvirt", "DTvirt memory");
 
 
 static int
@@ -53,6 +75,7 @@ dtvirt_handler(module_t mod, int what, void *arg)
 		error = 0;
 		break;
 	case MOD_UNLOAD:
+		dtvirt_unload();
 		error = 0;
 		break;
 	default:
@@ -79,7 +102,9 @@ static void
 dtvirt_load(void)
 {
 	dtvirt_hook_commit = dtvirt_commit;
-	dtvirt_hook_provide = dtvirt_provide;
+	dtvirt_hook_register = dtvirt_provider_register;
+	dtvirt_hook_unregister = dtvirt_provider_unregister;
+	dtvirt_hook_create = dtvirt_probe_create;
 	dtvirt_hook_enable = dtvirt_enable;
 	dtvirt_hook_disable = dtvirt_disable;
 	dtvirt_hook_getargdesc = dtvirt_getargdesc;
@@ -90,7 +115,9 @@ static void
 dtvirt_unload(void)
 {
 	dtvirt_hook_commit = NULL;
-	dtvirt_hook_provide = NULL;
+	dtvirt_hook_register = NULL;
+	dtvirt_hook_unregister = NULL;
+	dtvirt_hook_create = NULL;
 	dtvirt_hook_enable = NULL;
 	dtvirt_hook_disable = NULL;
 	dtvirt_hook_getargdesc = NULL;
@@ -106,34 +133,178 @@ dtvirt_commit(const char *instance, dtrace_id_t id,
 	    arg2, arg3, arg4);
 }
 
-static void
-dtvirt_provide(void *arg, dtrace_probedesc_t *desc)
+static int
+dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
+    const char (*argtypes)[DTRACE_ARGTYPELEN], uint8_t nargs)
 {
+	dtrace_virt_probe_t *virt_probe;
+	struct dtvirt_prov *prov, tmp;
+	dtrace_provider_id_t provid;
 
+	if (uuid == NULL)
+		return (EINVAL);
+
+	if (nargs > DTRACE_MAXARGS)
+		return (EINVAL);
+
+	tmp.dtvp_uuid = uuid;
+	prov = RB_FIND(dtvirt_provtree, &dtvirt_provider_tree, &tmp);
+
+	if (prov == NULL)
+		return (ENOENT);
+
+	provid = prov->dtvp_id;
+
+	virt_probe = malloc(sizeof(dtrace_virt_probe_t),
+	    M_DTVIRT, M_ZERO | M_NOWAIT);
+	
+	if (virt_probe == NULL) {
+		return (ENOMEM);
+	}
+
+	virt_probe->dtv_enabled = 0;
+	virt_probe->dtv_nargs = nargs;
+	memcpy(virt_probe->dtv_argtypes, argtypes, DTRACE_ARGTYPELEN * nargs);
+
+	virt_probe->dtv_id = dtrace_probe_create(provid, desc->dtpd_mod,
+	    desc->dtpd_func, desc->dtpd_name, 0, virt_probe);
+
+	return (0);
+}
+
+static int
+dtvirt_provider_register(const char *provname, const char *instance,
+    struct uuid *uuid, dtrace_pattr_t *pattr, uint32_t priv,
+    dtrace_pops_t *pops)
+{
+	struct dtvirt_prov *prov;
+	dtrace_provider_id_t provid;
+	int error;
+
+	error = dtrace_distributed_register(provname, instance,
+	    uuid, pattr, priv, NULL, pops, NULL, &provid);
+
+	if (error) {
+		goto fail;
+	}
+
+	prov = malloc(sizeof(struct dtvirt_prov), M_DTVIRT,
+	    M_NOWAIT | M_ZERO);
+
+	prov->dtvp_id = provid;
+	prov->dtvp_uuid = dtrace_provider_uuid(provid);
+
+	RB_INSERT(dtvirt_provtree, &dtvirt_provider_tree, prov);
+
+fail:
+	return (error);
+}
+
+static int
+dtvirt_provider_unregister(struct uuid *uuid)
+{
+	struct dtvirt_prov *prov, tmp;
+	dtrace_provider_id_t provid;
+	int error;
+
+	if (uuid == NULL)
+		return (EINVAL);
+
+	tmp.dtvp_uuid = uuid;
+	
+	prov = RB_FIND(dtvirt_provtree, &dtvirt_provider_tree, &tmp);
+
+	if (prov == NULL)
+		return (ENOENT);
+
+	provid = prov->dtvp_id;
+	error = dtrace_unregister(provid);
+
+	RB_REMOVE(dtvirt_provtree, &dtvirt_provider_tree, prov);
+
+	free(prov, M_DTVIRT);
+
+	return (error);
 }
 
 static void
 dtvirt_enable(void *arg, dtrace_id_t id, void *parg)
 {
+	dtrace_virt_probe_t *virt_probe;
 
+	KASSERT(parg != NULL, ("%s: parg is NULL", __func__));
+
+	virt_probe = (dtrace_virt_probe_t *) parg;
+	virt_probe->dtv_enabled = 1;
 }
 
 static void
 dtvirt_disable(void *arg, dtrace_id_t id, void *parg)
 {
+	dtrace_virt_probe_t *virt_probe;
 
+	KASSERT(parg != NULL, ("%s: parg is NULL", __func__));
+
+	virt_probe = (dtrace_virt_probe_t *) parg;
+	virt_probe->dtv_enabled = 0;
 }
 
 static void
 dtvirt_getargdesc(void *arg, dtrace_id_t id,
     void *parg, dtrace_argdesc_t *adesc)
 {
+	dtrace_virt_probe_t *virt_probe;
+	int ndx;
 
+	KASSERT(parg != NULL, ("%s: parg is NULL", __func__));
+
+	virt_probe = (dtrace_virt_probe_t *) parg;
+	ndx = adesc->dtargd_ndx;
+
+	if (virt_probe->dtv_nargs < ndx) {
+		adesc->dtargd_ndx = DTRACE_ARGNONE;
+		return;
+	}
+
+	strlcpy(adesc->dtargd_native, virt_probe->dtv_argtypes[ndx],
+	    sizeof(adesc->dtargd_native));
 }
 
 static void
 dtvirt_destroy(void *arg, dtrace_id_t id, void *parg)
 {
+	dtrace_virt_probe_t *virt_probe;
+
+	KASSERT(parg != NULL, ("%s: parg is NULL", __func__));
+
+	virt_probe = (dtrace_virt_probe_t *) parg;
 
 }
 
+static int
+dtvirt_prov_cmp(struct dtvirt_prov *p1, struct dtvirt_prov *p2)
+{
+	struct uuid *p1_uuid, *p2_uuid;
+	uint64_t *p1_hi, *p1_lo, *p2_hi, *p2_lo;
+
+	p1_uuid = p1->dtvp_uuid;
+	p2_uuid = p2->dtvp_uuid;
+
+	p1_hi = (uint64_t *) p1_uuid;
+	p1_lo = (uint64_t *) (p1_hi + 1);
+
+	p2_hi = (uint64_t *) p2_uuid;
+	p2_lo = (uint64_t *) (p2_hi + 1);
+
+	if (*p1_hi > *p2_hi)
+		return (1);
+	else if (*p1_hi < *p2_hi)
+		return (-1);
+
+	if (*p1_lo > *p2_lo)
+		return (1);
+	else if (*p1_lo < *p2_lo)
+		return (-1);
+
+	return (0);
+}

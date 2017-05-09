@@ -940,12 +940,14 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		
 		switch (purpose) {
 		case DTRACE_PURPOSE_VIRT:
-			if (dtvirt_hook_enable == NULL ||
-			    dtvirt_hook_disable == NULL ||
-			    dtvirt_hook_provide == NULL ||
-			    dtvirt_hook_destroy == NULL ||
+			if (dtvirt_hook_commit == NULL     ||
+			    dtvirt_hook_register == NULL   ||
+			    dtvirt_hook_unregister == NULL ||
+			    dtvirt_hook_create == NULL     ||
+			    dtvirt_hook_enable == NULL     ||
+			    dtvirt_hook_disable == NULL    ||
 			    dtvirt_hook_getargdesc == NULL ||
-			    dtvirt_hook_commit == NULL)
+			    dtvirt_hook_destroy == NULL)
 				return (EINVAL);
 			ppops = &dtvirt_pops;
 			break;
@@ -962,8 +964,8 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		bcopy(&priv, &pvd->dtvd_priv, sizeof (dtrace_ppriv_t));
 		bcopy(&pattr, &pvd->dtvd_attr, sizeof (dtrace_pattr_t));
 
-		dtrace_distributed_register(pvd->dtvd_name, pvd->dtvd_instance,
-		    puuid, &pattr, priv.dtpp_flags, NULL, ppops, NULL, &provid);
+		dtvirt_hook_register(pvd->dtvd_name, pvd->dtvd_instance,
+		    puuid, &pattr, priv.dtpp_flags, ppops);
 
 		/*
 		 * XXX: How does userspace know what provider to create probes

@@ -96,6 +96,7 @@ typedef int model_t;
 #define	DTRACE_RANDBUFLEN	(DTRACE_INSTANCENAMELEN + 32)
 #define	DTRACE_RANDBYTES	32
 #define	DTRACE_ARGTYPELEN	128
+#define	DTRACE_MAXARGS		5
 
 typedef uint32_t dtrace_id_t;		/* probe identifier */
 typedef uint32_t dtrace_epid_t;		/* enabled probe identifier */
@@ -2174,6 +2175,7 @@ extern int dtrace_distributed_register(const char *, const char *, struct uuid *
 extern int dtrace_register(const char *, const dtrace_pattr_t *, uint32_t,
     cred_t *, const dtrace_pops_t *, void *, dtrace_provider_id_t *);
 extern int dtrace_unregister(dtrace_provider_id_t);
+extern struct uuid * dtrace_provider_uuid(dtrace_provider_id_t id);
 extern int dtrace_condense(dtrace_provider_id_t);
 extern void dtrace_invalidate(dtrace_provider_id_t);
 extern dtrace_id_t dtrace_probe_lookup(dtrace_provider_id_t, char *,

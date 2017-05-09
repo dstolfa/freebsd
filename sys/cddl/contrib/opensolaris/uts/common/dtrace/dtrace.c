@@ -366,7 +366,11 @@ dtrace_virtop(void)
 void	(*dtvirt_hook_commit)(const char *, dtrace_id_t,
            	    uintptr_t, uintptr_t, uintptr_t,
 		    uintptr_t, uintptr_t);
-void	(*dtvirt_hook_provide)(void *, dtrace_probedesc_t *);
+int	(*dtvirt_hook_register)(const char *, const char *,
+          	    struct uuid *, dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
+int	(*dtvirt_hook_unregister)(struct uuid *);
+int	(*dtvirt_hook_create)(struct uuid *, dtrace_probedesc_t *,
+           	    const char (*)[DTRACE_ARGTYPELEN], uint8_t);
 void	(*dtvirt_hook_enable)(void *, dtrace_id_t, void *);
 void	(*dtvirt_hook_disable)(void *, dtrace_id_t, void *);
 void	(*dtvirt_hook_getargdesc)(void *, dtrace_id_t,
@@ -9366,6 +9370,15 @@ dtrace_unregister(dtrace_provider_id_t id)
 	return (0);
 }
 
+__inline struct uuid *
+dtrace_provider_uuid(dtrace_provider_id_t id)
+{
+	dtrace_provider_t *prov;
+	prov = (dtrace_provider_t *)id;
+
+	return (prov->dtpv_uuid);
+}
+
 /*
  * Invalidate the specified provider.  All subsequent probe lookups for the
  * specified provider will fail, but its probes will not be removed.
@@ -9744,10 +9757,8 @@ dtrace_probe_provide(dtrace_probedesc_t *desc, dtrace_provider_t *prv)
 		/*
 		 * First, call the blanket provide operation.
 		 */
-		if (prv->dtpv_pops.dtps_provide ==
+		if (prv->dtpv_pops.dtps_provide !=
 		    (void (*)(void *, dtrace_probedesc_t *))dtrace_virtop)
-			dtvirt_hook_provide(prv->dtpv_arg, desc);
-		else
 			prv->dtpv_pops.dtps_provide(prv->dtpv_arg, desc);
 
 #ifdef illumos

@@ -49,7 +49,8 @@ struct vmmdt_table {
 	int			 largest;
 };
 
-static MALLOC_DEFINE(M_VMMDT, "VMM DTrace buffer", "Holds the data related to the VMM layer for DTvirt");
+static MALLOC_DEFINE(M_VMMDT, "VMM DTrace buffer",
+    "Holds the data related to the VMM layer for DTvirt");
 
 static struct vmmdt_table *vmmdt_probes;
 static int vmmdt_initialized = 0;
@@ -153,3 +154,13 @@ vmmdt_disable_probe(int id)
 
 }
 
+static  __inline void
+vmmdt_fire_probe(const char *instance, int probeid,
+    uintptr_t arg0, uintptr_t arg1, uintptr_t arg2,
+    uintptr_t arg3, uintptr_t arg4)
+{
+	if (vmmdt_probe_enabled(probeid)) {
+		dtvirt_hook_commit(instance, probeid, arg0, arg1,
+		    arg2, arg3, arg4);
+	}
+}
