@@ -39,20 +39,20 @@
 #define	VMMDT_INITIAL_NBUCKETS	(1 << 32)
 
 struct vmmdt_probeinfo {
-	uint8_t	exists;
-	uint8_t	enabled;
+	uint8_t	vdtpi_exists;
+	uint8_t	vdtpi_enabled;
 };
 
 struct vmmdt_table {
-	struct vmmdt_probeinfo	*entries;
-	size_t			 size;
-	int			 largest;
+	struct vmmdt_probeinfo	*vmdte_entries;
+	size_t			 vmdte_size;
+	int			 vmdte_maxind;
 };
 
 static MALLOC_DEFINE(M_VMMDT, "VMM DTrace buffer",
     "Holds the data related to the VMM layer for DTvirt");
 
-static struct vmmdt_table *vmmdt_probes;
+static struct vmmdt_table vmmdt_probes;
 static int vmmdt_initialized = 0;
 
 static int			vmmdt_init(void);
@@ -116,13 +116,10 @@ vmmdt_init(void)
 static struct vmmdt_table *
 vmmdt_alloc_table(void)
 {
-	struct vmmdt_table *table;
-
-	table = malloc(sizeof(struct vmmdt_table),
-	    M_VMMDT, M_ZERO | M_NOWAIT);
-
-	return (table);
+	return (NULL);
 }
+
+
 
 static void
 vmmdt_cleanup(void)
@@ -154,13 +151,23 @@ vmmdt_disable_probe(int id)
 
 }
 
+static int
+vmmdt_enabled(const char *vm, int probe)
+{
+	/*
+	 * TODO:
+	 * Make a big table of pointers to radix trees that are indexed with the
+	 * probe id, get the necessary radix tree, walk down the enabled VMs and
+	 * find the one we want
+	 */
+	return (0);
+}
+
 static  __inline void
 vmmdt_fire_probe(const char *instance, int probeid,
     uintptr_t arg0, uintptr_t arg1, uintptr_t arg2,
     uintptr_t arg3, uintptr_t arg4)
 {
-	if (vmmdt_probe_enabled(probeid)) {
-		dtvirt_hook_commit(instance, probeid, arg0, arg1,
-		    arg2, arg3, arg4);
-	}
+	dtvirt_hook_commit(instance, probeid, arg0, arg1,
+	    arg2, arg3, arg4);
 }

@@ -13638,13 +13638,9 @@ retry:
 			for (i = 0; i < enab->dten_ndesc; i++) {
 				desc = enab->dten_desc[i]->dted_probe;
 				mutex_exit(&dtrace_lock);
-				if (prv->dtpv_pops.dtps_provide ==
-				    (void (*)(void *, dtrace_probedesc_t *))dtrace_virtop) {
-					ASSERT(dtvirt_hook_provide != NULL);
-					dtvirt_hook_provide(parg, &desc);
-				} else {
+				if (prv->dtpv_pops.dtps_provide !=
+				    (void (*)(void *, dtrace_probedesc_t *))dtrace_virtop)
 					prv->dtpv_pops.dtps_provide(parg, &desc);
-				}
 				mutex_enter(&dtrace_lock);
 				/*
 				 * Process the retained enablings again if
