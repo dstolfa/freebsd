@@ -31,7 +31,8 @@ extern void	(*vmmdt_hook_add)(int);
 extern void	(*vmmdt_hook_rm)(int);
 extern void	(*vmmdt_hook_enable)(int);
 extern void	(*vmmdt_hook_disable)(int);
-extern int	(*vmmdt_hook_fire_probe)(const char *, int,
+extern void	(*vmmdt_hook_fire_probe)(const char *, int,
           	    uintptr_t, uintptr_t, uintptr_t,
 		    uintptr_t, uintptr_t);
+extern uint64_t	(*vmmdt_hook_valueof)(int, int);
 

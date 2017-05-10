@@ -33,6 +33,8 @@
 #include <sys/tree.h>
 #include <sys/dtvirt.h>
 
+#include <machine/vmm_dtrace.h>
+
 struct dtvirt_prov {
 	RB_ENTRY(dtvirt_prov)	 node;
 	dtrace_provider_id_t	 dtvp_id;
@@ -44,15 +46,15 @@ static void	dtvirt_unload(void);
 static void	dtvirt_commit(const char *, dtrace_id_t,
            	    uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 static int	dtvirt_probe_create(struct uuid *, dtrace_probedesc_t *,
-          	    const char (*)[DTRACE_ARGTYPELEN], uint8_t);
+          	    const char (*)[DTRACE_ARGTYPELEN], size_t[DTRACE_MAXARGS], uint8_t);
 static int	dtvirt_provider_register(const char *,
           	    const char *, struct uuid *,
 		    dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
 static int	dtvirt_provider_unregister(struct uuid *);
 static void	dtvirt_enable(void *, dtrace_id_t, void *);
 static void	dtvirt_disable(void *, dtrace_id_t, void *);
-static void	dtvirt_getargdesc(void *, dtrace_id_t,
-           	    void *, dtrace_argdesc_t *);
+static void	dtvirt_getargdesc(void *, dtrace_id_t, void *, dtrace_argdesc_t *);
+static uint64_t	dtvirt_getargval(void *, dtrace_id_t, void *, uint64_t, int);
 static void	dtvirt_destroy(void *, dtrace_id_t, void *);
 static int	dtvirt_prov_cmp(struct dtvirt_prov *p1, struct dtvirt_prov *p2);
 
@@ -108,6 +110,7 @@ dtvirt_load(void)
 	dtvirt_hook_enable = dtvirt_enable;
 	dtvirt_hook_disable = dtvirt_disable;
 	dtvirt_hook_getargdesc = dtvirt_getargdesc;
+	dtvirt_hook_getargval = dtvirt_getargval;
 	dtvirt_hook_destroy = dtvirt_destroy;
 }
 
@@ -121,6 +124,7 @@ dtvirt_unload(void)
 	dtvirt_hook_enable = NULL;
 	dtvirt_hook_disable = NULL;
 	dtvirt_hook_getargdesc = NULL;
+	dtvirt_hook_getargval = NULL;
 	dtvirt_hook_destroy = NULL;
 }
 
@@ -135,7 +139,7 @@ dtvirt_commit(const char *instance, dtrace_id_t id,
 
 static int
 dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
-    const char (*argtypes)[DTRACE_ARGTYPELEN], uint8_t nargs)
+    const char (*argtypes)[DTRACE_ARGTYPELEN], size_t argsiz[DTRACE_MAXARGS], uint8_t nargs)
 {
 	dtrace_virt_probe_t *virt_probe;
 	struct dtvirt_prov *prov, tmp;
@@ -144,7 +148,7 @@ dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
 	if (uuid == NULL)
 		return (EINVAL);
 
-	if (nargs > DTRACE_MAXARGS)
+	if (nargs > DTRACE_MAXARGS+1)
 		return (EINVAL);
 
 	tmp.dtvp_uuid = uuid;
@@ -165,6 +169,7 @@ dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
 	virt_probe->dtv_enabled = 0;
 	virt_probe->dtv_nargs = nargs;
 	memcpy(virt_probe->dtv_argtypes, argtypes, DTRACE_ARGTYPELEN * nargs);
+	memcpy(virt_probe->dtv_argsizes, argsiz, sizeof(size_t) * nargs);
 
 	virt_probe->dtv_id = dtrace_probe_create(provid, desc->dtpd_mod,
 	    desc->dtpd_func, desc->dtpd_name, 0, virt_probe);
@@ -261,13 +266,32 @@ dtvirt_getargdesc(void *arg, dtrace_id_t id,
 	virt_probe = (dtrace_virt_probe_t *) parg;
 	ndx = adesc->dtargd_ndx;
 
-	if (virt_probe->dtv_nargs < ndx) {
+	if (ndx >= virt_probe->dtv_nargs) {
 		adesc->dtargd_ndx = DTRACE_ARGNONE;
 		return;
 	}
 
 	strlcpy(adesc->dtargd_native, virt_probe->dtv_argtypes[ndx],
 	    sizeof(adesc->dtargd_native));
+}
+
+static uint64_t
+dtvirt_getargval(void *arg, dtrace_id_t id,
+    void *parg, uint64_t ndx, int aframes)
+{
+	dtrace_virt_probe_t *virt_probe;
+	uint64_t val;
+
+	KASSERT(aframes == 0, ("%s: aframes are wrong", __func__));
+
+	virt_probe = (dtrace_virt_probe_t *) parg;
+
+	if (ndx >= virt_probe->dtv_nargs)
+		return (0);
+
+	val = vmmdt_hook_valueof(id, ndx);
+
+	return (val);
 }
 
 static void

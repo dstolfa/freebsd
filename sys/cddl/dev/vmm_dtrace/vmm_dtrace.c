@@ -35,6 +35,7 @@
 #include <sys/dtvirt.h>
 
 #include <machine/vmm.h>
+#include <machine/vmm_dtrace.h>
 
 #define	VMMDT_INITIAL_NBUCKETS	(1 << 32)
 
@@ -46,6 +47,7 @@ struct vmmdt_probeinfo {
 struct vmmdt_table {
 	struct vmmdt_probeinfo	*vmdte_entries;
 	size_t			 vmdte_size;
+#define	VMMDT_INITSIZ		 4096
 	int			 vmdte_maxind;
 };
 
@@ -55,13 +57,18 @@ static MALLOC_DEFINE(M_VMMDT, "VMM DTrace buffer",
 static struct vmmdt_table vmmdt_probes;
 static int vmmdt_initialized = 0;
 
-static int			vmmdt_init(void);
-static struct vmmdt_table *	vmmdt_alloc_table(void);
-static void			vmmdt_cleanup(void);
-static void			vmmdt_add_probe(int id);
-static void			vmmdt_rm_probe(int id);
-static void			vmmdt_enable_probe(int id);
-static void			vmmdt_disable_probe(int id);
+static int	vmmdt_init(void);
+static int	vmmdt_alloc_table(void);
+static void	vmmdt_cleanup(void);
+static void	vmmdt_add_probe(int);
+static void	vmmdt_rm_probe(int);
+static void	vmmdt_enable_probe(int);
+static void	vmmdt_disable_probe(int);
+static int	vmmdt_enabled(const char *, int);
+static void	vmmdt_fire_probe(const char *, int,
+           	    uintptr_t, uintptr_t, uintptr_t,
+		    uintptr_t, uintptr_t);
+static uint64_t	vmmdt_valueof(int, int);
 
 static int
 vmmdt_handler(module_t mod, int what, void *arg)
@@ -105,18 +112,31 @@ vmmdt_init(void)
 
 	error = 0;
 
-	vmmdt_probes = vmmdt_alloc_table();
-	
-	if (vmmdt_probes == NULL)
-		error = ENOMEM;
+	vmmdt_hook_add = vmmdt_add_probe;
+	vmmdt_hook_rm = vmmdt_rm_probe;
+	vmmdt_hook_enable = vmmdt_enable_probe;
+	vmmdt_hook_disable = vmmdt_disable_probe;
+	vmmdt_hook_fire_probe = vmmdt_fire_probe;
+	vmmdt_hook_valueof = vmmdt_valueof;
+
+	error = vmmdt_alloc_table();
 
 	return (error);
 }
 
-static struct vmmdt_table *
+static int
 vmmdt_alloc_table(void)
 {
-	return (NULL);
+	vmmdt_probes.vmdte_entries = malloc(sizeof(uint32_t) * VMMDT_INITSIZ,
+	    M_VMMDT, M_ZERO | M_NOWAIT);
+
+	if (vmmdt_probes.vmdte_entries == NULL)
+		return (ENOMEM);
+
+	vmmdt_probes.vmdte_size = VMMDT_INITSIZ;
+	vmmdt_probes.vmdte_maxind = 0;
+
+	return (0);
 }
 
 
@@ -160,7 +180,7 @@ vmmdt_enabled(const char *vm, int probe)
 	 * probe id, get the necessary radix tree, walk down the enabled VMs and
 	 * find the one we want
 	 */
-	return (0);
+	return (1);
 }
 
 static  __inline void
@@ -168,6 +188,13 @@ vmmdt_fire_probe(const char *instance, int probeid,
     uintptr_t arg0, uintptr_t arg1, uintptr_t arg2,
     uintptr_t arg3, uintptr_t arg4)
 {
-	dtvirt_hook_commit(instance, probeid, arg0, arg1,
-	    arg2, arg3, arg4);
+	if (vmmdt_enabled(instance, probeid))
+		dtvirt_hook_commit(instance, probeid, arg0, arg1,
+		    arg2, arg3, arg4);
+}
+
+static uint64_t
+vmmdt_valueof(int probeid, int ndx)
+{
+	return (0);
 }

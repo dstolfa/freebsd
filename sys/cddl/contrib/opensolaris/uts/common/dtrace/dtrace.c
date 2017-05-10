@@ -370,11 +370,11 @@ int	(*dtvirt_hook_register)(const char *, const char *,
           	    struct uuid *, dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
 int	(*dtvirt_hook_unregister)(struct uuid *);
 int	(*dtvirt_hook_create)(struct uuid *, dtrace_probedesc_t *,
-           	    const char (*)[DTRACE_ARGTYPELEN], uint8_t);
+           	    const char (*)[DTRACE_ARGTYPELEN], size_t[DTRACE_MAXARGS], uint8_t);
 void	(*dtvirt_hook_enable)(void *, dtrace_id_t, void *);
 void	(*dtvirt_hook_disable)(void *, dtrace_id_t, void *);
-void	(*dtvirt_hook_getargdesc)(void *, dtrace_id_t,
-           	    void *, dtrace_argdesc_t *);
+void	(*dtvirt_hook_getargdesc)(void *, dtrace_id_t, void *, dtrace_argdesc_t *);
+uint64_t (*dtvirt_hook_getargval)(void *, dtrace_id_t, void *, uint64_t, int);
 void	(*dtvirt_hook_destroy)(void *, dtrace_id_t, void *);
 
 static dtrace_pops_t dtvirt_pops = {
@@ -3380,9 +3380,21 @@ dtrace_dif_variable(dtrace_mstate_t *mstate, dtrace_state_t *state, uint64_t v,
 
 			pv = mstate->dtms_probe->dtpr_provider;
 			if (pv->dtpv_pops.dtps_getargval != NULL) {
-				val = pv->dtpv_pops.dtps_getargval(pv->dtpv_arg,
-				    mstate->dtms_probe->dtpr_id,
-				    mstate->dtms_probe->dtpr_arg, ndx, aframes);
+				if (pv->dtpv_pops.dtps_getargval ==
+				    (uint64_t (*)(void *, dtrace_id_t,
+				    void *, int, int))dtrace_virtop) {
+					val = dtvirt_hook_getargval(
+					    pv->dtpv_arg,
+					    mstate->dtms_probe->dtpr_id,
+					    mstate->dtms_probe->dtpr_arg, ndx,
+					    aframes);
+				} else {
+					val = pv->dtpv_pops.dtps_getargval(
+					    pv->dtpv_arg,
+					    mstate->dtms_probe->dtpr_id,
+					    mstate->dtms_probe->dtpr_arg, ndx,
+					    aframes);
+				}
 				/*
 				 * This code takes care of:
 				 * dtps_getargval()
