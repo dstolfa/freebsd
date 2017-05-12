@@ -633,8 +633,12 @@ vtdtr_drain_virtqueue(struct virtio_dtrace_queue *q)
 	while ((ctrl = virtqueue_drain(vq, &last)) != NULL) {
 		free(ctrl, M_DEVBUF);
 	}
+	
 	VTDTR_QUEUE_UNLOCK(q);
+	VTDTR_LOCK(sc);
+	vtdtr_vq_enable_intr(q);
 	q->vtdq_ready = 1;
+	VTDTR_UNLOCK(sc);
 	cv_signal(&sc->vtdtr_condvar);
 }
 
@@ -653,10 +657,12 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 	 */
 	switch (ctrl->event) {
 	case VIRTIO_DTRACE_DEVICE_READY:
+		device_printf(dev, "READY\n");
 		vtdtr_drain_virtqueue(&sc->vtdtr_txq);
 		break;
 	case VIRTIO_DTRACE_REGISTER:
 	case VIRTIO_DTRACE_UNREGISTER:
+		device_printf(dev, "PROV\n");
 		retval = vtdtr_ctrl_process_provaction(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_DESTROY:
@@ -665,9 +671,11 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 	case VIRTIO_DTRACE_PROBE_CREATE:
 	case VIRTIO_DTRACE_PROBE_INSTALL:
 	case VIRTIO_DTRACE_PROBE_UNINSTALL:
+		device_printf(dev, "PROBE\n");
 		retval = vtdtr_ctrl_process_probeaction(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_EOF:
+		device_printf(dev, "EOF\n");
 		retval = 1;
 		break;
 	default:
@@ -1110,9 +1118,11 @@ vtdtr_txq_vq_intr(void *xsc)
 	sc = xsc;
 	txq = &sc->vtdtr_txq;
 
+	/*
 	VTDTR_LOCK(sc);
 	vtdtr_vq_enable_intr(txq);
 	VTDTR_UNLOCK(sc);
+	*/
 }
 
 /*
@@ -1276,7 +1286,6 @@ vtdtr_run(void *xsc)
 		error = 0;
 		all_used = 0;
 
-		printf("vtdq_ready = %d\n", txq->vtdq_ready);
 		mtx_lock(&sc->vtdtr_condmtx);
 		while ((vtdtr_cq_empty(sc->vtdtr_ctrlq) ||
 		    virtqueue_full(vq) ||
@@ -1318,7 +1327,6 @@ vtdtr_run(void *xsc)
 		}
 
 		mtx_unlock(&sc->vtdtr_ctrlq->mtx);
-		printf("vtdq_ready = %d\n", txq->vtdq_ready);
 
 		if (sc->vtdtr_shutdown == 1)
 			kthread_exit();

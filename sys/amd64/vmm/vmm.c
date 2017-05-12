@@ -233,6 +233,14 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, hypercalls_enabled, CTLFLAG_RWTUN,
     &hypercalls_enabled, 0,
     "Enable hypercalls on all guests");
 
+void	(*vmmdt_hook_add)(int);
+void	(*vmmdt_hook_rm)(int);
+void	(*vmmdt_hook_enable)(int);
+void	(*vmmdt_hook_disable)(int);
+void	(*vmmdt_hook_fire_probe)(const char *, int,
+    	    uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t);
+uint64_t (*vmmdt_hook_valueof)(int, int);
+
 /*
  * The maximum amount of arguments currently supproted
  * through the hypercall functionality in the VMM.

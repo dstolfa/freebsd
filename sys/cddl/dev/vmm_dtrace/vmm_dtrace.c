@@ -144,7 +144,15 @@ vmmdt_alloc_table(void)
 static void
 vmmdt_cleanup(void)
 {
+	if (vmmdt_probes.vmdte_entries != NULL)
+		free(vmmdt_probes.vmdte_entries, M_VMMDT);
 
+	vmmdt_hook_add = NULL;
+	vmmdt_hook_rm = NULL;
+	vmmdt_hook_enable = NULL;
+	vmmdt_hook_disable = NULL;
+	vmmdt_hook_fire_probe = NULL;
+	vmmdt_hook_valueof = NULL;
 }
 
 static void
