@@ -240,6 +240,7 @@ void	(*vmmdt_hook_disable)(int);
 void	(*vmmdt_hook_fire_probe)(const char *, int,
     	    uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 uint64_t (*vmmdt_hook_valueof)(int, int);
+void	(*vmmdt_hook_setargs)(int, const uint64_t[VMMDT_MAXARGS]);
 
 /*
  * The maximum amount of arguments currently supproted

@@ -31,6 +31,7 @@
 typedef struct dtrace_virt_probe {
 	char		(*dtv_argtypes)[DTRACE_ARGTYPELEN];
 	size_t		dtv_argsizes[DTRACE_MAXARGS];
+	char		*dtv_vm;
 	dtrace_id_t	dtv_id;
 	uint8_t		dtv_enabled;
 	uint8_t		dtv_nargs;

@@ -129,11 +129,11 @@ dtvirt_unload(void)
 }
 
 static void
-dtvirt_commit(const char *instance, dtrace_id_t id,
+dtvirt_commit(const char *vm, dtrace_id_t id,
     uintptr_t arg0, uintptr_t arg1, uintptr_t arg2,
     uintptr_t arg3, uintptr_t arg4)
 {
-	dtrace_distributed_probe(instance, id, arg0, arg1,
+	dtrace_distributed_probe(vm, id, arg0, arg1,
 	    arg2, arg3, arg4);
 }
 
@@ -148,7 +148,7 @@ dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
 	if (uuid == NULL)
 		return (EINVAL);
 
-	if (nargs > DTRACE_MAXARGS+1)
+	if (nargs > DTRACE_MAXARGS)
 		return (EINVAL);
 
 	tmp.dtvp_uuid = uuid;
@@ -173,6 +173,7 @@ dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
 
 	virt_probe->dtv_id = dtrace_probe_create(provid, desc->dtpd_mod,
 	    desc->dtpd_func, desc->dtpd_name, 0, virt_probe);
+	virt_probe->dtv_vm = strdup(desc->dtpd_instance, M_DTVIRT);
 
 	return (0);
 }
@@ -281,6 +282,7 @@ dtvirt_getargval(void *arg, dtrace_id_t id,
 {
 	dtrace_virt_probe_t *virt_probe;
 	uint64_t val;
+	char *vm;
 
 	KASSERT(aframes == 0, ("%s: aframes are wrong", __func__));
 
@@ -289,7 +291,9 @@ dtvirt_getargval(void *arg, dtrace_id_t id,
 	if (ndx >= virt_probe->dtv_nargs)
 		return (0);
 
-	val = vmmdt_hook_valueof(id, ndx);
+	vm = virt_probe->dtv_vm;
+
+	val = vmmdt_hook_valueof(vm, id, ndx);
 
 	return (val);
 }
