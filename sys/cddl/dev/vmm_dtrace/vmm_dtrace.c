@@ -49,11 +49,13 @@ struct vmmdt_probe {
 
 struct vmdtree {
 	RB_HEAD(vmmdt_probetree, vmmdt_probe)	vmdtree_head;
+	struct mtx				vmdtree_mtx;
 	char					vmdtree_vmname[VM_MAX_NAMELEN];
 };
 
 struct vmmdt_vmlist {
 	struct vmdtree				**vm_list;
+	struct mtx				  vm_listmtx;
 #define	VMMDT_INITSIZ		 		  4096
 };
 
@@ -149,6 +151,7 @@ vmmdt_init(void)
 static int
 vmmdt_alloc_vmlist(void)
 {
+	char mtxname[32];
 	int i;
 
 	vmmdt_vms.vm_list = malloc(sizeof(struct vmdtree *) * VMMDT_INITSIZ,
@@ -157,14 +160,20 @@ vmmdt_alloc_vmlist(void)
 	if (vmmdt_vms.vm_list == NULL)
 		return (ENOMEM);
 
+	mtx_init(&vmmdt_vms.vm_listmtx, "vmlistmtx", NULL, MTX_DEF);
+
+	mtx_lock(&vmmdt_vms.vm_listmtx);
 	for (i = 0; i < VMMDT_INITSIZ; i++) {
 		vmmdt_vms.vm_list[i] = malloc(sizeof(struct vmdtree),
 		    M_VMMDT, M_ZERO | M_NOWAIT);
 		if (vmmdt_vms.vm_list[i] == NULL)
 			return (ENOMEM);
 
+		snprintf(mtxname, sizeof(mtxname), "vmdtree_mtx-%d", i);
+		mtx_init(&vmmdt_vms.vm_list[i]->vmdtree_mtx, mtxname, NULL, MTX_DEF);
 		RB_INIT(&vmmdt_vms.vm_list[i]->vmdtree_head);
 	}
+	mtx_unlock(&vmmdt_vms.vm_listmtx);
 
 	return (0);
 }
@@ -180,6 +189,7 @@ vmmdt_cleanup(void)
 	if (vmmdt_vms.vm_list == NULL)
 		return;
 
+	mtx_lock(&vmmdt_vms.vm_listmtx);
 	for (i = 0; i < VMMDT_INITSIZ; i++) {
 		rbhead = &vmmdt_vms.vm_list[i]->vmdtree_head;
 		RB_FOREACH_SAFE(probe, vmmdt_probetree, rbhead, tmp) {
@@ -188,9 +198,14 @@ vmmdt_cleanup(void)
 			}
 		}
 
+		mtx_destroy(&vmmdt_vms.vm_list[i]->vmdtree_mtx);
 		free(vmmdt_vms.vm_list[i], M_VMMDT);
 		vmmdt_vms.vm_list[i] = NULL;
 	}
+	mtx_unlock(&vmmdt_vms.vm_listmtx);
+
+	mtx_destroy(&vmmdt_vms.vm_listmtx);
+	free(vmmdt_vms.vm_list, M_VMMDT);
 
 	vmmdt_vms.vm_list = NULL;
 
