@@ -79,7 +79,7 @@ static void	vmmdt_fire_probe(const char *, int,
 static uint64_t	vmmdt_valueof(const char *, int, int);
 static void	vmmdt_set_args(const char *, int,
            	    const uint64_t[VMMDT_MAXARGS]);
-static struct vmmdt_probetree * vmmdt_hash_lookup(const char *);
+static struct vmdtree * vmmdt_hash_lookup(const char *);
 static int	vmmdt_hash_is_enabled(const char *, int);
 static uint64_t	vmmdt_hash_getargval(const char *, int, int);
 static int	vmmdt_probe_cmp(struct vmmdt_probe *, struct vmmdt_probe *);
@@ -221,7 +221,7 @@ vmmdt_cleanup(void)
 static int
 vmmdt_add_probe(const char *vm, int id)
 {
-	struct vmmdt_probetree *tree;
+	struct vmdtree *vtree;
 	struct vmmdt_probe *probe;
 
 	probe = malloc(sizeof(struct vmmdt_probe),
@@ -233,12 +233,14 @@ vmmdt_add_probe(const char *vm, int id)
 	probe->vmdtp_id = id;
 	probe->vmdtp_enabled = 0;
 
-	tree = vmmdt_hash_lookup(vm);
+	vtree = vmmdt_hash_lookup(vm);
 
-	if (tree == NULL)
+	if (vtree == NULL)
 		return (EINVAL);
 
-	RB_INSERT(vmmdt_probetree, tree, probe);
+	mtx_lock(&vtree->vmdtree_mtx);
+	RB_INSERT(vmmdt_probetree, &vtree->vmdtree_head, probe);
+	mtx_unlock(&vtree->vmdtree_mtx);
 
 	return (0);
 }
@@ -246,17 +248,20 @@ vmmdt_add_probe(const char *vm, int id)
 static int
 vmmdt_rm_probe(const char *vm, int id)
 {
-	struct vmmdt_probetree *tree;
+	struct vmdtree *vtree;
 	struct vmmdt_probe *probe, tmp;
 
-	tree = vmmdt_hash_lookup(vm);
+	vtree = vmmdt_hash_lookup(vm);
 
-	if (tree == NULL)
+	if (vtree == NULL)
 		return (EINVAL);
 
 	tmp.vmdtp_id = id;
 
-	probe = RB_REMOVE(vmmdt_probetree, tree, &tmp);
+	mtx_lock(&vtree->vmdtree_mtx);
+	probe = RB_REMOVE(vmmdt_probetree, &vtree->vmdtree_head, &tmp);
+	mtx_unlock(&vtree->vmdtree_mtx);
+
 	if (probe == NULL)
 		return (EINVAL);
 
@@ -268,12 +273,15 @@ vmmdt_rm_probe(const char *vm, int id)
 static void
 vmmdt_toggle_probe(const char *vm, int id, int flag)
 {
-	struct vmmdt_probetree *tree;
+	struct vmdtree *vtree;
 	struct vmmdt_probe *probe, tmp;
 
 	tmp.vmdtp_id = id;
-	tree = vmmdt_hash_lookup(vm);
-	probe = RB_FIND(vmmdt_probetree, tree, &tmp);
+	vtree = vmmdt_hash_lookup(vm);
+
+	mtx_lock(&vtree->vmdtree_mtx);
+	probe = RB_FIND(vmmdt_probetree, &vtree->vmdtree_head, &tmp);
+	mtx_unlock(&vtree->vmdtree_mtx);
 
 	probe->vmdtp_enabled = flag;
 }
@@ -299,12 +307,17 @@ vmmdt_enabled(const char *vm, int probeid)
 	 * probe id, get the necessary radix tree, walk down the enabled VMs and
 	 * find the one we want
 	 */
-	struct vmmdt_probetree *tree;
-	struct vmmdt_probe tmp;
+	struct vmdtree *vtree;
+	struct vmmdt_probe tmp, *probe;
 
 	tmp.vmdtp_id = probeid;
-	tree = vmmdt_hash_lookup(vm);
-	return (RB_FIND(vmmdt_probetree, tree, &tmp) != NULL);
+	vtree = vmmdt_hash_lookup(vm);
+
+	mtx_lock(&vtree->vmdtree_mtx);
+	probe = RB_FIND(vmmdt_probetree, &vtree->vmdtree_head, &tmp);
+	mtx_unlock(&vtree->vmdtree_mtx);
+
+	return (probe != NULL);
 }
 
 static  __inline void
@@ -320,12 +333,15 @@ vmmdt_fire_probe(const char *vm, int probeid,
 static __inline uint64_t
 vmmdt_valueof(const char *vm, int probeid, int ndx)
 {
-	struct vmmdt_probetree *tree;
+	struct vmdtree *vtree;
 	struct vmmdt_probe *probe, tmp;
 
 	tmp.vmdtp_id = probeid;
-	tree = vmmdt_hash_lookup(vm);
-	probe = RB_FIND(vmmdt_probetree, tree, &tmp);
+	vtree = vmmdt_hash_lookup(vm);
+
+	mtx_lock(&vtree->vmdtree_mtx);
+	probe = RB_FIND(vmmdt_probetree, &vtree->vmdtree_head, &tmp);
+	mtx_unlock(&vtree->vmdtree_mtx);
 	KASSERT(probe != NULL, ("%s: invalid probe", __func__));
 
 	return (probe->vmdtp_args[ndx]);
@@ -334,17 +350,20 @@ vmmdt_valueof(const char *vm, int probeid, int ndx)
 static void
 vmmdt_set_args(const char *vm, int probeid, const uint64_t args[VMMDT_MAXARGS])
 {
-	struct vmmdt_probetree *tree;
+	struct vmdtree *vtree;
 	struct vmmdt_probe *probe, tmp;
 
 	tmp.vmdtp_id = probeid;
-	tree = vmmdt_hash_lookup(vm);
-	probe = RB_FIND(vmmdt_probetree, tree, &tmp);
+	vtree = vmmdt_hash_lookup(vm);
+
+	mtx_lock(&vtree->vmdtree_mtx);
+	probe = RB_FIND(vmmdt_probetree, &vtree->vmdtree_head, &tmp);
+	mtx_unlock(&vtree->vmdtree_mtx);
 
 	memcpy(probe->vmdtp_args, args, VMMDT_MAXARGS);
 }
 
-static struct vmmdt_probetree *
+static struct vmdtree *
 vmmdt_hash_lookup(const char *vm)
 {
 	uint32_t idx;
@@ -355,13 +374,15 @@ vmmdt_hash_lookup(const char *vm)
 	hash_res = murmur3_32_hash(vm, strlen(vm), init_hash);
 	idx = hash_res;
 
+	mtx_lock(&vmmdt_vms.vm_listmtx);
 	while (vmmdt_vms.vm_list[idx] != NULL &&
 	    strcmp(vm, vmmdt_vms.vm_list[idx]->vmdtree_vmname) != 0) {
 		i++;
 		idx = hash_res + i/c1 + i*i/c2;
 	}
+	mtx_unlock(&vmmdt_vms.vm_listmtx);
 
-	return (&vmmdt_vms.vm_list[idx]->vmdtree_head);
+	return (vmmdt_vms.vm_list[idx]);
 }
 
 static int
