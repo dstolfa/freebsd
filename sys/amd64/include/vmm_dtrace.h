@@ -29,7 +29,7 @@
 #define	VMMDT_MAXARGS		5
 
 extern int	(*vmmdt_hook_add)(const char *, int);
-extern void	(*vmmdt_hook_rm)(const char *, int);
+extern int	(*vmmdt_hook_rm)(const char *, int);
 extern void	(*vmmdt_hook_enable)(const char *, int);
 extern void	(*vmmdt_hook_disable)(const char *, int);
 extern void	(*vmmdt_hook_fire_probe)(const char *, int,

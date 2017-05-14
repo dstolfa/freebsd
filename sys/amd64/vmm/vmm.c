@@ -58,6 +58,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/pcb.h>
 #include <machine/smp.h>
 #include <machine/bhyve_hypercall.h>
+#include <machine/vmm_dtrace.h>
 #include <x86/psl.h>
 #include <x86/apicreg.h>
 
@@ -233,14 +234,14 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, hypercalls_enabled, CTLFLAG_RWTUN,
     &hypercalls_enabled, 0,
     "Enable hypercalls on all guests");
 
-void	(*vmmdt_hook_add)(int);
-void	(*vmmdt_hook_rm)(int);
-void	(*vmmdt_hook_enable)(int);
-void	(*vmmdt_hook_disable)(int);
+int	(*vmmdt_hook_add)(const char *, int);
+int	(*vmmdt_hook_rm)(const char *, int);
+void	(*vmmdt_hook_enable)(const char *, int);
+void	(*vmmdt_hook_disable)(const char *, int);
 void	(*vmmdt_hook_fire_probe)(const char *, int,
     	    uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t);
-uint64_t (*vmmdt_hook_valueof)(int, int);
-void	(*vmmdt_hook_setargs)(int, const uint64_t[VMMDT_MAXARGS]);
+uint64_t (*vmmdt_hook_valueof)(const char *, int, int);
+void	(*vmmdt_hook_setargs)(const char *, int, const uint64_t[VMMDT_MAXARGS]);
 
 /*
  * The maximum amount of arguments currently supproted

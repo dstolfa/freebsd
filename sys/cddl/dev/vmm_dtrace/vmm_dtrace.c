@@ -32,6 +32,8 @@
 #include <sys/libkern.h>
 #include <sys/module.h>
 #include <sys/malloc.h>
+#include <sys/hash.h>
+#include <sys/tree.h>
 
 #include <sys/dtvirt.h>
 
@@ -39,20 +41,20 @@
 #include <machine/vmm_dtrace.h>
 
 struct vmmdt_probe {
-	uint64_t	vmdtp_args[VMMDT_MAXARGS];
-	int		vmdtp_id;
-	uint8_t		vmdtp_enabled;
+	RB_ENTRY(vmmdt_probe)	vmdtp_node;
+	uint64_t		vmdtp_args[VMMDT_MAXARGS];
+	int			vmdtp_id;
+	uint8_t			vmdtp_enabled;
 };
 
-struct vmmdt_probelist {
-	struct vmmdt_probe	*vmdpl_list;
-	size_t			 vmdpl_size;
+struct vmdtree {
+	RB_HEAD(vmmdt_probetree, vmmdt_probe)	vmdtree_head;
+	char					vmdtree_vmname[VM_MAX_NAMELEN];
 };
 
 struct vmmdt_vmlist {
-	struct vmmdt_probelist	 *vm_list;
-	size_t			  vm_listsize;
-#define	VMMDT_INITSIZ		  4096
+	struct vmdtree				**vm_list;
+#define	VMMDT_INITSIZ		 		  4096
 };
 
 static MALLOC_DEFINE(M_VMMDT, "VMM DTrace buffer",
@@ -65,7 +67,7 @@ static int	vmmdt_init(void);
 static int	vmmdt_alloc_vmlist(void);
 static void	vmmdt_cleanup(void);
 static int	vmmdt_add_probe(const char *, int);
-static void	vmmdt_rm_probe(const char *, int);
+static int	vmmdt_rm_probe(const char *, int);
 static void	vmmdt_enable_probe(const char *, int);
 static void	vmmdt_disable_probe(const char *, int);
 static int	vmmdt_enabled(const char *, int);
@@ -75,11 +77,17 @@ static void	vmmdt_fire_probe(const char *, int,
 static uint64_t	vmmdt_valueof(const char *, int, int);
 static void	vmmdt_set_args(const char *, int,
            	    const uint64_t[VMMDT_MAXARGS]);
-static struct vmmdt_probelist * vmmdt_hash_lookup(const char *);
+static struct vmmdt_probetree * vmmdt_hash_lookup(const char *);
 static int	vmmdt_hash_is_enabled(const char *, int);
 static uint64_t	vmmdt_hash_getargval(const char *, int, int);
-static struct vmmdt_probe * vmmdt_binary_find(struct vmmdt_probelist *,
-                                int);
+static int	vmmdt_probe_cmp(struct vmmdt_probe *, struct vmmdt_probe *);
+
+RB_GENERATE_STATIC(vmmdt_probetree, vmmdt_probe, vmdtp_node,
+    vmmdt_probe_cmp);
+
+static uint8_t c1 = 2;
+static uint8_t c2 = 2;
+static uint32_t init_hash;
 
 static int
 vmmdt_handler(module_t mod, int what, void *arg)
@@ -123,6 +131,8 @@ vmmdt_init(void)
 
 	error = 0;
 
+	init_hash = arc4random();
+
 	vmmdt_hook_add = vmmdt_add_probe;
 	vmmdt_hook_rm = vmmdt_rm_probe;
 	vmmdt_hook_enable = vmmdt_enable_probe;
@@ -139,14 +149,22 @@ vmmdt_init(void)
 static int
 vmmdt_alloc_vmlist(void)
 {
-	vmmdt_vms.vm_list = malloc(
-	    sizeof(struct vmmdt_probelist) * VMMDT_INITSIZ,
+	int i;
+
+	vmmdt_vms.vm_list = malloc(sizeof(struct vmdtree *) * VMMDT_INITSIZ,
 	    M_VMMDT, M_ZERO | M_NOWAIT);
 
 	if (vmmdt_vms.vm_list == NULL)
 		return (ENOMEM);
 
-	vmmdt_vms.vm_listsize = VMMDT_INITSIZ;
+	for (i = 0; i < VMMDT_INITSIZ; i++) {
+		vmmdt_vms.vm_list[i] = malloc(sizeof(struct vmdtree),
+		    M_VMMDT, M_ZERO | M_NOWAIT);
+		if (vmmdt_vms.vm_list[i] == NULL)
+			return (ENOMEM);
+
+		RB_INIT(&vmmdt_vms.vm_list[i]->vmdtree_head);
+	}
 
 	return (0);
 }
@@ -156,8 +174,25 @@ vmmdt_alloc_vmlist(void)
 static void
 vmmdt_cleanup(void)
 {
-	if (vmmdt_vms.vm_list != NULL)
-		free(vmmdt_vms.vm_list, M_VMMDT);
+	struct vmmdt_probetree *rbhead;
+	struct vmmdt_probe *tmp, *probe;
+	int i;
+	if (vmmdt_vms.vm_list == NULL)
+		return;
+
+	for (i = 0; i < VMMDT_INITSIZ; i++) {
+		rbhead = &vmmdt_vms.vm_list[i]->vmdtree_head;
+		RB_FOREACH_SAFE(probe, vmmdt_probetree, rbhead, tmp) {
+			if (probe != NULL) {
+				free(probe, M_VMMDT);
+			}
+		}
+
+		free(vmmdt_vms.vm_list[i], M_VMMDT);
+		vmmdt_vms.vm_list[i] = NULL;
+	}
+
+	vmmdt_vms.vm_list = NULL;
 
 	vmmdt_hook_add = NULL;
 	vmmdt_hook_rm = NULL;
@@ -171,35 +206,59 @@ vmmdt_cleanup(void)
 static int
 vmmdt_add_probe(const char *vm, int id)
 {
-	struct vmmdt_probelist *probelist;
-	int error;
+	struct vmmdt_probetree *tree;
+	struct vmmdt_probe *probe;
 
-	probelist = vmmdt_hash_lookup(vm);
-	error = vmmdt_insert_sorted_probelist(probelist, id);
+	probe = malloc(sizeof(struct vmmdt_probe),
+	    M_VMMDT, M_ZERO | M_NOWAIT);
 
-	return (error);
+	if (probe == NULL)
+		return (ENOMEM);
+
+	probe->vmdtp_id = id;
+	probe->vmdtp_enabled = 0;
+
+	tree = vmmdt_hash_lookup(vm);
+
+	if (tree == NULL)
+		return (EINVAL);
+
+	RB_INSERT(vmmdt_probetree, tree, probe);
+
+	return (0);
 }
 
-static void
+static int
 vmmdt_rm_probe(const char *vm, int id)
 {
-	struct vmmdt_probe *probe;
-	struct vmmdt_probelist *probelist;
+	struct vmmdt_probetree *tree;
+	struct vmmdt_probe *probe, tmp;
 
-	probelist = vmmdt_hash_lookup(vm);
-	probe = vmmdt_remove_probelist(probelist, id);
+	tree = vmmdt_hash_lookup(vm);
+
+	if (tree == NULL)
+		return (EINVAL);
+
+	tmp.vmdtp_id = id;
+
+	probe = RB_REMOVE(vmmdt_probetree, tree, &tmp);
+	if (probe == NULL)
+		return (EINVAL);
 
 	free(probe, M_VMMDT);
+
+	return (0);
 }
 
 static void
 vmmdt_toggle_probe(const char *vm, int id, int flag)
 {
-	struct vmmdt_probe *probe;
-	struct vmmdt_probelist *probelist;
+	struct vmmdt_probetree *tree;
+	struct vmmdt_probe *probe, tmp;
 
-	probelist = vmmdt_hash_lookup(vm);
-	probe = vmmdt_binary_find(probelist, id);
+	tmp.vmdtp_id = id;
+	tree = vmmdt_hash_lookup(vm);
+	probe = RB_FIND(vmmdt_probetree, tree, &tmp);
 
 	probe->vmdtp_enabled = flag;
 }
@@ -217,7 +276,7 @@ vmmdt_disable_probe(const char *vm, int id)
 }
 
 static __inline int
-vmmdt_enabled(const char *vm, int probe)
+vmmdt_enabled(const char *vm, int probeid)
 {
 	/*
 	 * TODO:
@@ -225,7 +284,12 @@ vmmdt_enabled(const char *vm, int probe)
 	 * probe id, get the necessary radix tree, walk down the enabled VMs and
 	 * find the one we want
 	 */
-	return (vmmdt_hash_is_enabled(vm, probe));
+	struct vmmdt_probetree *tree;
+	struct vmmdt_probe tmp;
+
+	tmp.vmdtp_id = probeid;
+	tree = vmmdt_hash_lookup(vm);
+	return (RB_FIND(vmmdt_probetree, tree, &tmp) != NULL);
 }
 
 static  __inline void
@@ -241,26 +305,31 @@ vmmdt_fire_probe(const char *vm, int probeid,
 static __inline uint64_t
 vmmdt_valueof(const char *vm, int probeid, int ndx)
 {
-	return (vmmdt_hash_getargval(vm, probeid, ndx));
+	struct vmmdt_probetree *tree;
+	struct vmmdt_probe *probe, tmp;
+
+	tmp.vmdtp_id = probeid;
+	tree = vmmdt_hash_lookup(vm);
+	probe = RB_FIND(vmmdt_probetree, tree, &tmp);
+	KASSERT(probe != NULL, ("%s: invalid probe", __func__));
+
+	return (probe->vmdtp_args[ndx]);
 }
 
 static void
 vmmdt_set_args(const char *vm, int probeid, const uint64_t args[VMMDT_MAXARGS])
 {
-	struct vmmdt_probelist *probelist;
-	struct vmmdt_probe *probe;
+	struct vmmdt_probetree *tree;
+	struct vmmdt_probe *probe, tmp;
 
-	probelist = vmmdt_hash_lookup(vm);
-	probe = vmmdt_binary_find(probelist, probeid);
+	tmp.vmdtp_id = probeid;
+	tree = vmmdt_hash_lookup(vm);
+	probe = RB_FIND(vmmdt_probetree, tree, &tmp);
 
 	memcpy(probe->vmdtp_args, args, VMMDT_MAXARGS);
 }
 
-/*
- * Lookup functions
- */
-
-static struct vmmdt_probelist *
+static struct vmmdt_probetree *
 vmmdt_hash_lookup(const char *vm)
 {
 	uint32_t idx;
@@ -268,86 +337,23 @@ vmmdt_hash_lookup(const char *vm)
 	uint32_t i;
 
 	i = 0;
-	hash_res = murmur3_32_hash(vm, strlen(vm), INIT_HASH);
+	hash_res = murmur3_32_hash(vm, strlen(vm), init_hash);
+	idx = hash_res;
 
 	while (vmmdt_vms.vm_list[idx] != NULL &&
-	    strcmp(vm, vmmdt_vms.vm_list[idx]) != 0) {
+	    strcmp(vm, vmmdt_vms.vm_list[idx]->vmdtree_vmname) != 0) {
 		i++;
-		idx = hash_res + c1*i + c2*i*i;
+		idx = hash_res + i/c1 + i*i/c2;
 	}
 
-	return (vmmdt_vms.vm_list[idx]);
+	return (&vmmdt_vms.vm_list[idx]->vmdtree_head);
 }
 
 static int
-vmmdt_hash_is_enabled(const char *vm, int probeid)
+vmmdt_probe_cmp(struct vmmdt_probe *p1, struct vmmdt_probe *p2)
 {
-	struct vmmdt_probelist *probelist;
-
-	probes = vmmdt_hash_lookup(vm);
-
-	return (vmmdt_binary_find(probelist, probeid) == NULL ? 0 : 1);
-}
-
-static uint64_t
-vmmdt_hash_getargval(const char *vm, int probeid, int ndx)
-{
-	struct vmmdt_probelist *probelist;
-	struct vmmdt_probe *probe;
-	uint64_t argval;
-	int istcid;
-
-	probelist = vmmdt_hash_lookup(vm);
-	probe = vmmdt_binary_find(probelist, probeid);
-
-	/*
-	 * FIXME: This should fill in the DTRACE_ARGNONE
-	 */
-	if (probe == NULL)
+	if (p1->vmdtp_id == p2->vmdtp_id)
 		return (0);
 
-	return (probe->vmdtp_argval[ndx]);
-}
-
-static struct vmmdt_probe *
-vmmdt_binary_find(struct vmmdt_probelist *probelist, int probeid)
-{
-	uint32_t first;
-	uint32_t last;
-	uint32_t middle;
-
-	first = 0;
-	last = probelist->vmdpl_size - 1;
-	middle = (first + last) / 2;
-
-	while (first <= last) {
-		if (probelist->vmdpl_list[middle] < probeid)
-			first = middle + 1;
-		else if (probelist->vmdpl_list[middle] == probeid)
-			return (probelist->vmdpl_list[middle]);
-		else
-			last = middle - 1;
-		
-		middle = (first + last) / 2;
-	}
-
-	return (NULL);
-}
-
-static struct vmmdt_probe *
-vmmdt_remove_probelist(struct vmmdt_probelist *probelist, int probeid)
-{
-	struct vmmdt_probe *probe;
-	struct vmmdt_probe *plist;
-	int i;
-
-	plist = probelist->vmdpl_list;
-	probe = &plist[probeid];
-	i = probeid;
-
-	while (plist[i] != NULL) {
-		
-	}
-
-	return (probe);
+	return ((p1->vmdtp_id > p2->vmdtp_id) ? 1 : -1);
 }
