@@ -379,10 +379,10 @@ vtdtr_attach(device_t dev)
 	vtdtr_enable_interrupts(sc);
 
 	vtdtr_start_taskqueues(sc);
+	sc->vtdtr_ready = 0;
+	vtdtr_notify_ready(sc);
 	kthread_add(vtdtr_run, sc, NULL, &sc->vtdtr_commtd,
 	    0, 0, NULL, "vtdtr_communicator");
-	sc->vtdtr_ready = 1;
-	vtdtr_notify_ready(sc);
 fail:
 	if (error)
 		vtdtr_detach(dev);
@@ -639,7 +639,6 @@ vtdtr_drain_virtqueue(struct virtio_dtrace_queue *q)
 	vtdtr_vq_enable_intr(q);
 	q->vtdq_ready = 1;
 	VTDTR_UNLOCK(sc);
-	cv_signal(&sc->vtdtr_condvar);
 }
 
 static int
@@ -657,12 +656,10 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 	 */
 	switch (ctrl->event) {
 	case VIRTIO_DTRACE_DEVICE_READY:
-		device_printf(dev, "READY\n");
 		vtdtr_drain_virtqueue(&sc->vtdtr_txq);
 		break;
 	case VIRTIO_DTRACE_REGISTER:
 	case VIRTIO_DTRACE_UNREGISTER:
-		device_printf(dev, "PROV\n");
 		retval = vtdtr_ctrl_process_provaction(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_DESTROY:
@@ -671,11 +668,9 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 	case VIRTIO_DTRACE_PROBE_CREATE:
 	case VIRTIO_DTRACE_PROBE_INSTALL:
 	case VIRTIO_DTRACE_PROBE_UNINSTALL:
-		device_printf(dev, "PROBE\n");
 		retval = vtdtr_ctrl_process_probeaction(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_EOF:
-		device_printf(dev, "EOF\n");
 		retval = 1;
 		break;
 	default:
@@ -1009,6 +1004,11 @@ vtdtr_notify_ready(struct vtdtr_softc *sc)
 	dev = sc->vtdtr_dev;
 	q = &sc->vtdtr_txq;
 
+	if (sc->vtdtr_ready == 1)
+		goto signal;
+	else
+		sc->vtdtr_ready = 1;
+
 	ctrl_entry = malloc(sizeof(struct vtdtr_ctrl_entry),
 	    M_DEVBUF, M_NOWAIT | M_ZERO);
 
@@ -1033,6 +1033,7 @@ vtdtr_notify_ready(struct vtdtr_softc *sc)
 	mtx_lock(&sc->vtdtr_ctrlq->mtx);
 	vtdtr_cq_enqueue_front(sc->vtdtr_ctrlq, ctrl_entry);
 	mtx_unlock(&sc->vtdtr_ctrlq->mtx);
+signal:
 	cv_signal(&sc->vtdtr_condvar);
 }
 
@@ -1085,10 +1086,7 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 	VTDTR_QUEUE_UNLOCK(rxq);
 
 	VTDTR_LOCK(sc);
-	if (sc->vtdtr_ready == 0) {
-		sc->vtdtr_ready = 1;
-		vtdtr_notify_ready(sc);
-	}
+	vtdtr_notify_ready(sc);
 	VTDTR_UNLOCK(sc);
 }
 
@@ -1214,6 +1212,7 @@ vtdtr_cq_enqueue(struct vtdtr_ctrlq *cq,
 {
 	STAILQ_INSERT_TAIL(&cq->head, ctrl_entry, entries);
 	cq->n_entries++;
+	printf("Enqueue back\n");
 }
 
 static __inline void
@@ -1222,11 +1221,13 @@ vtdtr_cq_enqueue_front(struct vtdtr_ctrlq *cq,
 {
 	STAILQ_INSERT_HEAD(&cq->head, ctrl_entry, entries);
 	cq->n_entries++;
+	printf("enqueue front\n");
 }
 
 static __inline int
 vtdtr_cq_empty(struct vtdtr_ctrlq *cq)
 {
+	printf("Am I empty\n");
 	return (STAILQ_EMPTY(&cq->head));
 }
 
@@ -1274,30 +1275,44 @@ vtdtr_run(void *xsc)
 	int error;
 	int all_used;
 
+	int tmp1, tmp2, tmp3;
+
 	sc = xsc;
 	dev = sc->vtdtr_dev;
 
 	txq = &sc->vtdtr_txq;
 	vq = txq->vtdq_vq;
 	txq->vtdq_ready = 1;
+	printf("I am a thread\n");
 
 	for (;;) {
 		nent = 0;
 		error = 0;
 		all_used = 0;
 
+		printf("1: vtdq_ready = %d\n", txq->vtdq_ready);
 		mtx_lock(&sc->vtdtr_condmtx);
-		while ((vtdtr_cq_empty(sc->vtdtr_ctrlq) ||
-		    virtqueue_full(vq) ||
-		    txq->vtdq_ready == 0) &&
+		mtx_lock(&sc->vtdtr_ctrlq->mtx);
+		while ((((tmp1 = vtdtr_cq_empty(sc->vtdtr_ctrlq)) != 0) ||
+		    ((tmp2 = virtqueue_full(vq)) != 0) ||
+		    ((tmp3 = txq->vtdq_ready) == 0)) &&
 		    (!sc->vtdtr_shutdown)) {
+			printf("inside: vtdtr_cq_empty() = %d, has to be 0\n", tmp1);
+			printf("inside: virtqueue_full() = %d, has to be 0\n", tmp2);
+			printf("inside: txq->vtdq_ready = %d, has to be 1\n", tmp3);
+			mtx_unlock(&sc->vtdtr_ctrlq->mtx);
 			cv_wait(&sc->vtdtr_condvar, &sc->vtdtr_condmtx);
+			mtx_lock(&sc->vtdtr_ctrlq->mtx);
 		}
+		printf("outside: vtdtr_cq_empty() = %d, has to be 0\n", tmp1);
+		printf("outside: virtqueue_full() = %d, has to be 0\n", tmp2);
+		printf("outside: txq->vtdq_ready = %d, has to be 1\n", tmp3);
+		mtx_unlock(&sc->vtdtr_ctrlq->mtx);
 		mtx_unlock(&sc->vtdtr_condmtx);
 
 		kthread_suspend_check();
 		txq->vtdq_ready = 0;
-		printf("vtdq_ready = %d\n", txq->vtdq_ready);
+		printf("2: vtdq_ready = %d\n", txq->vtdq_ready);
 
 		if (sc->vtdtr_shutdown == 0) {
 			KASSERT(!virtqueue_full(vq),
@@ -1330,6 +1345,7 @@ vtdtr_run(void *xsc)
 
 		if (sc->vtdtr_shutdown == 1)
 			kthread_exit();
+		printf("3: vtdq_ready = %d\n", txq->vtdq_ready);
 
 	}
 }

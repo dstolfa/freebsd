@@ -195,9 +195,6 @@ static __inline void
 pci_vtdtr_signal_ready(struct pci_vtdtr_softc *sc)
 {
 	sc->vsd_guest_ready = 1;
-	pthread_mutex_lock(&sc->vsd_condmtx);
-	pthread_cond_signal(&sc->vsd_cond);
-	pthread_mutex_unlock(&sc->vsd_condmtx);
 }
 
 static int
@@ -227,13 +224,14 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 		retval = 2;
 		break;
 	case VTDTR_DEVICE_EOF:
+		retval = 1;
 		break;
 	default:
 		WPRINTF(("Warning: Unknown event: %u\n", ctrl->event));
 		break;
 	}
 
-	return (0);
+	return (retval);
 }
 
 static void
@@ -273,20 +271,18 @@ pci_vtdtr_notify_rx(void *xsc, struct vqueue_info *vq)
 
 	while (vq_has_descs(vq)) {
 		n = vq_getchain(vq, &idx, iov, 1, flags);
-		retval = pci_vtdtr_control_rx(sc, iov, 1);
-		vq_relchain(vq, idx, sizeof(struct dtrace_probeinfo));
 		pthread_mutex_lock(&sc->vsd_mtx);
 		if (sc->vsd_ready == 1 && retval == 2)
 			sc->vsd_ready = 0;
 		pthread_mutex_unlock(&sc->vsd_mtx);
+		retval = pci_vtdtr_control_rx(sc, iov, 1);
+		vq_relchain(vq, idx, sizeof(struct dtrace_probeinfo));
 		if (retval == 1)
 			break;
 	}
 
 	pthread_mutex_lock(&sc->vsd_mtx);
-	if (sc->vsd_ready == 0) {
-		pci_vtdtr_notify_ready(sc);
-	}
+	pci_vtdtr_notify_ready(sc);
 	pthread_mutex_unlock(&sc->vsd_mtx);
 
 	vq_endchains(vq, 1);
@@ -392,6 +388,11 @@ pci_vtdtr_notify_ready(struct pci_vtdtr_softc *sc)
 	struct pci_vtdtr_ctrl_entry *ctrl_entry;
 	struct pci_vtdtr_control *ctrl;
 
+	if (sc->vsd_ready == 1)
+		goto signal;
+	else
+		sc->vsd_ready = 1;
+
 	ctrl_entry = malloc(sizeof(struct pci_vtdtr_ctrl_entry));
 	assert(ctrl_entry != NULL);
 
@@ -403,7 +404,7 @@ pci_vtdtr_notify_ready(struct pci_vtdtr_softc *sc)
 	pci_vtdtr_cq_enqueue_front(sc->vsd_ctrlq, ctrl_entry);
 	pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
 
-	sc->vsd_ready = 1;
+signal:
 	pthread_mutex_lock(&sc->vsd_condmtx);
 	pthread_cond_signal(&sc->vsd_cond);
 	pthread_mutex_unlock(&sc->vsd_condmtx);
@@ -426,6 +427,7 @@ pci_vtdtr_run(void *xsc)
 	uint32_t nent;
 	int error;
 	int ready_flag;
+	int tmp1, tmp2, tmp3, tmp4;
 
 	sc = xsc;
 	vq = &sc->vsd_queues[0];
@@ -442,12 +444,20 @@ pci_vtdtr_run(void *xsc)
 		 */
 		error = pthread_mutex_lock(&sc->vsd_condmtx);
 		assert(error == 0);
-		while (sc->vsd_guest_ready == 0 || !vq_has_descs(vq) ||
-		    pci_vtdtr_cq_empty(sc->vsd_ctrlq) || sc->vsd_ready == 0) {
+		error = pthread_mutex_lock(&sc->vsd_ctrlq->mtx);
+		assert(error == 0);
+		while ((tmp1 = sc->vsd_guest_ready) == 0 || (tmp2 = vq_has_descs(vq)) == 0 ||
+		    (tmp3 = pci_vtdtr_cq_empty(sc->vsd_ctrlq)) == 1 || (tmp4 = sc->vsd_ready) == 0) {
+			error = pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
+			assert(error == 0);
 			error = pthread_cond_wait(&sc->vsd_cond, &sc->vsd_condmtx);
+			assert(error == 0);
+			error = pthread_mutex_lock(&sc->vsd_ctrlq->mtx);
 			assert(error == 0);
 		}
 
+		error = pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
+		assert(error == 0);
 		error = pthread_mutex_unlock(&sc->vsd_condmtx);
 		assert(error == 0);
 
@@ -464,7 +474,8 @@ pci_vtdtr_run(void *xsc)
 			ctrl_entry = pci_vtdtr_cq_dequeue(sc->vsd_ctrlq);
 			error = pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
 			assert(error == 0);
-			if (ctrl_entry->ctrl.event != VTDTR_DEVICE_READY &&
+			if (ready_flag &&
+			    ctrl_entry->ctrl.event != VTDTR_DEVICE_READY &&
 			    ctrl_entry->ctrl.event != VTDTR_DEVICE_EOF)
 				ready_flag = 0;
 			pci_vtdtr_fill_desc(vq, &ctrl_entry->ctrl);

@@ -468,7 +468,6 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		int nrecs;
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_EPROBE\n",__func__,__LINE__);
-
 		if (copyin((void *)*pepdesc, &epdesc, sizeof (epdesc)) != 0)
 			return (EFAULT);
 
@@ -931,13 +930,15 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		int purpose;
 		int retval;
 
+		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROVCREATE\n",__func__,__LINE__);
+
 		puuid = NULL;
 		pvd->dtvd_instance[DTRACE_INSTANCENAMELEN - 1] = '\0';
 		pvd->dtvd_name[DTRACE_PROVNAMELEN - 1] = '\0';
 		retval = 0;
 
 		purpose = pvd->dtvd_purpose;
-		
+
 		switch (purpose) {
 		case DTRACE_PURPOSE_VIRT:
 			if (dtvirt_hook_commit == NULL     ||
@@ -947,6 +948,7 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 			    dtvirt_hook_enable == NULL     ||
 			    dtvirt_hook_disable == NULL    ||
 			    dtvirt_hook_getargdesc == NULL ||
+			    dtvirt_hook_getargval == NULL  ||
 			    dtvirt_hook_destroy == NULL)
 				return (EINVAL);
 			ppops = &dtvirt_pops;
@@ -980,6 +982,7 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		 * callback makes no sense as we cannot access the argtypes of
 		 * the given probe.
 		 */
+		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROBECREATE\n",__func__,__LINE__);
 		return (0);
 	}
 	default:
