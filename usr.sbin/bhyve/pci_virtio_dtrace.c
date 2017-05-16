@@ -427,7 +427,6 @@ pci_vtdtr_run(void *xsc)
 	uint32_t nent;
 	int error;
 	int ready_flag;
-	int tmp1, tmp2, tmp3, tmp4;
 
 	sc = xsc;
 	vq = &sc->vsd_queues[0];
@@ -446,8 +445,8 @@ pci_vtdtr_run(void *xsc)
 		assert(error == 0);
 		error = pthread_mutex_lock(&sc->vsd_ctrlq->mtx);
 		assert(error == 0);
-		while ((tmp1 = sc->vsd_guest_ready) == 0 || (tmp2 = vq_has_descs(vq)) == 0 ||
-		    (tmp3 = pci_vtdtr_cq_empty(sc->vsd_ctrlq)) == 1 || (tmp4 = sc->vsd_ready) == 0) {
+		while (!sc->vsd_guest_ready || !vq_has_descs(vq) ||
+		    pci_vtdtr_cq_empty(sc->vsd_ctrlq) || !sc->vsd_ready) {
 			error = pthread_mutex_unlock(&sc->vsd_ctrlq->mtx);
 			assert(error == 0);
 			error = pthread_cond_wait(&sc->vsd_cond, &sc->vsd_condmtx);

@@ -1212,7 +1212,6 @@ vtdtr_cq_enqueue(struct vtdtr_ctrlq *cq,
 {
 	STAILQ_INSERT_TAIL(&cq->head, ctrl_entry, entries);
 	cq->n_entries++;
-	printf("Enqueue back\n");
 }
 
 static __inline void
@@ -1221,13 +1220,11 @@ vtdtr_cq_enqueue_front(struct vtdtr_ctrlq *cq,
 {
 	STAILQ_INSERT_HEAD(&cq->head, ctrl_entry, entries);
 	cq->n_entries++;
-	printf("enqueue front\n");
 }
 
 static __inline int
 vtdtr_cq_empty(struct vtdtr_ctrlq *cq)
 {
-	printf("Am I empty\n");
 	return (STAILQ_EMPTY(&cq->head));
 }
 
@@ -1275,44 +1272,33 @@ vtdtr_run(void *xsc)
 	int error;
 	int all_used;
 
-	int tmp1, tmp2, tmp3;
-
 	sc = xsc;
 	dev = sc->vtdtr_dev;
 
 	txq = &sc->vtdtr_txq;
 	vq = txq->vtdq_vq;
 	txq->vtdq_ready = 1;
-	printf("I am a thread\n");
 
 	for (;;) {
 		nent = 0;
 		error = 0;
 		all_used = 0;
 
-		printf("1: vtdq_ready = %d\n", txq->vtdq_ready);
 		mtx_lock(&sc->vtdtr_condmtx);
 		mtx_lock(&sc->vtdtr_ctrlq->mtx);
-		while ((((tmp1 = vtdtr_cq_empty(sc->vtdtr_ctrlq)) != 0) ||
-		    ((tmp2 = virtqueue_full(vq)) != 0) ||
-		    ((tmp3 = txq->vtdq_ready) == 0)) &&
+		while ((vtdtr_cq_empty(sc->vtdtr_ctrlq) ||
+		    virtqueue_full(vq)                  ||
+		    !txq->vtdq_ready)                   &&
 		    (!sc->vtdtr_shutdown)) {
-			printf("inside: vtdtr_cq_empty() = %d, has to be 0\n", tmp1);
-			printf("inside: virtqueue_full() = %d, has to be 0\n", tmp2);
-			printf("inside: txq->vtdq_ready = %d, has to be 1\n", tmp3);
 			mtx_unlock(&sc->vtdtr_ctrlq->mtx);
 			cv_wait(&sc->vtdtr_condvar, &sc->vtdtr_condmtx);
 			mtx_lock(&sc->vtdtr_ctrlq->mtx);
 		}
-		printf("outside: vtdtr_cq_empty() = %d, has to be 0\n", tmp1);
-		printf("outside: virtqueue_full() = %d, has to be 0\n", tmp2);
-		printf("outside: txq->vtdq_ready = %d, has to be 1\n", tmp3);
 		mtx_unlock(&sc->vtdtr_ctrlq->mtx);
 		mtx_unlock(&sc->vtdtr_condmtx);
 
 		kthread_suspend_check();
 		txq->vtdq_ready = 0;
-		printf("2: vtdq_ready = %d\n", txq->vtdq_ready);
 
 		if (sc->vtdtr_shutdown == 0) {
 			KASSERT(!virtqueue_full(vq),
@@ -1345,7 +1331,6 @@ vtdtr_run(void *xsc)
 
 		if (sc->vtdtr_shutdown == 1)
 			kthread_exit();
-		printf("3: vtdq_ready = %d\n", txq->vtdq_ready);
 
 	}
 }
