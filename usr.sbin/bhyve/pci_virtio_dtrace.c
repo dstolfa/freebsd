@@ -64,7 +64,8 @@ __FBSDID("$FreeBSD$");
 #define	VTDTR_DEVICE_PROBE_CREATE	0x04
 #define	VTDTR_DEVICE_PROBE_INSTALL	0x05
 #define	VTDTR_DEVICE_PROBE_UNINSTALL	0x06
-#define	VTDTR_DEVICE_EOF		0x07
+#define	VTDTR_DEVICE_CLEANUP		0x07
+#define	VTDTR_DEVICE_EOF		0x08
 
 static int pci_vtdtr_debug;
 #define	DPRINTF(params)		if (pci_vtdtr_debug) printf params
