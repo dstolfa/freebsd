@@ -98,13 +98,6 @@ struct vtdtr_softc {
 	int					vtdtr_ready;
 };
 
-/*
- * TODO:
- *  - Event handler
- *  - Bidirectional flow
- *  - Routines to interact(read and write to virtqueues)
- */
-
 static MALLOC_DEFINE(M_VTDTR, "vtdtr", "VirtIO DTrace memory");
 
 #define	VTDTR_LOCK(__sc)		(mtx_lock(&((__sc)->vtdtr_mtx)))
