@@ -57,6 +57,18 @@ __FBSDID("$FreeBSD$");
 #define	VTDTR_RINGSZ			512
 #define	VTDTR_MAXQ			2
 
+/*
+ * As already documented in virtio_dtrace.h, probe installation/uninstallation
+ * events are only meant to be sent to the guest presently. They have no effect
+ * on the host.
+ *
+ * Provider registration and de-registration, as well as probe
+ * creation/destruction is presently on meant to be executed on the host in
+ * order to advertise DTrace probes from the guest.
+ *
+ * READY and EOF are used for synchronization purposes, while CLEANUP is meant
+ * to be sent to the guest in order to clean up the TX virtqueue.
+ */
 #define	VTDTR_DEVICE_READY		0x00
 #define	VTDTR_DEVICE_DESTROY		0x01
 #define	VTDTR_DEVICE_REGISTER		0x02
@@ -132,7 +144,6 @@ struct pci_vtdtr_softc {
 static void	pci_vtdtr_reset(void *);
 static void	pci_vtdtr_control_tx(struct pci_vtdtr_softc *,
            	    struct iovec *, int);
-static void	pci_vtdtr_signal_ready(struct pci_vtdtr_softc *);
 static int	pci_vtdtr_control_rx(struct pci_vtdtr_softc *,
            	    struct iovec *, int);
 static void	pci_vtdtr_process_prov_evt(struct pci_vtdtr_softc *,
@@ -192,12 +203,11 @@ pci_vtdtr_control_tx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 	 */
 }
 
-static __inline void
-pci_vtdtr_signal_ready(struct pci_vtdtr_softc *sc)
-{
-	sc->vsd_guest_ready = 1;
-}
-
+/*
+ * In this fucntion we process each of the events, for probe and provider
+ * related events, we delegate the processing to a function specialized for that
+ * type of event.
+ */
 static int
 pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 {
@@ -210,14 +220,26 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 	ctrl = (struct pci_vtdtr_control *)iov->iov_base;
 	switch (ctrl->event) {
 	case VTDTR_DEVICE_READY:
-		pci_vtdtr_signal_ready(sc);
+		sc->vsd_guest_ready = 1;
 		break;
+	/*
+	 * We could possibly handle these events individually here with
+	 * designing a function that returns provider information, that way we
+	 * don't switch-case twice.
+	 */
 	case VTDTR_DEVICE_REGISTER:
 	case VTDTR_DEVICE_UNREGISTER:
 	case VTDTR_DEVICE_DESTROY:
 		pci_vtdtr_process_prov_evt(sc, ctrl);
+		/*
+		 * FIXME: retval = 2 doesn't mean anything, this needs to be
+		 * defined somewhere
+		 */
 		retval = 2;
 		break;
+	/*
+	 * Likewise here
+	 */
 	case VTDTR_DEVICE_PROBE_CREATE:
 	case VTDTR_DEVICE_PROBE_INSTALL:
 	case VTDTR_DEVICE_PROBE_UNINSTALL:
@@ -225,6 +247,9 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 		retval = 2;
 		break;
 	case VTDTR_DEVICE_EOF:
+		/*
+		 * Same here
+		 */
 		retval = 1;
 		break;
 	default:
@@ -258,6 +283,10 @@ pci_vtdtr_notify_tx(void *xsc, struct vqueue_info *vq)
 {
 }
 
+/*
+ * The RX queue interrupt. This function gets all the descriptors until we hit
+ * EOF or run out of descriptors and processes each event in a lockless manner.
+ */
 static void
 pci_vtdtr_notify_rx(void *xsc, struct vqueue_info *vq)
 {
@@ -272,6 +301,9 @@ pci_vtdtr_notify_rx(void *xsc, struct vqueue_info *vq)
 
 	while (vq_has_descs(vq)) {
 		n = vq_getchain(vq, &idx, iov, 1, flags);
+		/*
+		 * FIXME: This needs to be handled in a better way.
+		 */
 		pthread_mutex_lock(&sc->vsd_mtx);
 		if (sc->vsd_ready == 1 && retval == 2)
 			sc->vsd_ready = 0;
@@ -289,6 +321,10 @@ pci_vtdtr_notify_rx(void *xsc, struct vqueue_info *vq)
 	vq_endchains(vq, 1);
 }
 
+/*
+ * Here we handle the kernel event that we get from kqueue and identify various
+ * control messages that we need to send
+ */
 static void
 pci_vtdtr_handle_mev(int fd __unused, enum ev_type et __unused, int ne,
     void *xsc)
@@ -360,6 +396,10 @@ pci_vtdtr_cq_dequeue(struct pci_vtdtr_ctrlq *cq)
 	return (ctrl_entry);
 }
 
+/*
+ * In this function we fill the descriptor that was provided to us by the guest.
+ * No allocation is needed, since we memcpy everything.
+ */
 static void
 pci_vtdtr_fill_desc(struct vqueue_info *vq, struct pci_vtdtr_control *ctrl)
 {
@@ -383,6 +423,12 @@ pci_vtdtr_poll(struct vqueue_info *vq, int all_used)
 	vq_endchains(vq, all_used);
 }
 
+/*
+ * In this function we enqueue the READY control message in front of the queue,
+ * so that when the guest receives the messages, READY is the first one in the
+ * queue. If we already are ready, we simply signal the communicator thread that
+ * it is safe to run.
+ */
 static void
 pci_vtdtr_notify_ready(struct pci_vtdtr_softc *sc)
 {
@@ -419,6 +465,11 @@ pci_vtdtr_fill_eof_desc(struct vqueue_info *vq)
 	pci_vtdtr_fill_desc(vq, &ctrl);
 }
 
+/*
+ * The communicator thread that is created when we attach the PCI device. It
+ * serves the purpose of draining the control queue of messages and filling the
+ * guest memory with the descriptors.
+ */
 static void *
 pci_vtdtr_run(void *xsc)
 {
@@ -437,13 +488,16 @@ pci_vtdtr_run(void *xsc)
 		error = 0;
 		ready_flag = 1;
 
-		/*
-		 * Wait for the conditions to be satisfied:
-		 *  - vsd_guest_ready == 1
-		 *  - !queue_empty()
-		 */
 		error = pthread_mutex_lock(&sc->vsd_condmtx);
 		assert(error == 0);
+		/*
+		 * We have to lock the control queue due to the race condition
+		 * in the while condition through pci_vtdtr_cq_empty(). Other
+		 * variables are implicitly protected with this mutex as well,
+		 * as they all have to be satisfied before we actually signal
+		 * the condition variable, leaving the only possible race with
+		 * the control queue.
+		 */
 		error = pthread_mutex_lock(&sc->vsd_ctrlq->mtx);
 		assert(error == 0);
 		while (!sc->vsd_guest_ready || !vq_has_descs(vq) ||
@@ -491,7 +545,6 @@ pci_vtdtr_run(void *xsc)
 		 * EOF descriptor to send to the guest. Following that, we end
 		 * the chains and force an interrupt in the guest
 		 */
-
 		if (nent) {
 			if (pci_vtdtr_cq_empty(sc->vsd_ctrlq) &&
 			    vq_has_descs(vq)) {
@@ -511,6 +564,9 @@ pci_vtdtr_run(void *xsc)
 	pthread_exit(NULL);
 }
 
+/*
+ * A simple wrapper function used to reset the control queue
+ */
 static void
 pci_vtdtr_reset_queue(struct pci_vtdtr_softc *sc)
 {
@@ -531,6 +587,11 @@ pci_vtdtr_reset_queue(struct pci_vtdtr_softc *sc)
 	pthread_mutex_unlock(&q->mtx);
 }
 
+/*
+ * Mostly boilerplate, we initialize everything required for the correct
+ * operation of the emulated PCI device, do error checking and finally dispatch
+ * the communicator thread and add an event handler for kqueue.
+ */
 static int
 pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 {

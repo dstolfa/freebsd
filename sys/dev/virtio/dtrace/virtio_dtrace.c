@@ -859,8 +859,7 @@ vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
 }
 
 /*
- * A wrapper function used to free the list of enabled
- * probes.
+ * A wrapper function used to free the list of enabled probes.
  */
 static void
 vtdtr_destroy_probelist(struct vtdtr_softc *sc)
@@ -946,8 +945,7 @@ vtdtr_drain_virtqueues(struct vtdtr_softc *sc)
 }
 
 /*
- * Disable interrupts on all of the virtqueues in the
- * virtio driver.
+ * Disable interrupts on all of the virtqueues in the virtio driver
  */
 static void
 vtdtr_disable_interrupts(struct vtdtr_softc *sc)
@@ -959,8 +957,7 @@ vtdtr_disable_interrupts(struct vtdtr_softc *sc)
 }
 
 /*
- * Enable interrupts on all of the virtqueues in the
- * virtio driver.
+ * Enable interrupts on all of the virtqueues in the virtio driver.
  */
 static int
 vtdtr_enable_interrupts(struct vtdtr_softc *sc)
@@ -1006,6 +1003,12 @@ vtdtr_send_eof(struct virtio_dtrace_queue *q)
 	vtdtr_fill_desc(q, ctrl);
 }
 
+/*
+ * This function is used to enqueue the READY descriptor in the TX virtqueue. If
+ * we already are ready, we simply notify the communicator thread that it is
+ * safe to proceed execution. If not, we enqueue the said descriptor and
+ * following that notify the communicator.
+ */
 static void
 vtdtr_notify_ready(struct vtdtr_softc *sc)
 {
@@ -1051,9 +1054,13 @@ signal:
 }
 
 /*
- * TODO:
- * This is the function that is called when an interrupt is
- * generated in the RX taskqueue.
+ * The separate thread (created by the taskqueue) that acts as an interrupt
+ * handler that blocks, allowing us to process more interrupts. In here we
+ * dequeue every control message until we have either dequeued the maximum
+ * allowed size of the virtqueue or until we hit an EOF descriptor. We process
+ * each of the events lockless and finally notify that we are ready after
+ * processing every event. Additionally, this function is responsible for
+ * requeuing the memory in the virtqueue.
  */
 static void
 vtdtr_rxq_tq_intr(void *xrxq, int pending)
@@ -1103,6 +1110,10 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 	VTDTR_UNLOCK(sc);
 }
 
+/*
+ * Interrupt handler for the RX virtqueue. We enqueue the operation in the
+ * taskqueue specific to the RX queue and enable interrupts.
+ */
 static void
 vtdtr_rxq_vq_intr(void *xsc)
 {
@@ -1120,6 +1131,10 @@ vtdtr_rxq_vq_intr(void *xsc)
 	VTDTR_UNLOCK(sc);
 }
 
+/*
+ * Interrupt handler for the TX virtqueue. The only thing we do here is enable
+ * interrupts again so that we can send control messages.
+ */
 static void
 vtdtr_txq_vq_intr(void *xsc)
 {
