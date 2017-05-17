@@ -127,6 +127,8 @@ static pci_vendor_info_t bnxt_vendor_info_array[] =
 	"Broadcom BCM57417 NetXtreme-E Ethernet Partition"),
     PVID(BROADCOM_VENDOR_ID, BCM57417_SFP,
 	"Broadcom BCM57417 NetXtreme-E 10Gb/25Gb Ethernet"),
+    PVID(BROADCOM_VENDOR_ID, BCM57454,
+	"Broadcom BCM57454 NetXtreme-E 10Gb/25Gb/40Gb/50Gb/100Gb Ethernet"),
     PVID(BROADCOM_VENDOR_ID, BCM58700,
 	"Broadcom BCM58700 Nitro 1Gb/2.5Gb/10Gb Ethernet"),
     PVID(BROADCOM_VENDOR_ID, NETXTREME_C_VF1,
@@ -285,7 +287,8 @@ static driver_t bnxt_iflib_driver = {
  * iflib shared context
  */
 
-char bnxt_driver_version[] = "FreeBSD base";
+#define BNXT_DRIVER_VERSION	"1.0.0.0"
+char bnxt_driver_version[] = BNXT_DRIVER_VERSION;
 extern struct if_txrx bnxt_txrx;
 static struct if_shared_ctx bnxt_sctx_init = {
 	.isc_magic = IFLIB_MAGIC,

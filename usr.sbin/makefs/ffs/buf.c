@@ -50,16 +50,11 @@ __FBSDID("$FreeBSD$");
 #include <util.h>
 
 #include "makefs.h"
-
-#include <ufs/ufs/dinode.h>
-#include <ufs/ffs/fs.h>
-
-#include "ffs/buf.h"
-#include "ffs/ufs_inode.h"
+#include "buf.h"
 
 extern int sectorsize;		/* XXX: from ffs.c & mkfs.c */
 
-TAILQ_HEAD(buftailhead,buf) buftail;
+static TAILQ_HEAD(buftailhead,buf) buftail;
 
 int
 bread(struct vnode *vp, daddr_t blkno, int size, struct ucred *u1 __unused,
@@ -67,9 +62,7 @@ bread(struct vnode *vp, daddr_t blkno, int size, struct ucred *u1 __unused,
 {
 	off_t	offset;
 	ssize_t	rv;
-	struct fs *fs = vp->fs;
 
-	assert (fs != NULL);
 	assert (bpp != NULL);
 
 	if (debug & DEBUG_BUF_BREAD)
@@ -184,11 +177,7 @@ getblk(struct vnode *vp, daddr_t blkno, int size, int u1 __unused,
 	static int buftailinitted;
 	struct buf *bp;
 	void *n;
-	int fd = vp->fd;
-	struct fs *fs = vp->fs;
 
-	blkno += vp->offset;
-	assert (fs != NULL);
 	if (debug & DEBUG_BUF_GETBLK)
 		printf("getblk: blkno %lld size %d\n", (long long)blkno, size);
 
@@ -209,8 +198,8 @@ getblk(struct vnode *vp, daddr_t blkno, int size, int u1 __unused,
 		bp = ecalloc(1, sizeof(*bp));
 		bp->b_bufsize = 0;
 		bp->b_blkno = bp->b_lblkno = blkno;
-		bp->b_fd = fd;
-		bp->b_fs = fs;
+		bp->b_fd = vp->fd;
+		bp->b_fs = vp->fs;
 		bp->b_data = NULL;
 		TAILQ_INSERT_HEAD(&buftail, bp, b_tailq);
 	}

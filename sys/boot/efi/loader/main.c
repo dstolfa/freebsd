@@ -391,7 +391,7 @@ main(int argc, CHAR16 *argv[])
 						} else {
 							cpy16to8(&argv[i + 1][0], var,
 							    sizeof(var));
-							setenv("comconsole_speedspeed", var, 1);
+							setenv("comconsole_speed", var, 1);
 						}
 						i++;
 						break;
@@ -507,8 +507,7 @@ command_reboot(int argc, char *argv[])
 		if (devsw[i]->dv_cleanup != NULL)
 			(devsw[i]->dv_cleanup)();
 
-	RS->ResetSystem(EfiResetCold, EFI_SUCCESS, 23,
-	    (CHAR16 *)"Reboot from the loader");
+	RS->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, NULL);
 
 	/* NOTREACHED */
 	return (CMD_ERROR);

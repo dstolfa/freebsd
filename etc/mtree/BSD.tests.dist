@@ -612,6 +612,8 @@
         ..
         comm
         ..
+        csplit
+        ..
         cut
         ..
         diff
@@ -647,6 +649,8 @@
         pr
         ..
         printf
+        ..
+        procstat
         ..
         sdiff
         ..

@@ -56,7 +56,7 @@ dtrace_load(void *dummy)
 	/*
 	 * DTrace uses negative logic for the destructive mode switch, so it
 	 * is required to translate from the sysctl which uses positive logic.
-	 */
+	 */ 
 	if (dtrace_allow_destructive)
 		dtrace_destructive_disallow = 0;
 	else
@@ -100,12 +100,10 @@ dtrace_load(void *dummy)
 
 	dtrace_instance_seed = arc4random();
 
+	mutex_enter(&cpu_lock);
 	mutex_enter(&dtrace_instance_lock);
 	mutex_enter(&dtrace_provider_lock);
 	mutex_enter(&dtrace_lock);
-	mutex_enter(&cpu_lock);
-
-	ASSERT(MUTEX_HELD(&cpu_lock));
 
 	dtrace_state_cache = kmem_cache_create("dtrace_state_cache",
 	    sizeof (dtrace_dstate_percpu_t) * NCPU, DTRACE_STATE_ALIGN,
@@ -169,13 +167,10 @@ dtrace_load(void *dummy)
 	dtrace_probeid_error = dtrace_probe_create((dtrace_provider_id_t)
 	    dtrace_provider, NULL, NULL, "ERROR", 1, NULL);
 
-	mutex_exit(&cpu_lock);
-
 	mutex_exit(&dtrace_lock);
 	mutex_exit(&dtrace_provider_lock);
 	mutex_exit(&dtrace_instance_lock);
 
-	mutex_enter(&cpu_lock);
 
 #ifdef EARLY_AP_STARTUP
 	CPU_FOREACH(i) {
@@ -192,6 +187,4 @@ dtrace_load(void *dummy)
 	    "dtrace/dtrace");
 	helper_dev = make_dev(&helper_cdevsw, 0, UID_ROOT, GID_WHEEL, 0660,
 	    "dtrace/helper");
-
-	return;
 }
