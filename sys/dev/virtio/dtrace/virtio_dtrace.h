@@ -33,13 +33,14 @@
 #include <sys/dtrace_bsd.h>
 
 /*
- * The only ones used presently are:
- * 	VIRTIO_DTRACE_PROBE_INSTALL
- * 	VIRTIO_DTRACE_PROBE_UNINSTALL
+ * The events related to probe installation and uninstallation are presently
+ * only meant to be used to instruct the guest.
  *
- * The rest is simpler handled through the hypervisor itself due to it handling
- * the virtual machine name and there is no implicity trust being placed in the
- * userspace to handle things properly(bhyve).
+ * On the other hand, provider registration, probe creation/deletion and
+ * provider de-registration is meant only for the host.
+ *
+ * READY and EOF are used for synchronization for purposes, while CLEANUP will
+ * be used to clean up the TX virtqueue on the guest.
  */
 #define	VIRTIO_DTRACE_DEVICE_READY	0x00	/* The device is ready */
 #define	VIRTIO_DTRACE_REGISTER		0x01	/* Provider Registration */
