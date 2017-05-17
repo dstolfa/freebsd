@@ -93,6 +93,12 @@ word_regexps_body()
 {
 	atf_check -o file:"$(atf_get_srcdir)/d_word_regexps.out" \
 	    grep -w separated $(atf_get_srcdir)/d_input
+
+	# Begin FreeBSD
+	printf "xmatch pmatch\n" > test1
+
+	atf_check -o inline:"pmatch\n" grep -Eow "(match )?pmatch" test1
+	# End FreeBSD
 }
 
 atf_test_case begin_end
@@ -165,6 +171,12 @@ context_body()
 	atf_check -o file:d_context_b.out grep -A3 tilt d_context_a.in
 	atf_check -o file:d_context_c.out grep -B4 Whig d_context_a.in
 	atf_check -o file:d_context_d.out grep -C1 pig d_context_a.in d_context_b.in
+	atf_check -o file:d_context_e.out \
+	    grep -E -C1 '(banana|monkey)' d_context_e.in
+	atf_check -o file:d_context_f.out \
+	    grep -Ev -B2 '(banana|monkey|fruit)' d_context_e.in
+	atf_check -o file:d_context_g.out \
+	    grep -Ev -A1 '(banana|monkey|fruit)' d_context_e.in
 }
 
 atf_test_case file_exp
@@ -363,7 +375,7 @@ egrep_empty_invalid_head()
 }
 egrep_empty_invalid_body()
 {
-	atf_check -s exit:1 egrep '{' /dev/null
+	atf_check -e ignore -s not-exit:0 egrep '{' /dev/null
 }
 
 atf_test_case zerolen
@@ -378,6 +390,27 @@ zerolen_body()
 	atf_check -o inline:"\n" grep -e "^$" test1
 
 	atf_check -o inline:"Eggs\nCheese\n" grep -v -e "^$" test1
+}
+
+atf_test_case wflag_emptypat
+wflag_emptypat_head()
+{
+	atf_set "descr" "Check for proper handling of -w with an empty pattern (PR 105221)"
+}
+wflag_emptypat_body()
+{
+	printf "" > test1
+	printf "\n" > test2
+	printf "qaz" > test3
+	printf " qaz\n" > test4
+
+	atf_check -s exit:1 -o empty grep -w -e "" test1
+
+	atf_check -o file:test2 grep -w -e "" test2
+
+	atf_check -s exit:1 -o empty grep -w -e "" test3
+
+	atf_check -o file:test4 grep -w -e "" test4
 }
 
 atf_test_case fgrep_sanity
@@ -439,6 +472,108 @@ grep_sanity_body()
 
 	atf_check -o inline:"M\n" grep -o -e "M\{1\}" test2
 }
+
+atf_test_case wv_combo_break
+wv_combo_break_head()
+{
+	atf_set "descr" "Check for incorrectly matching lines with both -w and -v flags (PR 218467)"
+}
+wv_combo_break_body()
+{
+	printf "x xx\n" > test1
+	printf "xx x\n" > test2
+
+	atf_check -o file:test1 grep -w "x" test1
+	atf_check -o file:test2 grep -w "x" test2
+
+	atf_check -s exit:1 grep -v -w "x" test1
+	atf_check -s exit:1 grep -v -w "x" test2
+}
+
+atf_test_case grep_nomatch_flags
+grep_nomatch_flags_head()
+{
+	atf_set "descr" "Check for no match (-c, -l, -L, -q) flags not producing line matches or context (PR 219077)"
+}
+
+grep_nomatch_flags_body()
+{
+	printf "A\nB\nC\n" > test1
+
+	atf_check -o inline:"1\n" grep -c -C 1 -e "B" test1
+	atf_check -o inline:"1\n" grep -c -B 1 -e "B" test1
+	atf_check -o inline:"1\n" grep -c -A 1 -e "B" test1
+	atf_check -o inline:"1\n" grep -c -C 1 -e "B" test1
+
+	atf_check -o inline:"test1\n" grep -l -e "B" test1
+	atf_check -o inline:"test1\n" grep -l -B 1 -e "B" test1
+	atf_check -o inline:"test1\n" grep -l -A 1 -e "B" test1
+	atf_check -o inline:"test1\n" grep -l -C 1 -e "B" test1
+
+	atf_check -s exit:1 -o inline:"test1\n" grep -L -e "D" test1
+
+	atf_check -o empty grep -q -e "B" test1
+	atf_check -o empty grep -q -B 1 -e "B" test1
+	atf_check -o empty grep -q -A 1 -e "B" test1
+	atf_check -o empty grep -q -C 1 -e "B" test1
+}
+
+atf_test_case badcontext
+badcontext_head()
+{
+	atf_set "descr" "Check for handling of invalid context arguments"
+}
+badcontext_body()
+{
+	printf "A\nB\nC\n" > test1
+
+	atf_check -s not-exit:0 -e ignore grep -A "-1" "B" test1
+
+	atf_check -s not-exit:0 -e ignore grep -B "-1" "B" test1
+
+	atf_check -s not-exit:0 -e ignore grep -C "-1" "B" test1
+
+	atf_check -s not-exit:0 -e ignore grep -A "B" "B" test1
+
+	atf_check -s not-exit:0 -e ignore grep -B "B" "B" test1
+
+	atf_check -s not-exit:0 -e ignore grep -C "B" "B" test1
+}
+
+atf_test_case binary_flags
+binary_flags_head()
+{
+	atf_set "descr" "Check output for binary flags (-a, -I, -U, --binary-files)"
+}
+binary_flags_body()
+{
+	printf "A\000B\000C" > test1
+	printf "A\n\000B\n\000C" > test2
+	binmatchtext="Binary file test1 matches\n"
+
+	# Binaries not treated as text (default, -U)
+	atf_check -o inline:"${binmatchtext}" grep 'B' test1
+	atf_check -o inline:"${binmatchtext}" grep 'B' -C 1 test1
+
+	atf_check -o inline:"${binmatchtext}" grep -U 'B' test1
+	atf_check -o inline:"${binmatchtext}" grep -U 'B' -C 1 test1
+
+	# Binary, -a, no newlines
+	atf_check -o inline:"A\000B\000C\n" grep -a 'B' test1
+	atf_check -o inline:"A\000B\000C\n" grep -a 'B' -C 1 test1
+
+	# Binary, -a, newlines
+	atf_check -o inline:"\000B\n" grep -a 'B' test2
+	atf_check -o inline:"A\n\000B\n\000C\n" grep -a 'B' -C 1 test2
+
+	# Binary files ignored
+	atf_check -s exit:1 grep -I 'B' test2
+
+	# --binary-files equivalence
+	atf_check -o inline:"${binmatchtext}" grep --binary-files=binary 'B' test1
+	atf_check -o inline:"A\000B\000C\n" grep --binary-files=text 'B' test1
+	atf_check -s exit:1 grep --binary-files=without-match 'B' test2
+}
 # End FreeBSD
 
 atf_init_test_cases()
@@ -467,8 +602,13 @@ atf_init_test_cases()
 	atf_add_test_case escmap
 	atf_add_test_case egrep_empty_invalid
 	atf_add_test_case zerolen
+	atf_add_test_case wflag_emptypat
+	atf_add_test_case wv_combo_break
 	atf_add_test_case fgrep_sanity
 	atf_add_test_case egrep_sanity
 	atf_add_test_case grep_sanity
+	atf_add_test_case grep_nomatch_flags
+	atf_add_test_case binary_flags
+	atf_add_test_case badcontext
 # End FreeBSD
 }
