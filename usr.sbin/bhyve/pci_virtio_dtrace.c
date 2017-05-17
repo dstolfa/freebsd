@@ -368,6 +368,7 @@ static __inline void
 pci_vtdtr_cq_enqueue(struct pci_vtdtr_ctrlq *cq,
     struct pci_vtdtr_ctrl_entry *ctrl_entry)
 {
+
 	STAILQ_INSERT_TAIL(&cq->head, ctrl_entry, entries);
 }
 
@@ -375,12 +376,14 @@ static __inline void
 pci_vtdtr_cq_enqueue_front(struct pci_vtdtr_ctrlq *cq,
     struct pci_vtdtr_ctrl_entry *ctrl_entry)
 {
+
 	STAILQ_INSERT_HEAD(&cq->head, ctrl_entry, entries);
 }
 
 static __inline int
 pci_vtdtr_cq_empty(struct pci_vtdtr_ctrlq *cq)
 {
+
 	return (STAILQ_EMPTY(&cq->head));
 }
 

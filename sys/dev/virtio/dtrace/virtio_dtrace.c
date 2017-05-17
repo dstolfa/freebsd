@@ -977,6 +977,7 @@ vtdtr_enable_interrupts(struct vtdtr_softc *sc)
 static int
 vtdtr_vq_enable_intr(struct virtio_dtrace_queue *q)
 {
+
 	VTDTR_LOCK_ASSERT(q->vtdq_sc);
 	return (virtqueue_enable_intr(q->vtdq_vq));
 }
@@ -987,6 +988,7 @@ vtdtr_vq_enable_intr(struct virtio_dtrace_queue *q)
 static void
 vtdtr_vq_disable_intr(struct virtio_dtrace_queue *q)
 {
+
 	VTDTR_LOCK_ASSERT(q->vtdq_sc);
 	virtqueue_disable_intr(q->vtdq_vq);
 }
@@ -1235,6 +1237,7 @@ vtdtr_fill_desc(struct virtio_dtrace_queue *q,
 static void
 vtdtr_cq_init(struct vtdtr_ctrlq *cq)
 {
+
 	STAILQ_INIT(&cq->head);
 	cq->n_entries = 0;
 }
@@ -1243,6 +1246,7 @@ static __inline void
 vtdtr_cq_enqueue(struct vtdtr_ctrlq *cq,
     struct vtdtr_ctrl_entry *ctrl_entry)
 {
+
 	STAILQ_INSERT_TAIL(&cq->head, ctrl_entry, entries);
 	cq->n_entries++;
 }
@@ -1251,6 +1255,7 @@ static __inline void
 vtdtr_cq_enqueue_front(struct vtdtr_ctrlq *cq,
     struct vtdtr_ctrl_entry *ctrl_entry)
 {
+
 	STAILQ_INSERT_HEAD(&cq->head, ctrl_entry, entries);
 	cq->n_entries++;
 }
@@ -1258,12 +1263,14 @@ vtdtr_cq_enqueue_front(struct vtdtr_ctrlq *cq,
 static __inline int
 vtdtr_cq_empty(struct vtdtr_ctrlq *cq)
 {
+
 	return (STAILQ_EMPTY(&cq->head));
 }
 
 static __inline size_t
 vtdtr_cq_count(struct vtdtr_ctrlq *cq)
 {
+
 	return (cq->n_entries);
 }
 
