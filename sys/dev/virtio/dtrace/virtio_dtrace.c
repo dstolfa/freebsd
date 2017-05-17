@@ -43,6 +43,10 @@ __FBSDID("$FreeBSD$");
 #include <sys/kthread.h>
 #include <sys/taskqueue.h>
 #include <sys/queue.h>
+/*
+ * We will include this later to handle DTrace-related things.
+#include <sys/dtvirt.h>
+*/
 
 #include <sys/conf.h>
 
@@ -53,9 +57,6 @@ __FBSDID("$FreeBSD$");
 #include <dev/virtio/virtio.h>
 #include <dev/virtio/virtqueue.h>
 #include <dev/virtio/dtrace/virtio_dtrace.h>
-/*
-#include <sys/dtrace.h>
-*/
 #include "virtio_if.h"
 
 struct vtdtr_probe {
@@ -213,17 +214,6 @@ static struct virtio_feature_desc vtdtr_feature_desc[] = {
 	{ 0, NULL }
 };
 
-/*
- * These are the attributes for every arbitrarily created provider
-static dtrace_pattr_t virtio_dtrace_attr = {
-{ DTRACE_STABILITY_EXTERNAL, DTRACE_STABILITY_EXTERNAL, DTRACE_STABILITY_EXTERNAL },
-{ DTRACE_STABILITY_EXTERNAL, DTRACE_STABILITY_EXTERNAL, DTRACE_STABILITY_EXTERNAL },
-{ DTRACE_STABILITY_EXTERNAL, DTRACE_STABILITY_EXTERNAL, DTRACE_STABILITY_EXTERNAL },
-{ DTRACE_STABILITY_EXTERNAL, DTRACE_STABILITY_EXTERNAL, DTRACE_STABILITY_EXTERNAL },
-{ DTRACE_STABILITY_EXTERNAL, DTRACE_STABILITY_EXTERNAL, DTRACE_STABILITY_EXTERNAL }
-};
- */
-
 static int
 vtdtr_modevent(module_t mod, int type, void *unused)
 {
@@ -272,20 +262,13 @@ vtdtr_probe(device_t dev)
 }
 
 /*
- * Performs all of the initialization in the module.
- * The following values get assigned:
- *     sc                       <- device softc
- *     sc->dev                  <- dev
- *     sc->vtdtr_mtx            <- MTX_DEF
- *     sc->vtdtr_txq            <- vtdtr_txq_init()
- *     sc->vtdtr_rxq            <- vtdtr_rxq_init()
- *     sc->vtdtr_enabled_probes <- vtdtr_alloc_probelist()
+ * Here we initialize the device. This is largely boilerplate. Here we
+ * initialize all of the necessary mutexes, condition variables, threads, the
+ * control queue, virtqueues and taskqueues and perform the necessary error
+ * checking. Finally, we spawn the vtdtr_run() communicator thread and return
+ * the error code.
  *
- * This function also sets up the interrupt type on
- * the driver, as well as enables interrupts.
- * As it returns, it also sends the control message
- * to the userspace PCI device on the host that the
- * driver is ready.
+ * If the error code is non-zero, we will detach the device immediately.
  */
 static int
 vtdtr_attach(device_t dev)
@@ -535,6 +518,10 @@ vtdtr_stop(struct vtdtr_softc *sc)
 	cv_signal(&sc->vtdtr_condvar);
 }
 
+/*
+ * A wrapper function around vtdtr_queue_enqueue_ctrl() used to requeue a
+ * descriptor we have just processed in the RX taskqueue.
+ */
 static void
 vtdtr_queue_requeue_ctrl(struct virtio_dtrace_queue *q,
     struct virtio_dtrace_control *ctrl, int readable, int writable)
@@ -552,6 +539,9 @@ vtdtr_queue_requeue_ctrl(struct virtio_dtrace_queue *q,
 	    __func__, error));
 }
 
+/*
+ * A simple function used to populate the RX queue in the initialization
+ */
 static int
 vtdtr_queue_populate(struct virtio_dtrace_queue *q)
 {
@@ -576,6 +566,10 @@ vtdtr_queue_populate(struct virtio_dtrace_queue *q)
 	return (error);
 }
 
+/*
+ * Wrapper around the vtdtr_queue_enqueue_ctrl() function in order to create a
+ * new descriptor in the RX queue.
+ */
 static int
 vtdtr_queue_new_ctrl(struct virtio_dtrace_queue *q)
 {
@@ -596,6 +590,12 @@ vtdtr_queue_new_ctrl(struct virtio_dtrace_queue *q)
 	return (error);
 }
 
+/*
+ * A more hands-on function used to enqueue a control message in the virtqueue.
+ * We use this in order to enqueue empty descriptors in the RX queue with the
+ * writable >= 1 and readable == 0, and to enqueue control messages in the TX
+ * queue with readable >= 1 and writable == 0.
+ */
 static int
 vtdtr_queue_enqueue_ctrl(struct virtio_dtrace_queue *q,
     struct virtio_dtrace_control *ctrl, int readable, int writable)
@@ -617,6 +617,10 @@ vtdtr_queue_enqueue_ctrl(struct virtio_dtrace_queue *q,
 	return (error);
 }
 
+/*
+ * Here we drain the given virtqueue, currently is only used for draining the TX
+ * virtqueue once the host transmits the according control message
+ */
 static void
 vtdtr_drain_virtqueue(struct virtio_dtrace_queue *q)
 {
@@ -633,14 +637,23 @@ vtdtr_drain_virtqueue(struct virtio_dtrace_queue *q)
 	while ((ctrl = virtqueue_drain(vq, &last)) != NULL) {
 		free(ctrl, M_DEVBUF);
 	}
-	
+
+	q->vtdq_ready = 1;
 	VTDTR_QUEUE_UNLOCK(q);
+
+	/*
 	VTDTR_LOCK(sc);
 	vtdtr_vq_enable_intr(q);
 	q->vtdq_ready = 1;
 	VTDTR_UNLOCK(sc);
+	VTDTR_QUEUE_UNLOCK(q);
+	*/
 }
 
+/*
+ * Used for identification of the event type we need to process and delegating
+ * it to the according functions.
+ */
 static int
 vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
@@ -680,6 +693,11 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 	return (retval);
 }
 
+/*
+ * Here we take care of various provider operations. This will not be supported
+ * initially, however, in the future we hope to provide a way to create
+ * arbitrary providers in the guest system.
+ */
 static int
 vtdtr_ctrl_process_provaction(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
@@ -713,6 +731,9 @@ vtdtr_ctrl_process_selfdestroy(struct vtdtr_softc *sc,
 	    __func__, error));
 }
 
+/*
+ * Here we take care of identifying which probe action to process
+ */
 static int
 vtdtr_ctrl_process_probeaction(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
@@ -786,11 +807,11 @@ vtdtr_ctrl_process_probe_create(struct vtdtr_softc *sc,
 }
 
 /*
- * This function is responsible for processing the
- * probe installation event. It calls out to the
- * DTrace framework and adds the said probe to the
- * front of the list of the enabled probes.
- */
+ * Here we take care of installing a probe in DTrace. Currently it's a
+ * placeholder for a more complex function. We keep track of all of the
+ * installed probes in case of a driver detach, which gives us the ability to
+ * clean up, as well as have context of which probes this driver has installed.
+ */ 
 static int
 vtdtr_ctrl_process_probe_install(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl /* UNUSED */)
@@ -813,10 +834,9 @@ vtdtr_ctrl_process_probe_install(struct vtdtr_softc *sc,
 }
 
 /*
- * This function is responsible for processing the
- * probe uninstallation event. It calls out to the
- * DTrace framework and removes the said probe from
- * the list of enabled probes. 
+ * Here we take care of uninstall a probe in DTrace. Currently it's a
+ * placeholder for a more complex function. We also remove the given probe from
+ * our probelist.
  */
 static int
 vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
@@ -1116,16 +1136,14 @@ vtdtr_txq_vq_intr(void *xsc)
 	sc = xsc;
 	txq = &sc->vtdtr_txq;
 
-	/*
 	VTDTR_LOCK(sc);
 	vtdtr_vq_enable_intr(txq);
 	VTDTR_UNLOCK(sc);
-	*/
 }
 
 /*
  * This functions sets up all the necessary data for the correct
- * operation of a RX taskqueue of the VirtIO driver:
+ * operation of a RX queue of the VirtIO driver:
  *     rxq->vtdq_sc       <- sc
  *     rxq->vtdq_id       <- id
  *     rxq->vtdq_name     <- devname-rx(1|2|3...)
@@ -1156,13 +1174,13 @@ vtdtr_init_rxq(struct vtdtr_softc *sc, int id)
 
 /*
 * This functions sets up all the necessary data for the correct
-* operation of a RX taskqueue of the VirtIO driver:
+* operation of a TX queue of the VirtIO driver:
 *     txq->vtdq_sc       <- sc
 *     txq->vtdq_id       <- id
-*     txq->vtdq_name     <- devname-txx(1|2|3...)
-*     txq->vtdq_sg       <- allocate or ENOMEM
-*     txq->vtdq_intrtask <- vtdtr_txq_tq_intr
-*     txq->vtdq_tq       <- create taskqueue
+*     txq->vtdq_name     <- devname-tx(1|2|3...)
+*
+* In the TX queue, we do not need a taskqueue as we are not required to handle
+* complex events upon being interrupted by it.
 */
 static int
 vtdtr_init_txq(struct vtdtr_softc *sc, int id)
@@ -1181,6 +1199,9 @@ vtdtr_init_txq(struct vtdtr_softc *sc, int id)
 	return (0);
 }
 
+/*
+ * Destroy a given queue.
+ */
 static void
 vtdtr_queue_destroy(struct virtio_dtrace_queue *q)
 {
@@ -1190,6 +1211,10 @@ vtdtr_queue_destroy(struct virtio_dtrace_queue *q)
 		taskqueue_free(q->vtdq_tq);
 }
 
+/*
+ * Fill the virtqueue descriptor with a given control message. This is a wrapper
+ * around vtdtr_queue_enqueue_ctrl() with read-only data
+ */
 static void
 vtdtr_fill_desc(struct virtio_dtrace_queue *q,
     struct virtio_dtrace_control *ctrl)
@@ -1260,6 +1285,10 @@ vtdtr_poll(struct virtio_dtrace_queue *q)
 	VTDTR_QUEUE_UNLOCK(q);
 }
 
+/*
+ * This is the communicator thread. It is responsible for spinning until we shut
+ * down and sending messages to the emulated PCI device on the host.
+ */
 static void
 vtdtr_run(void *xsc)
 {
@@ -1285,7 +1314,23 @@ vtdtr_run(void *xsc)
 		all_used = 0;
 
 		mtx_lock(&sc->vtdtr_condmtx);
+		/*
+		 * We have to lock this mutex in order to prevent races with the
+		 * threads that enqueue messages. We do not need to protect
+		 * txq->vtdq_ready and virtqueue_full() because these events are
+		 * guaranteed to happen before we signal the condition variable
+		 * and are implicitly protected by the control queue mutex.
+		 */
 		mtx_lock(&sc->vtdtr_ctrlq->mtx);
+		/*
+		 * We are safe to proceed sending messages if the following
+		 * conditions are satisfied:
+		 * (1) We have messages in the control queue
+		 * (2) We have space in the virtqueue
+		 * (3) The TX queue is ready to send messages
+		 * or if we are
+		 * (4) Shutting down
+		 */
 		while ((vtdtr_cq_empty(sc->vtdtr_ctrlq) ||
 		    virtqueue_full(vq)                  ||
 		    !txq->vtdq_ready)                   &&
@@ -1307,6 +1352,16 @@ vtdtr_run(void *xsc)
 			    ("%s: control queue is empty", __func__));
 		}
 
+		/*
+		 * Here we drain the control queue until it's either:
+		 * (1) Empty
+		 * (2) We have no room in the virtqueue
+		 *
+		 * Following every dequeue, we free the control entry in the
+		 * control queue and send the control messages through the
+		 * virtqueue. Additionally, we keep a count of entries
+		 * processed.
+		 */
 		mtx_lock(&sc->vtdtr_ctrlq->mtx);
 		while (!virtqueue_full(vq) &&
 		    !vtdtr_cq_empty(sc->vtdtr_ctrlq)) {
@@ -1318,6 +1373,11 @@ vtdtr_run(void *xsc)
 			mtx_lock(&sc->vtdtr_ctrlq->mtx);
 		}
 
+		/*
+		 * If we have processed any entries, we ought to send an EOF
+		 * unless we have filled up the virtqueue. Otherwise, the EOF is
+		 * implicit.
+		 */
 		if (nent) {
 			if (vtdtr_cq_empty(sc->vtdtr_ctrlq) &&
 			   !virtqueue_full(vq)) {
