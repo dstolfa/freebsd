@@ -130,7 +130,6 @@ static void	vtdtr_drain_virtqueues(struct vtdtr_softc *);
 static int	vtdtr_queue_populate(struct virtio_dtrace_queue *);
 static int	vtdtr_queue_enqueue_ctrl(struct virtio_dtrace_queue *,
           	    struct virtio_dtrace_control *, int, int);
-static void	vtdtr_drain_virtqueue(struct virtio_dtrace_queue *);
 static void	vtdtr_queue_requeue_ctrl(struct virtio_dtrace_queue *,
            	    struct virtio_dtrace_control *, int, int);
 static int	vtdtr_queue_new_ctrl(struct virtio_dtrace_queue *);
@@ -177,6 +176,7 @@ static void	vtdtr_cq_enqueue_front(struct vtdtr_ctrlq *,
 static int	vtdtr_cq_empty(struct vtdtr_ctrlq *);
 static size_t	vtdtr_cq_count(struct vtdtr_ctrlq *);
 static struct vtdtr_ctrl_entry * vtdtr_cq_dequeue(struct vtdtr_ctrlq *);
+static void	vtdtr_poll(struct virtio_dtrace_queue *);
 static void	vtdtr_run(void *);
 
 static device_method_t vtdtr_methods[] = {
@@ -615,39 +615,6 @@ vtdtr_queue_enqueue_ctrl(struct virtio_dtrace_queue *q,
 }
 
 /*
- * Here we drain the given virtqueue, currently is only used for draining the TX
- * virtqueue once the host transmits the according control message
- */
-static void
-vtdtr_drain_virtqueue(struct virtio_dtrace_queue *q)
-{
-	struct vtdtr_softc *sc;
-	struct virtqueue *vq;
-	struct virtio_dtrace_control *ctrl;
-	int last;
-
-	sc = q->vtdq_sc;
-	last = 0;
-	vq = q->vtdq_vq;
-
-	VTDTR_QUEUE_LOCK(q);
-	while ((ctrl = virtqueue_drain(vq, &last)) != NULL) {
-		free(ctrl, M_DEVBUF);
-	}
-
-	q->vtdq_ready = 1;
-	VTDTR_QUEUE_UNLOCK(q);
-
-	/*
-	VTDTR_LOCK(sc);
-	vtdtr_vq_enable_intr(q);
-	q->vtdq_ready = 1;
-	VTDTR_UNLOCK(sc);
-	VTDTR_QUEUE_UNLOCK(q);
-	*/
-}
-
-/*
  * Used for identification of the event type we need to process and delegating
  * it to the according functions.
  */
@@ -1022,8 +989,8 @@ static void
 vtdtr_notify_ready(struct vtdtr_softc *sc)
 {
 	struct virtio_dtrace_queue *q;
-	struct virtio_dtrace_control *ctrl;
-	struct vtdtr_ctrl_entry *ctrl_entry;
+	struct virtio_dtrace_control ctrl;
+	//struct vtdtr_ctrl_entry *ctrl_entry;
 	device_t dev;
 
 	dev = sc->vtdtr_dev;
@@ -1031,21 +998,24 @@ vtdtr_notify_ready(struct vtdtr_softc *sc)
 
 	sc->vtdtr_ready = 1;
 
-	ctrl_entry = malloc(sizeof(struct vtdtr_ctrl_entry),
+/*	ctrl_entry = malloc(sizeof(struct vtdtr_ctrl_entry),
 	    M_DEVBUF, M_NOWAIT | M_ZERO);
 
 	if (ctrl_entry == NULL) {
 		device_printf(dev, "no memory to allocate a control entry");
 		return;
 	}
+	*/
 
-	ctrl = &ctrl_entry->ctrl;
+	ctrl.event = VIRTIO_DTRACE_DEVICE_READY;
 
-	ctrl->event = VIRTIO_DTRACE_DEVICE_READY;
-
+	/*
 	mtx_lock(&sc->vtdtr_ctrlq->mtx);
 	vtdtr_cq_enqueue_front(sc->vtdtr_ctrlq, ctrl_entry);
 	mtx_unlock(&sc->vtdtr_ctrlq->mtx);
+	*/
+	vtdtr_fill_desc(q, &ctrl);
+	vtdtr_poll(q);
 }
 
 /*
@@ -1095,9 +1065,11 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 		vtdtr_notify_ready(sc);
 	VTDTR_UNLOCK(sc);
 
+	/*
 	mtx_lock(&sc->vtdtr_condmtx);
 	cv_signal(&sc->vtdtr_condvar);
 	mtx_unlock(&sc->vtdtr_condmtx);
+	*/
 }
 
 /*
@@ -1310,7 +1282,6 @@ vtdtr_run(void *xsc)
 
 	txq = &sc->vtdtr_txq;
 	vq = txq->vtdq_vq;
-	txq->vtdq_ready = 1;
 	vq_size = virtqueue_size(vq);
 	
 	ctrls = malloc(sizeof(struct virtio_dtrace_control) *
@@ -1336,17 +1307,14 @@ vtdtr_run(void *xsc)
 		 * (4) Shutting down
 		 */
 		while ((vtdtr_cq_empty(sc->vtdtr_ctrlq) ||
-		    !sc->vtdtr_ready                    ||
 		    !sc->vtdtr_host_ready)              &&
 		    (!sc->vtdtr_shutdown)) {
 			cv_wait(&sc->vtdtr_condvar, &sc->vtdtr_condmtx);
 		}
 		mtx_unlock(&sc->vtdtr_condmtx);
-
-		//device_printf(dev, "We are out of here\n");
+		
 
 		kthread_suspend_check();
-		txq->vtdq_ready = 0;
 
 		if (sc->vtdtr_shutdown == 1) {
 			free(ctrls, M_VTDTR);
