@@ -96,6 +96,7 @@ struct vtdtr_softc {
 
 	int					vtdtr_shutdown;
 	int					vtdtr_ready;
+	int					vtdtr_host_ready;
 };
 
 static MALLOC_DEFINE(M_VTDTR, "vtdtr", "VirtIO DTrace memory");
@@ -275,6 +276,7 @@ vtdtr_attach(device_t dev)
 	sc->vtdtr_rx_nseg = 1;
 	sc->vtdtr_tx_nseg = 1;
 	sc->vtdtr_shutdown = 0;
+	sc->vtdtr_host_ready = 1;
 	sc->vtdtr_ctrlq = malloc(sizeof(struct vtdtr_ctrlq),
 	    M_DEVBUF, M_NOWAIT | M_ZERO);
 
@@ -508,7 +510,9 @@ vtdtr_stop(struct vtdtr_softc *sc)
 	virtio_stop(sc->vtdtr_dev);
 
 	sc->vtdtr_shutdown = 1;
+	mtx_lock(&sc->vtdtr_condmtx);
 	cv_signal(&sc->vtdtr_condvar);
+	mtx_unlock(&sc->vtdtr_condmtx);
 }
 
 /*
@@ -662,18 +666,21 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 	 */
 	switch (ctrl->event) {
 	case VIRTIO_DTRACE_DEVICE_READY:
-		vtdtr_drain_virtqueue(&sc->vtdtr_txq);
+		sc->vtdtr_host_ready = 1;
 		break;
 	case VIRTIO_DTRACE_REGISTER:
 	case VIRTIO_DTRACE_UNREGISTER:
+		sc->vtdtr_ready = 0;
 		retval = vtdtr_ctrl_process_provaction(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_DESTROY:
+		sc->vtdtr_ready = 0;
 		vtdtr_ctrl_process_selfdestroy(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_PROBE_CREATE:
 	case VIRTIO_DTRACE_PROBE_INSTALL:
 	case VIRTIO_DTRACE_PROBE_UNINSTALL:
+		sc->vtdtr_ready = 0;
 		retval = vtdtr_ctrl_process_probeaction(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_EOF:
@@ -1022,10 +1029,7 @@ vtdtr_notify_ready(struct vtdtr_softc *sc)
 	dev = sc->vtdtr_dev;
 	q = &sc->vtdtr_txq;
 
-	if (sc->vtdtr_ready == 1)
-		goto signal;
-	else
-		sc->vtdtr_ready = 1;
+	sc->vtdtr_ready = 1;
 
 	ctrl_entry = malloc(sizeof(struct vtdtr_ctrl_entry),
 	    M_DEVBUF, M_NOWAIT | M_ZERO);
@@ -1035,24 +1039,13 @@ vtdtr_notify_ready(struct vtdtr_softc *sc)
 		return;
 	}
 
-	ctrl_entry->ctrl = malloc(sizeof(struct virtio_dtrace_control),
-	    M_DEVBUF, M_NOWAIT | M_ZERO);
-
-	if (ctrl_entry->ctrl == NULL) {
-		device_printf(dev, "no memory to allocate a control entry");
-		free(ctrl_entry, M_DEVBUF);
-		return;
-	}
-
-	ctrl = ctrl_entry->ctrl;
+	ctrl = &ctrl_entry->ctrl;
 
 	ctrl->event = VIRTIO_DTRACE_DEVICE_READY;
 
 	mtx_lock(&sc->vtdtr_ctrlq->mtx);
 	vtdtr_cq_enqueue_front(sc->vtdtr_ctrlq, ctrl_entry);
 	mtx_unlock(&sc->vtdtr_ctrlq->mtx);
-signal:
-	cv_signal(&sc->vtdtr_condvar);
 }
 
 /*
@@ -1081,21 +1074,11 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 
 	VTDTR_QUEUE_LOCK(rxq);
 
-	/*
-	 * TODO: Handle when only ready gets sent -- we do not want to
-	 * recurse between the guest and host
-	 */
 	while ((ctrl = virtqueue_dequeue(rxq->vtdq_vq, &len)) != NULL) {
 		VTDTR_QUEUE_UNLOCK(rxq);
 		KASSERT(len == sizeof(struct virtio_dtrace_control),
 		    ("%s: wrong control message length: %u, expected %zu",
 		     __func__, len, sizeof(struct virtio_dtrace_control)));
-		VTDTR_LOCK(sc);
-		if (sc->vtdtr_ready == 1 &&
-		    ctrl->event != VIRTIO_DTRACE_DEVICE_READY &&
-		    ctrl->event != VIRTIO_DTRACE_EOF)
-			sc->vtdtr_ready = 0;
-		VTDTR_UNLOCK(sc);
 
 		retval = vtdtr_ctrl_process_event(sc, ctrl);
 
@@ -1108,8 +1091,13 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 	VTDTR_QUEUE_UNLOCK(rxq);
 
 	VTDTR_LOCK(sc);
-	vtdtr_notify_ready(sc);
+	if (sc->vtdtr_ready == 0)
+		vtdtr_notify_ready(sc);
 	VTDTR_UNLOCK(sc);
+
+	mtx_lock(&sc->vtdtr_condmtx);
+	cv_signal(&sc->vtdtr_condvar);
+	mtx_unlock(&sc->vtdtr_condmtx);
 }
 
 /*
@@ -1310,11 +1298,12 @@ vtdtr_run(void *xsc)
 	struct vtdtr_softc *sc;
 	struct virtio_dtrace_queue *txq;
 	struct vtdtr_ctrl_entry *ctrl_entry;
+	struct virtio_dtrace_control *ctrls;
 	struct virtqueue *vq;
 	device_t dev;
+	size_t vq_size;
 	int nent;
-	int error;
-	int all_used;
+	int ready_flag;
 
 	sc = xsc;
 	dev = sc->vtdtr_dev;
@@ -1322,21 +1311,21 @@ vtdtr_run(void *xsc)
 	txq = &sc->vtdtr_txq;
 	vq = txq->vtdq_vq;
 	txq->vtdq_ready = 1;
+	vq_size = virtqueue_size(vq);
+	
+	ctrls = malloc(sizeof(struct virtio_dtrace_control) *
+	    vq_size, M_VTDTR, M_NOWAIT | M_ZERO);
+	if (ctrls == NULL) {
+		panic("No memory for vtdtr_run()");
+	}
 
 	for (;;) {
 		nent = 0;
-		error = 0;
-		all_used = 0;
+		ready_flag = 1;
+		memset(ctrls, 0,
+		    vq_size * sizeof(struct virtio_dtrace_control));
 
 		mtx_lock(&sc->vtdtr_condmtx);
-		/*
-		 * We have to lock this mutex in order to prevent races with the
-		 * threads that enqueue messages. We do not need to protect
-		 * txq->vtdq_ready and virtqueue_full() because these events are
-		 * guaranteed to happen before we signal the condition variable
-		 * and are implicitly protected by the control queue mutex.
-		 */
-		mtx_lock(&sc->vtdtr_ctrlq->mtx);
 		/*
 		 * We are safe to proceed sending messages if the following
 		 * conditions are satisfied:
@@ -1347,25 +1336,27 @@ vtdtr_run(void *xsc)
 		 * (4) Shutting down
 		 */
 		while ((vtdtr_cq_empty(sc->vtdtr_ctrlq) ||
-		    virtqueue_full(vq)                  ||
-		    !txq->vtdq_ready)                   &&
+		    !sc->vtdtr_ready                    ||
+		    !sc->vtdtr_host_ready)              &&
 		    (!sc->vtdtr_shutdown)) {
-			mtx_unlock(&sc->vtdtr_ctrlq->mtx);
 			cv_wait(&sc->vtdtr_condvar, &sc->vtdtr_condmtx);
-			mtx_lock(&sc->vtdtr_ctrlq->mtx);
 		}
-		mtx_unlock(&sc->vtdtr_ctrlq->mtx);
 		mtx_unlock(&sc->vtdtr_condmtx);
+
+		//device_printf(dev, "We are out of here\n");
 
 		kthread_suspend_check();
 		txq->vtdq_ready = 0;
 
-		if (sc->vtdtr_shutdown == 0) {
-			KASSERT(!virtqueue_full(vq),
-			    ("%s: virtqueue is full", __func__));
-			KASSERT(!vtdtr_cq_empty(sc->vtdtr_ctrlq),
-			    ("%s: control queue is empty", __func__));
+		if (sc->vtdtr_shutdown == 1) {
+			free(ctrls, M_VTDTR);
+			kthread_exit();
 		}
+
+		KASSERT(!virtqueue_full(vq),
+		    ("%s: virtqueue is full", __func__));
+		KASSERT(!vtdtr_cq_empty(sc->vtdtr_ctrlq),
+		    ("%s: control queue is empty", __func__));
 
 		/*
 		 * Here we drain the control queue until it's either:
@@ -1382,7 +1373,12 @@ vtdtr_run(void *xsc)
 		    !vtdtr_cq_empty(sc->vtdtr_ctrlq)) {
 			ctrl_entry = vtdtr_cq_dequeue(sc->vtdtr_ctrlq);
 			mtx_unlock(&sc->vtdtr_ctrlq->mtx);
-			vtdtr_fill_desc(txq, ctrl_entry->ctrl);
+			memcpy(&ctrls[nent], &ctrl_entry->ctrl,
+			    sizeof(struct virtio_dtrace_control));
+			if (ready_flag &&
+			    ctrls[nent].event != VIRTIO_DTRACE_DEVICE_READY)
+				ready_flag = 0;
+			vtdtr_fill_desc(txq, &ctrls[nent]);
 			free(ctrl_entry, M_DEVBUF);
 			nent++;
 			mtx_lock(&sc->vtdtr_ctrlq->mtx);
@@ -1399,13 +1395,12 @@ vtdtr_run(void *xsc)
 				vtdtr_send_eof(txq);
 			}
 
+			sc->vtdtr_host_ready = ready_flag;
 			vtdtr_poll(txq);
 		}
 
 		mtx_unlock(&sc->vtdtr_ctrlq->mtx);
 
-		if (sc->vtdtr_shutdown == 1)
-			kthread_exit();
 
 	}
 }

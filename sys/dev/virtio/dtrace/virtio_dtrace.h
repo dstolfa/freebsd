@@ -49,8 +49,7 @@
 #define	VIRTIO_DTRACE_PROBE_CREATE	0x04	/* Probe Creation */
 #define	VIRTIO_DTRACE_PROBE_INSTALL	0x05	/* Probe Installation */
 #define	VIRTIO_DTRACE_PROBE_UNINSTALL	0x06	/* Probe Uninstallation */
-#define	VIRTIO_DTRACE_CLEANUP		0x07	/* Clean up the TX queue */
-#define	VIRTIO_DTRACE_EOF		0x08	/* EOF Signal */
+#define	VIRTIO_DTRACE_EOF		0x07	/* EOF Signal */
 
 struct vtdtr_softc;
 
@@ -100,8 +99,8 @@ struct virtio_dtrace_queue {
 };
 
 struct vtdtr_ctrl_entry {
-	struct virtio_dtrace_control	*ctrl;
-	STAILQ_ENTRY(vtdtr_ctrl_entry)	 entries;
+	struct virtio_dtrace_control	ctrl;
+	STAILQ_ENTRY(vtdtr_ctrl_entry)	entries;
 };
 
 struct vtdtr_ctrlq {
