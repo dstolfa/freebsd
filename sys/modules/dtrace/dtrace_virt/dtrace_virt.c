@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 John Birrell <jb@freebsd.org>
+ * Copyright (C) 2017 Domagoj Stolfa <domagoj.stolfa@gmail.com>
  * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,53 +32,32 @@
 #include <sys/kernel.h>
 #include <sys/module.h>
 #include <sys/errno.h>
-#include "opt_compat.h"
-#include "opt_nfs.h"
 
 static int
-dtraceall_modevent(module_t mod __unused, int type, void *data __unused)
+dtrace_virt_modevent(module_t mod __unused, int type, void *data __unused)
 {
-	int error = 0;
+	int error;
+
+	error = 0;
 
 	switch (type) {
 	case MOD_LOAD:
 		break;
-
 	case MOD_UNLOAD:
 		break;
-
 	case MOD_SHUTDOWN:
 		break;
-
 	default:
 		error = EOPNOTSUPP;
 		break;
-
 	}
 
 	return (error);
 }
 
-DEV_MODULE(dtraceall, dtraceall_modevent, NULL);
-MODULE_VERSION(dtraceall, 1);
+DEV_MODULE(dtrace_virt, dtrace_virt_modevent, NULL);
+MODULE_VERSION(dtrace_virt, 1);
 
-/* All the DTrace modules should be dependencies here: */
-MODULE_DEPEND(dtraceall, opensolaris, 1, 1, 1);
-MODULE_DEPEND(dtraceall, dtrace, 1, 1, 1);
-MODULE_DEPEND(dtraceall, dtmalloc, 1, 1, 1);
-#if defined(NFSCL)
-MODULE_DEPEND(dtraceall, dtnfscl, 1, 1, 1);
-#endif
-#if defined(__aarch64__) || defined(__amd64__) || defined(__arm__) || \
-    defined(__i386__) || defined(__powerpc__) || defined(__riscv__)
-MODULE_DEPEND(dtraceall, fbt, 1, 1, 1);
-#endif
-#if defined(__amd64__) || defined(__i386__)
-MODULE_DEPEND(dtraceall, fasttrap, 1, 1, 1);
-#endif
-MODULE_DEPEND(dtraceall, sdt, 1, 1, 1);
-MODULE_DEPEND(dtraceall, systrace, 1, 1, 1);
-#if defined(COMPAT_FREEBSD32)
-MODULE_DEPEND(dtraceall, systrace_freebsd32, 1, 1, 1);
-#endif
-MODULE_DEPEND(dtraceall, profile, 1, 1, 1);
+MODULE_DEPEND(dtrace_virt, dtraceall, 1, 1, 1);
+MODULE_DEPEND(dtrace_virt, vmmdt, 1, 1, 1);
+MODULE_DEPEND(dtrace_virt, dtvirt, 1, 1, 1);
