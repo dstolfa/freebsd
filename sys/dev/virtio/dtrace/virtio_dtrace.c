@@ -855,9 +855,8 @@ vtdtr_destroy_probelist(struct vtdtr_softc *sc)
 }
 
 /*
- * Start all the taskqueues on the cpu_id = 1. This
- * ensures that each of the taskqueues have a thread
- * assigned to them that will then process all the
+ * Start all the taskqueues on the cpu_id = 1. This ensures that each of the
+ * taskqueues have a thread assigned to them that will then process all the
  * events that take place.
  */
 static void
@@ -1307,10 +1306,9 @@ vtdtr_run(void *xsc)
 		 * We are safe to proceed sending messages if the following
 		 * conditions are satisfied:
 		 * (1) We have messages in the control queue
-		 * (2) We have space in the virtqueue
-		 * (3) The TX queue is ready to send messages
+		 * (2) The host is ready to receive messages
 		 * or if we are
-		 * (4) Shutting down
+		 * (3) Shutting down
 		 */
 		while ((vtdtr_cq_empty(sc->vtdtr_ctrlq) ||
 		    !sc->vtdtr_host_ready)              &&

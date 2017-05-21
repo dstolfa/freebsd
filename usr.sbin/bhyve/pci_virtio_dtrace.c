@@ -482,16 +482,14 @@ pci_vtdtr_run(void *xsc)
 		error = 0;
 		ready_flag = 1;
 
-		/*
-		 * We have to lock the control queue due to the race condition
-		 * in the while condition through pci_vtdtr_cq_empty(). Other
-		 * variables are implicitly protected with this mutex as well,
-		 * as they all have to be satisfied before we actually signal
-		 * the condition variable, leaving the only possible race with
-		 * the control queue.
-		 */
 		error = pthread_mutex_lock(&sc->vsd_condmtx);
 		assert(error == 0);
+		/*
+		 * We are safe to proceed if the following conditions are
+		 * satisfied:
+		 * (1) We have messages in the control queue
+		 * (2) The guest is ready
+		 */
 		while (!sc->vsd_guest_ready ||
 		    pci_vtdtr_cq_empty(sc->vsd_ctrlq)) {
 			error = pthread_cond_wait(&sc->vsd_cond, &sc->vsd_condmtx);
