@@ -176,6 +176,7 @@ static void	vtdtr_cq_enqueue_front(struct vtdtr_ctrlq *,
 static int	vtdtr_cq_empty(struct vtdtr_ctrlq *);
 static size_t	vtdtr_cq_count(struct vtdtr_ctrlq *);
 static struct vtdtr_ctrl_entry * vtdtr_cq_dequeue(struct vtdtr_ctrlq *);
+static void	vtdtr_notify(struct virtio_dtrace_queue *);
 static void	vtdtr_poll(struct virtio_dtrace_queue *);
 static void	vtdtr_run(void *);
 
@@ -989,8 +990,7 @@ static void
 vtdtr_notify_ready(struct vtdtr_softc *sc)
 {
 	struct virtio_dtrace_queue *q;
-	struct virtio_dtrace_control ctrl;
-	//struct vtdtr_ctrl_entry *ctrl_entry;
+	struct vtdtr_ctrl_entry *ctrl_entry;
 	device_t dev;
 
 	dev = sc->vtdtr_dev;
@@ -998,24 +998,19 @@ vtdtr_notify_ready(struct vtdtr_softc *sc)
 
 	sc->vtdtr_ready = 1;
 
-/*	ctrl_entry = malloc(sizeof(struct vtdtr_ctrl_entry),
+	ctrl_entry = malloc(sizeof(struct vtdtr_ctrl_entry),
 	    M_DEVBUF, M_NOWAIT | M_ZERO);
 
 	if (ctrl_entry == NULL) {
 		device_printf(dev, "no memory to allocate a control entry");
 		return;
 	}
-	*/
 
-	ctrl.event = VIRTIO_DTRACE_DEVICE_READY;
+	ctrl_entry->ctrl.event = VIRTIO_DTRACE_DEVICE_READY;
 
-	/*
 	mtx_lock(&sc->vtdtr_ctrlq->mtx);
 	vtdtr_cq_enqueue_front(sc->vtdtr_ctrlq, ctrl_entry);
 	mtx_unlock(&sc->vtdtr_ctrlq->mtx);
-	*/
-	vtdtr_fill_desc(q, &ctrl);
-	vtdtr_poll(q);
 }
 
 /*
@@ -1042,6 +1037,7 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 	dev = sc->vtdtr_dev;
 	retval = 0;
 
+	VTDTR_LOCK(sc);
 	VTDTR_QUEUE_LOCK(rxq);
 
 	while ((ctrl = virtqueue_dequeue(rxq->vtdq_vq, &len)) != NULL) {
@@ -1060,16 +1056,17 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 
 	VTDTR_QUEUE_UNLOCK(rxq);
 
-	VTDTR_LOCK(sc);
+	vtdtr_notify(rxq);
+	if (vtdtr_vq_enable_intr(rxq) != 0)
+		taskqueue_enqueue(rxq->vtdq_tq, &rxq->vtdq_intrtask);
+
 	if (sc->vtdtr_ready == 0)
 		vtdtr_notify_ready(sc);
 	VTDTR_UNLOCK(sc);
 
-	/*
 	mtx_lock(&sc->vtdtr_condmtx);
 	cv_signal(&sc->vtdtr_condvar);
 	mtx_unlock(&sc->vtdtr_condmtx);
-	*/
 }
 
 /*
@@ -1088,9 +1085,6 @@ vtdtr_rxq_vq_intr(void *xsc)
 	dev = sc->vtdtr_dev;
 
 	taskqueue_enqueue(rxq->vtdq_tq, &rxq->vtdq_intrtask);
-	VTDTR_LOCK(sc);
-	vtdtr_vq_enable_intr(rxq);
-	VTDTR_UNLOCK(sc);
 }
 
 /*
@@ -1245,6 +1239,18 @@ vtdtr_cq_dequeue(struct vtdtr_ctrlq *cq)
 	}
 
 	return (ctrl_entry);
+}
+
+static void
+vtdtr_notify(struct virtio_dtrace_queue *q)
+{
+	struct virtqueue *vq;
+
+	vq = q->vtdq_vq;
+
+	VTDTR_QUEUE_LOCK(q);
+	virtqueue_notify(vq);
+	VTDTR_QUEUE_UNLOCK(q);
 }
 
 static void
