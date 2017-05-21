@@ -1289,6 +1289,14 @@ typedef struct dtrace_providerdesc {
 #define	DTRACE_PURPOSE_VIRT	0x00
 } dtrace_providerdesc_t;
 
+typedef struct dtrace_virt_probedesc {
+	char			(*vpbd_args)[DTRACE_ARGTYPELEN];
+	size_t			vpbd_argsiz[DTRACE_MAXARGS];
+	struct uuid		*vpbd_uuid;
+	dtrace_probedesc_t	*vpbd_desc;
+	uint8_t			vpbd_nargs;
+} dtrace_virt_probedesc_t;
+
 /*
  * DTrace Pseudodevice Interface
  *
@@ -1352,9 +1360,11 @@ typedef struct {
 #define	DTRACEIOC_REPLICATE	_IOW('x',18,dtrace_repldesc_t)	
 							/* replicate enab */
 #define	DTRACEIOC_PROVCREATE	_IOWR('x',19,dtrace_providerdesc_t)
-                            	                        /* create provider */
-#define	DTRACEIOC_PROBECREATE	_IOWR('x',20,dtrace_providerdesc_t)
-                            	                        /* create probe */
+							/* create provider */
+#define	DTRACEIOC_PROBECREATE	_IOWR('x',20,dtrace_virt_probedesc_t)
+							/* create probe */
+#define	DTRACEIOC_PROVDESTROY	_IOWR('x',21,dtrace_providerdesc_t)
+							/* destroy provider */
 #endif
 
 /*

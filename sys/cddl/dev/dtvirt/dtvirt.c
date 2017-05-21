@@ -166,6 +166,12 @@ dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
 		return (ENOMEM);
 	}
 
+	virt_probe->dtv_argtypes = malloc(nargs, M_DTVIRT, M_ZERO | M_NOWAIT);
+
+	if (virt_probe->dtv_argtypes == NULL) {
+		return (ENOMEM);
+	}
+
 	virt_probe->dtv_enabled = 0;
 	virt_probe->dtv_nargs = nargs;
 	memcpy(virt_probe->dtv_argtypes, argtypes, DTRACE_ARGTYPELEN * nargs);

@@ -939,7 +939,16 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 
 		purpose = pvd->dtvd_purpose;
 
+		/*
+		 * Identify the purpose of this provider
+		 */
 		switch (purpose) {
+		/*
+		 * If it's a virtual provider (resides inside a virtual machine
+		 * and has been advertised by the emulated virtio device), we
+		 * check if we have the proper hooks to operate on the provider
+		 * correctly
+		 */
 		case DTRACE_PURPOSE_VIRT:
 			if (dtvirt_hook_commit == NULL     ||
 			    dtvirt_hook_register == NULL   ||
@@ -957,6 +966,10 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 			return (EINVAL);
 		}
 
+		/*
+		 * If userspace has already provided an UUID to us, we will use
+		 * it to generate a UUIDv5
+		 */
 		if (pvd->dtvd_uuid != NULL) {
 			if ((puuid = dtrace_uuid_copyin(
 			    (uintptr_t) pvd->dtvd_uuid, &retval)) == NULL)
@@ -966,23 +979,54 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		bcopy(&priv, &pvd->dtvd_priv, sizeof (dtrace_ppriv_t));
 		bcopy(&pattr, &pvd->dtvd_attr, sizeof (dtrace_pattr_t));
 
+		/*
+		 * Hook into the dtvirt module to register the provider
+		 */
 		dtvirt_hook_register(pvd->dtvd_name, pvd->dtvd_instance,
 		    puuid, &pattr, priv.dtpp_flags, ppops);
 
 		/*
-		 * XXX: How does userspace know what provider to create probes
-		 * for? Should we give it the ID? Is that a security liability?
+		 * We copyout the provider UUID to userspace, so that userspace
+		 * can identify it and create probes for it
 		 */
 
 		return (0);
 	}
 	case DTRACEIOC_PROBECREATE: {
-		/*
-		 * TODO: Create the necessary probes here, the dtps_virt_provide
-		 * callback makes no sense as we cannot access the argtypes of
-		 * the given probe.
-		 */
+		dtrace_virt_probedesc_t *pbd = (dtrace_virt_probedesc_t *) addr;
+		dtrace_probedesc_t desc;
+		struct uuid puuid;
+		size_t argsiz[DTRACE_MAXARGS];
+		uint8_t nargs;
+		char (*argtypes)[DTRACE_ARGTYPELEN];
+		int error;
+
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROBECREATE\n",__func__,__LINE__);
+
+		bcopy(&puuid, pbd->vpbd_uuid, sizeof (struct uuid));
+		bcopy(&desc, pbd->vpbd_desc, sizeof (dtrace_probedesc_t));
+		bcopy(argsiz, pbd->vpbd_argsiz, sizeof (size_t) * DTRACE_MAXARGS);
+		nargs = pbd->vpbd_nargs;
+
+		argtypes = kmem_zalloc(nargs, KM_SLEEP);
+
+		if (copyin((void *)pbd->vpbd_args, argtypes,
+		    DTRACE_ARGTYPELEN * nargs) != 0) {
+			return (EFAULT);
+		}
+
+		error = dtvirt_hook_create(&puuid, &desc, argtypes, argsiz, nargs);
+
+		kmem_free(argtypes, nargs);
+
+		return (error);
+	}
+	case DTRACEIOC_PROVDESTROY: {
+		/*
+		 * TODO: Write the code that hooks into dtvirt to destroy a
+		 * provider and all it's probes
+		 */
+		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROVDESTROY\n",__func__,__LINE__);
 		return (0);
 	}
 	default:
