@@ -390,6 +390,14 @@ static dtrace_pops_t dtvirt_pops = {
 	(void (*)(void *, dtrace_id_t, void *))dtrace_virtop
 };
 
+static dtrace_pattr_t dtvirt_attr = {
+{ DTRACE_STABILITY_INTERNAL, DTRACE_STABILITY_INTERNAL, DTRACE_CLASS_COMMON },
+{ DTRACE_STABILITY_INTERNAL, DTRACE_STABILITY_INTERNAL, DTRACE_CLASS_COMMON },
+{ DTRACE_STABILITY_INTERNAL, DTRACE_STABILITY_INTERNAL, DTRACE_CLASS_COMMON },
+{ DTRACE_STABILITY_INTERNAL, DTRACE_STABILITY_INTERNAL, DTRACE_CLASS_COMMON },
+{ DTRACE_STABILITY_INTERNAL, DTRACE_STABILITY_INTERNAL, DTRACE_CLASS_COMMON },
+};
+
 static dtrace_pops_t	dtrace_provider_ops = {
 	(void (*)(void *, dtrace_probedesc_t *))dtrace_nullop,
 	(void (*)(void *, modctl_t *))dtrace_nullop,
@@ -661,6 +669,7 @@ static int dtrace_canstore_remains(uint64_t, size_t, size_t *,
 static dtrace_instance_t *dtrace_instance_lookup(const char *);
 static uint32_t dtrace_instance_lookup_id(const char *);
 static dtrace_probe_t **dtrace_instance_lookup_probes(const char *);
+static int dtrace_priv_unregister(dtrace_provider_id_t, uint8_t);
 
 /*
  * DTrace Probe Context Functions
@@ -8911,7 +8920,8 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	char namespace[DTRACE_RANDBUFLEN];
 	size_t iname_len;
 
-	if (name == NULL || pap == NULL || pops == NULL || idp == NULL) {
+	if (name == NULL || pap == NULL ||
+	    pops == NULL || idp == NULL || istcname == NULL) {
 		cmn_err(CE_WARN, "failed to register provider '%s': invalid "
 		    "arguments", name ? name : "<NULL>");
 		return (EINVAL);
@@ -8920,6 +8930,12 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	if (name[0] == '\0' || dtrace_badname(name)) {
 		cmn_err(CE_WARN, "failed to register provider '%s': invalid "
 		    "provider name", name);
+		return (EINVAL);
+	}
+
+	if (uuid == NULL && strcmp(istcname, "host") != 0) {
+		cmn_err(CE_WARN, "failed to register provider '%s': invalid "
+		    "uuid with instance '%s'", name, istcname);
 		return (EINVAL);
 	}
 
@@ -9018,7 +9034,8 @@ dtrace_distributed_register(const char *name, const char *istcname,
 		instance->dtis_prev = dtrace_instance;
 		if (dtrace_instance != NULL) {
 			instance->dtis_next = dtrace_instance->dtis_next;
-			dtrace_instance->dtis_next->dtis_prev = instance;
+			if (dtrace_instance->dtis_next != NULL)
+				dtrace_instance->dtis_next->dtis_prev = instance;
 			dtrace_instance->dtis_next = instance;
 		} else {
 			instance->dtis_next = NULL;
@@ -9040,6 +9057,7 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	if (strcmp(provider->dtpv_instance, "host") != 0) {
 		ASSERT(uuid != NULL);
 		provider->dtpv_advuuid = uuid;
+		provider->dtpv_uuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
 		uuid_generate_version5(provider->dtpv_uuid, provider->dtpv_advuuid,
 		    provider->dtpv_instance, strlen(provider->dtpv_instance));
 	} else {
@@ -9125,12 +9143,8 @@ dtrace_uuid_copyin(uintptr_t uarg, int *errp)
 	return (uuid);
 }
 
-/*
- * Unregister the specified provider from the DTrace framework.  This should
- * generally be called by DTrace providers in their detach(9E) entry point.
- */
-int
-dtrace_unregister(dtrace_provider_id_t id)
+static int
+dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 {
 	dtrace_provider_t *old = (dtrace_provider_t *)id;
 	dtrace_provider_t *prev = NULL;
@@ -9177,14 +9191,22 @@ dtrace_unregister(dtrace_provider_id_t id)
 		while (instance) {
 			prov = instance->dtis_provhead;
 			while (prov) {
-				error = dtrace_unregister(
-				    (dtrace_provider_id_t)prov);
+				error = dtrace_priv_unregister(
+				    (dtrace_provider_id_t)prov, 1);
 				ASSERT(error == 0);
+				mutex_enter(&dtrace_instance_lock);
+				mutex_enter(&dtrace_provider_lock);
+				mutex_enter(&dtrace_lock);
 				prov = prov->dtpv_next;
 			}
 			instance = instance->dtis_next;
 		}
 	} else {
+		if (recursing) {
+			mutex_exit(&dtrace_lock);
+			mutex_exit(&dtrace_provider_lock);
+			mutex_exit(&dtrace_instance_lock);
+		}
 		mutex_enter(&dtrace_instance_lock);
 		mutex_enter(&dtrace_provider_lock);
 #ifdef illumos
@@ -9380,6 +9402,16 @@ dtrace_unregister(dtrace_provider_id_t id)
 	kmem_free(old, sizeof (dtrace_provider_t));
 
 	return (0);
+}
+
+/*
+ * Unregister the specified provider from the DTrace framework.  This should
+ * generally be called by DTrace providers in their detach(9E) entry point.
+ */
+int
+dtrace_unregister(dtrace_provider_id_t id)
+{
+	return (dtrace_priv_unregister(id, 0));
 }
 
 __inline struct uuid *

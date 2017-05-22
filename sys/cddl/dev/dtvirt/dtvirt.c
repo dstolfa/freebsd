@@ -299,7 +299,10 @@ dtvirt_getargval(void *arg, dtrace_id_t id,
 
 	vm = virt_probe->dtv_vm;
 
-	val = vmmdt_hook_valueof(vm, id, ndx);
+	if (vmmdt_hook_valueof != NULL)
+		val = vmmdt_hook_valueof(vm, id, ndx);
+	else
+		val = 0;
 
 	return (val);
 }

@@ -925,10 +925,9 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		dtrace_provider_id_t provid;
 		dtrace_pops_t *ppops;
 		struct uuid *puuid;
-		dtrace_pattr_t pattr;
-		dtrace_ppriv_t priv;
-		int purpose;
-		int retval;
+		dtrace_pattr_t *pattr;
+		int purpose, retval;
+		uint32_t priv;
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROVCREATE\n",__func__,__LINE__);
 
@@ -961,10 +960,15 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 			    dtvirt_hook_destroy == NULL)
 				return (EINVAL);
 			ppops = &dtvirt_pops;
+			pattr = &dtvirt_attr;
+			priv = DTRACE_PRIV_USER;
 			break;
 		default:
 			return (EINVAL);
 		}
+
+		printf("instance = %s\n"
+		    "provname = %s\n", pvd->dtvd_instance, pvd->dtvd_name);
 
 		/*
 		 * If userspace has already provided an UUID to us, we will use
@@ -974,16 +978,15 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 			if ((puuid = dtrace_uuid_copyin(
 			    (uintptr_t) pvd->dtvd_uuid, &retval)) == NULL)
 				return (EINVAL);
+		} else {
+			puuid = NULL;
 		}
-
-		bcopy(&priv, &pvd->dtvd_priv, sizeof (dtrace_ppriv_t));
-		bcopy(&pattr, &pvd->dtvd_attr, sizeof (dtrace_pattr_t));
 
 		/*
 		 * Hook into the dtvirt module to register the provider
 		 */
 		dtvirt_hook_register(pvd->dtvd_name, pvd->dtvd_instance,
-		    puuid, &pattr, priv.dtpp_flags, ppops);
+		    puuid, pattr, priv, ppops);
 
 		/*
 		 * We copyout the provider UUID to userspace, so that userspace
@@ -1030,6 +1033,7 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		return (0);
 	}
 	default:
+		printf("WARNING: Default\n");
 		error = ENOTTY;
 	}
 	return (error);
