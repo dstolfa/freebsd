@@ -117,6 +117,8 @@ dtvirt_load(void)
 static void
 dtvirt_unload(void)
 {
+	struct dtvirt_prov *prov, *tmp;
+
 	dtvirt_hook_commit = NULL;
 	dtvirt_hook_register = NULL;
 	dtvirt_hook_unregister = NULL;
@@ -126,6 +128,17 @@ dtvirt_unload(void)
 	dtvirt_hook_getargdesc = NULL;
 	dtvirt_hook_getargval = NULL;
 	dtvirt_hook_destroy = NULL;
+	
+	/*
+	 * In case we unloaded the module instead of called unregister for every
+	 * provider, we need to clean up the tree.
+	 */
+
+	RB_FOREACH_SAFE(prov, dtvirt_provtree, &dtvirt_provider_tree, tmp) {
+		if (prov != NULL) {
+			free(prov, M_DTVIRT);
+		}
+	}
 }
 
 static void

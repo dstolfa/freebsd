@@ -391,11 +391,11 @@ static dtrace_pops_t dtvirt_pops = {
 };
 
 static dtrace_pattr_t dtvirt_attr = {
-{ DTRACE_STABILITY_INTERNAL, DTRACE_STABILITY_INTERNAL, DTRACE_CLASS_COMMON },
-{ DTRACE_STABILITY_INTERNAL, DTRACE_STABILITY_INTERNAL, DTRACE_CLASS_COMMON },
-{ DTRACE_STABILITY_INTERNAL, DTRACE_STABILITY_INTERNAL, DTRACE_CLASS_COMMON },
-{ DTRACE_STABILITY_INTERNAL, DTRACE_STABILITY_INTERNAL, DTRACE_CLASS_COMMON },
-{ DTRACE_STABILITY_INTERNAL, DTRACE_STABILITY_INTERNAL, DTRACE_CLASS_COMMON },
+{ DTRACE_STABILITY_EVOLVING, DTRACE_STABILITY_STABLE, DTRACE_CLASS_COMMON },
+{ DTRACE_STABILITY_EVOLVING, DTRACE_STABILITY_STABLE, DTRACE_CLASS_UNKNOWN },
+{ DTRACE_STABILITY_EVOLVING, DTRACE_STABILITY_STABLE, DTRACE_CLASS_UNKNOWN },
+{ DTRACE_STABILITY_EVOLVING, DTRACE_STABILITY_STABLE, DTRACE_CLASS_COMMON },
+{ DTRACE_STABILITY_EVOLVING, DTRACE_STABILITY_STABLE, DTRACE_CLASS_COMMON },
 };
 
 static dtrace_pops_t	dtrace_provider_ops = {
@@ -9149,7 +9149,9 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 	dtrace_provider_t *old = (dtrace_provider_t *)id;
 	dtrace_provider_t *prev = NULL;
 	dtrace_provider_t *prov = NULL;
+	dtrace_provider_t *pnext = NULL;
 	dtrace_instance_t *instance = NULL;
+	dtrace_instance_t *inext = NULL;
 	int i, self = 0, noreap = 0, error;
 	dtrace_probe_t *probe, *first = NULL;
 	dtrace_probe_t **dtrace_probes;
@@ -9190,16 +9192,18 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 		instance = dtrace_instance->dtis_next;
 		while (instance) {
 			prov = instance->dtis_provhead;
+			inext = instance->dtis_next;
 			while (prov) {
+				pnext = prov->dtpv_next;
 				error = dtrace_priv_unregister(
 				    (dtrace_provider_id_t)prov, 1);
 				ASSERT(error == 0);
 				mutex_enter(&dtrace_instance_lock);
 				mutex_enter(&dtrace_provider_lock);
 				mutex_enter(&dtrace_lock);
-				prov = prov->dtpv_next;
+				prov = pnext;
 			}
-			instance = instance->dtis_next;
+			instance = inext;
 		}
 	} else {
 		if (recursing) {
@@ -9238,7 +9242,14 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 	dtrace_nprobes = dtrace_istc_probecount[idx];
 	dtrace_probes = dtrace_istc_probes[idx];
 
-	ASSERT(dtrace_probes != NULL);
+	/*
+	 * We do not have to have probes in the case of a virtual provider. This
+	 * ensures that we do not panic the host kernel because the guest
+	 * decided to not advertise it's probes.
+	 */
+	if (old->dtpv_pops.dtps_enable !=
+	    (void (*) (void *, dtrace_id_t, void *))dtrace_virtop)
+		ASSERT(dtrace_probes != NULL);
 
 	/*
 	 * Attempt to destroy the probes associated with this provider.
@@ -9366,6 +9377,7 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 
 		prev->dtpv_next = old->dtpv_next;
 	}
+
 
 	if (instance->dtis_provhead == NULL) {
 		if (dtrace_instance == instance)
