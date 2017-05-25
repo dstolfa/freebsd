@@ -9143,6 +9143,25 @@ dtrace_uuid_copyin(uintptr_t uarg, int *errp)
 	return (uuid);
 }
 
+static dtrace_probedesc_t *
+dtrace_probedesc_copyin(uintptr_t uarg, int *errp)
+{
+	dtrace_probedesc_t *pdesc;
+
+	ASSERT(!MUTEX_HELD(&dtrace_lock));
+
+	pdesc = kmem_zalloc(sizeof (dtrace_probedesc_t), KM_SLEEP);
+
+	if (copyin((void *)uarg, pdesc, sizeof (dtrace_probedesc_t)) != 0) {
+		if (dtrace_err_verbose)
+			cmn_err(CE_WARN, "failed to copyin the probedesc");
+		*errp = EFAULT;
+		return (NULL);
+	}
+
+	return (pdesc);
+}
+
 static int
 dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 {

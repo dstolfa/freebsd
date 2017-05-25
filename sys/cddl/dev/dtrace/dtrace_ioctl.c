@@ -997,43 +997,56 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 	}
 	case DTRACEIOC_PROBECREATE: {
 		dtrace_virt_probedesc_t *pbd = (dtrace_virt_probedesc_t *) addr;
-		dtrace_probedesc_t desc;
-		struct uuid puuid;
+		dtrace_probedesc_t *pdesc;
+		struct uuid *puuid;
 		size_t argsiz[DTRACE_MAXARGS];
 		uint8_t nargs;
 		char (*argtypes)[DTRACE_ARGTYPELEN];
-		int error;
+		int retval;
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROBECREATE\n",__func__,__LINE__);
 
-		bcopy(&puuid, pbd->vpbd_uuid, sizeof (struct uuid));
-		bcopy(&desc, pbd->vpbd_desc, sizeof (dtrace_probedesc_t));
-		bcopy(argsiz, pbd->vpbd_argsiz, sizeof (size_t) * DTRACE_MAXARGS);
 		nargs = pbd->vpbd_nargs;
+
+		if (nargs > DTRACE_MAXARGS)
+			return (EINVAL);
+
+		if (pbd->vpbd_uuid == NULL)
+			return (EINVAL);
+
+		if ((puuid = dtrace_uuid_copyin(
+		    (uintptr_t) pbd->vpbd_uuid, &retval)) == NULL)
+			return (retval);
+
+		if ((pdesc = dtrace_probedesc_copyin(
+		    (uintptr_t) pbd->vpbd_desc, &retval)) == NULL)
+			return (retval);
+
+
+		if (copyin((void *)pbd->vpbd_argsiz, argsiz,
+		    sizeof (size_t) * nargs) != 0)
+			return (EFAULT);
 
 		argtypes = kmem_zalloc(nargs, KM_SLEEP);
 
 		if (copyin((void *)pbd->vpbd_args, argtypes,
-		    DTRACE_ARGTYPELEN * nargs) != 0) {
+		    DTRACE_ARGTYPELEN * nargs) != 0)
 			return (EFAULT);
-		}
 
-		error = dtvirt_hook_create(&puuid, &desc, argtypes, argsiz, nargs);
+		retval = dtvirt_hook_create(puuid, pdesc, argtypes, argsiz, nargs);
 
 		kmem_free(argtypes, nargs);
 
-		return (error);
+		return (retval);
 	}
 	case DTRACEIOC_PROVDESTROY: {
-		/*
-		 * TODO: Write the code that hooks into dtvirt to destroy a
-		 * provider and all it's probes
-		 */
+		struct uuid puuid;
+
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROVDESTROY\n",__func__,__LINE__);
+
 		return (0);
 	}
 	default:
-		printf("WARNING: Default\n");
 		error = ENOTTY;
 	}
 	return (error);

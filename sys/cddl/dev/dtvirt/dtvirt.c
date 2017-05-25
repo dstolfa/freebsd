@@ -39,6 +39,7 @@ struct dtvirt_prov {
 	RB_ENTRY(dtvirt_prov)	 node;
 	dtrace_provider_id_t	 dtvp_id;
 	struct uuid		*dtvp_uuid;
+	char			 dtvp_instance[DTRACE_INSTANCENAMELEN];
 };
 
 static void	dtvirt_load(void);
@@ -172,6 +173,10 @@ dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
 
 	provid = prov->dtvp_id;
 
+	if (strncmp(prov->dtvp_instance, desc->dtpd_instance,
+	    DTRACE_INSTANCENAMELEN) != 0)
+		return (EINVAL);
+
 	virt_probe = malloc(sizeof(dtrace_virt_probe_t),
 	    M_DTVIRT, M_ZERO | M_NOWAIT);
 	
@@ -218,6 +223,7 @@ dtvirt_provider_register(const char *provname, const char *instance,
 
 	prov->dtvp_id = provid;
 	prov->dtvp_uuid = dtrace_provider_uuid(provid);
+	strncpy(prov->dtvp_instance, instance, DTRACE_INSTANCENAMELEN);
 
 	RB_INSERT(dtvirt_provtree, &dtvirt_provider_tree, prov);
 

@@ -1363,7 +1363,7 @@ typedef struct {
 							/* create provider */
 #define	DTRACEIOC_PROBECREATE	_IOWR('x',20,dtrace_virt_probedesc_t)
 							/* create probe */
-#define	DTRACEIOC_PROVDESTROY	_IOWR('x',21,dtrace_providerdesc_t)
+#define	DTRACEIOC_PROVDESTROY	_IOWR('x',21,struct uuid)
 							/* destroy provider */
 #endif
 
