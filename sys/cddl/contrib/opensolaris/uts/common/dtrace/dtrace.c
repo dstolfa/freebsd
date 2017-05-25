@@ -8916,9 +8916,6 @@ dtrace_distributed_register(const char *name, const char *istcname,
 
 	dtrace_instance_t *instance;
 	dtrace_provider_t *provider;
-	struct uuid luuid;
-	char namespace[DTRACE_RANDBUFLEN];
-	size_t iname_len;
 
 	if (name == NULL || pap == NULL ||
 	    pops == NULL || idp == NULL || istcname == NULL) {
@@ -9056,10 +9053,17 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	 */
 	if (strcmp(provider->dtpv_instance, "host") != 0) {
 		ASSERT(uuid != NULL);
-		provider->dtpv_advuuid = uuid;
+		provider->dtpv_advuuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
+		memcpy(provider->dtpv_advuuid, uuid, sizeof (struct uuid));
 		provider->dtpv_uuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
 		uuid_generate_version5(provider->dtpv_uuid, provider->dtpv_advuuid,
 		    provider->dtpv_instance, strlen(provider->dtpv_instance));
+		/*
+		 * XXX: For now, we assume that only non-host providers will ask
+		 * for a UUID, but this might not be true in the future. It
+		 * might be best to put this outside later on.
+		 */
+		memcpy(uuid, provider->dtpv_uuid, sizeof (struct uuid));
 	} else {
 		ASSERT(uuid == NULL);
 		provider->dtpv_uuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);

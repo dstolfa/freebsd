@@ -993,6 +993,10 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		 * can identify it and create probes for it
 		 */
 
+		if (copyout((void *)puuid, pvd + offsetof(dtrace_providerdesc_t, dtvd_uuid),
+		    sizeof (struct uuid)) != 0)
+			return (EFAULT);
+
 		return (0);
 	}
 	case DTRACEIOC_PROBECREATE: {
