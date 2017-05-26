@@ -994,17 +994,15 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		    sizeof (struct uuid)) != 0)
 			return (EFAULT);
 
-		kmem_free(puuid, sizeof (struct uuid));
-
 		return (0);
 	}
 	case DTRACEIOC_PROBECREATE: {
 		dtrace_virt_probedesc_t *pbd = (dtrace_virt_probedesc_t *) addr;
 		dtrace_probedesc_t *pdesc;
 		struct uuid *puuid;
-		size_t argsiz[DTRACE_MAXARGS];
+		size_t *argsiz;
 		uint8_t nargs;
-		char (*argtypes)[DTRACE_ARGTYPELEN];
+		char *argtypes;
 		int retval;
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROBECREATE\n",__func__,__LINE__);
@@ -1017,27 +1015,32 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		if (pbd->vpbd_uuid == NULL)
 			return (EINVAL);
 
+		if (pbd->vpbd_desc == NULL)
+			return (EINVAL);
+
 		if ((puuid = dtrace_uuid_copyin(
 		    (uintptr_t) pbd->vpbd_uuid, &retval)) == NULL)
 			return (retval);
 
-		pdesc = &pbd->vpbd_desc;
-		argtypes = kmem_zalloc(nargs, KM_SLEEP);
+		if ((pdesc = dtrace_probedesc_copyin(
+		    (uintptr_t) pbd->vpbd_desc, &retval)) == NULL)
+			return (retval);
+
+		argsiz = kmem_zalloc(nargs * sizeof (size_t), KM_SLEEP);
+
+		if (copyin((void *)pbd->vpbd_argsiz, argsiz,
+		    DTRACE_MAXARGS * sizeof (size_t)) != 0) 
+			return (EFAULT);
+
+		argtypes = kmem_zalloc(nargs * DTRACE_ARGTYPELEN, KM_SLEEP);
 
 		if (copyin((void *)pbd->vpbd_args, argtypes,
-		    DTRACE_ARGTYPELEN * nargs) != 0) {
-			kmem_free(argtypes, nargs);
+		    DTRACE_ARGTYPELEN * nargs) != 0)
 			return (EFAULT);
-		}
 
-		printf("Going in there\n");
+
 		retval = dtvirt_hook_create(puuid, pdesc, argtypes,
-		    pbd->vpbd_argsiz, nargs);
-
-		printf("argtypes\n");
-		kmem_free(argtypes, nargs);
-		printf("puuid\n");
-		kmem_free(puuid, sizeof (struct uuid));
+		    argsiz, nargs);
 
 		return (retval);
 	}

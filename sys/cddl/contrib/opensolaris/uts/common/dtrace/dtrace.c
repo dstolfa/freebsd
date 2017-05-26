@@ -373,7 +373,7 @@ int	(*dtvirt_hook_register)(const char *, const char *,
           	    struct uuid *, dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
 int	(*dtvirt_hook_unregister)(struct uuid *);
 int	(*dtvirt_hook_create)(struct uuid *, dtrace_probedesc_t *,
-           	    const char (*)[DTRACE_ARGTYPELEN], size_t[DTRACE_MAXARGS], uint8_t);
+           	    const char *, const size_t *, uint8_t);
 void	(*dtvirt_hook_enable)(void *, dtrace_id_t, void *);
 void	(*dtvirt_hook_disable)(void *, dtrace_id_t, void *);
 void	(*dtvirt_hook_getargdesc)(void *, dtrace_id_t, void *, dtrace_argdesc_t *);

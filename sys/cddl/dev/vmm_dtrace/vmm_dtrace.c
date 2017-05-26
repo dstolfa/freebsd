@@ -80,8 +80,6 @@ static uint64_t	vmmdt_valueof(const char *, int, int);
 static void	vmmdt_set_args(const char *, int,
            	    const uint64_t[VMMDT_MAXARGS]);
 static struct vmdtree * vmmdt_hash_lookup(const char *);
-static int	vmmdt_hash_is_enabled(const char *, int);
-static uint64_t	vmmdt_hash_getargval(const char *, int, int);
 static int	vmmdt_probe_cmp(struct vmmdt_probe *, struct vmmdt_probe *);
 
 RB_GENERATE_STATIC(vmmdt_probetree, vmmdt_probe, vmdtp_node,

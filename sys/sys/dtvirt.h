@@ -31,7 +31,7 @@
 typedef struct dtrace_virt_probe {
 	char		(*dtv_argtypes)[DTRACE_ARGTYPELEN];
 	size_t		dtv_argsizes[DTRACE_MAXARGS];
-	char		*dtv_vm;
+	char		dtv_vm[DTRACE_INSTANCENAMELEN];
 	dtrace_id_t	dtv_id;
 	uint8_t		dtv_enabled;
 	uint8_t		dtv_nargs;
@@ -44,7 +44,7 @@ extern int	(*dtvirt_hook_register)(const char *, const char *,
           	    struct uuid *, dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
 extern int	(*dtvirt_hook_unregister)(struct uuid *);
 extern int	(*dtvirt_hook_create)(struct uuid *, dtrace_probedesc_t *,
-           	    const char (*)[DTRACE_ARGTYPELEN], size_t[DTRACE_MAXARGS], uint8_t);
+           	    const char *, const size_t *, uint8_t);
 extern void	(*dtvirt_hook_enable)(void *, dtrace_id_t, void *);
 extern void	(*dtvirt_hook_disable)(void *, dtrace_id_t, void *);
 extern void	(*dtvirt_hook_getargdesc)(void *, dtrace_id_t,

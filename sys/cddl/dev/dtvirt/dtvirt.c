@@ -47,10 +47,11 @@ static void	dtvirt_unload(void);
 static void	dtvirt_commit(const char *, dtrace_id_t,
            	    uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 static int	dtvirt_probe_create(struct uuid *, dtrace_probedesc_t *,
-          	    const char (*)[DTRACE_ARGTYPELEN], size_t[DTRACE_MAXARGS], uint8_t);
+          	    const char *, const size_t *, uint8_t);
 static int	dtvirt_provider_register(const char *,
           	    const char *, struct uuid *,
 		    dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
+static int	dtvirt_priv_unregister(struct dtvirt_prov *);
 static int	dtvirt_provider_unregister(struct uuid *);
 static void	dtvirt_enable(void *, dtrace_id_t, void *);
 static void	dtvirt_disable(void *, dtrace_id_t, void *);
@@ -119,6 +120,17 @@ static void
 dtvirt_unload(void)
 {
 	struct dtvirt_prov *prov, *tmp;
+	int error;
+
+	/*
+	 * In case we unloaded the module instead of called unregister for every
+	 * provider, we need to clean up the tree.
+	 */
+	RB_FOREACH_SAFE(prov, dtvirt_provtree, &dtvirt_provider_tree, tmp) {
+		error = dtvirt_priv_unregister(prov);
+		if (error)
+			panic("Unregister of a provider failed\n");
+	}
 
 	dtvirt_hook_commit = NULL;
 	dtvirt_hook_register = NULL;
@@ -130,16 +142,6 @@ dtvirt_unload(void)
 	dtvirt_hook_getargval = NULL;
 	dtvirt_hook_destroy = NULL;
 	
-	/*
-	 * In case we unloaded the module instead of called unregister for every
-	 * provider, we need to clean up the tree.
-	 */
-
-	RB_FOREACH_SAFE(prov, dtvirt_provtree, &dtvirt_provider_tree, tmp) {
-		if (prov != NULL) {
-			free(prov, M_DTVIRT);
-		}
-	}
 }
 
 static void
@@ -153,11 +155,12 @@ dtvirt_commit(const char *vm, dtrace_id_t id,
 
 static int
 dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
-    const char (*argtypes)[DTRACE_ARGTYPELEN], size_t argsiz[DTRACE_MAXARGS], uint8_t nargs)
+    const char *argtypes, const size_t *argsiz, uint8_t nargs)
 {
 	dtrace_virt_probe_t *virt_probe;
 	struct dtvirt_prov *prov, tmp;
 	dtrace_provider_id_t provid;
+	int i;
 
 	tmp.dtvp_uuid = uuid;
 	prov = RB_FIND(dtvirt_provtree, &dtvirt_provider_tree, &tmp);
@@ -191,7 +194,8 @@ dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
 
 	virt_probe->dtv_id = dtrace_probe_create(provid, desc->dtpd_mod,
 	    desc->dtpd_func, desc->dtpd_name, 0, virt_probe);
-	virt_probe->dtv_vm = strdup(desc->dtpd_instance, M_DTVIRT);
+	strncpy(virt_probe->dtv_vm,
+	    desc->dtpd_instance, DTRACE_INSTANCENAMELEN);
 
 	return (0);
 }
@@ -226,30 +230,33 @@ fail:
 }
 
 static int
-dtvirt_provider_unregister(struct uuid *uuid)
+dtvirt_priv_unregister(struct dtvirt_prov *prov)
 {
-	struct dtvirt_prov *prov, tmp;
-	dtrace_provider_id_t provid;
 	int error;
-
-	if (uuid == NULL)
-		return (EINVAL);
-
-	tmp.dtvp_uuid = uuid;
-	
-	prov = RB_FIND(dtvirt_provtree, &dtvirt_provider_tree, &tmp);
+	dtrace_provider_id_t provid;
 
 	if (prov == NULL)
 		return (ENOENT);
 
 	provid = prov->dtvp_id;
 	error = dtrace_unregister(provid);
-
 	RB_REMOVE(dtvirt_provtree, &dtvirt_provider_tree, prov);
-
 	free(prov, M_DTVIRT);
 
 	return (error);
+}
+
+static int
+dtvirt_provider_unregister(struct uuid *uuid)
+{
+	struct dtvirt_prov *prov, tmp;
+
+	if (uuid == NULL)
+		return (EINVAL);
+
+	tmp.dtvp_uuid = uuid;
+	prov = RB_FIND(dtvirt_provtree, &dtvirt_provider_tree, &tmp);
+	return (dtvirt_priv_unregister(prov));
 }
 
 static void
