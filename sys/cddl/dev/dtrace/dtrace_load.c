@@ -74,7 +74,9 @@ dtrace_load(void *dummy)
 
 	dtrace_taskq = taskq_create("dtrace_taskq", 1, maxclsyspri, 0, 0, 0);
 
-	dtrace_arena = new_unrhdr(1, INT_MAX, &dtrace_unr_mtx);
+	dtrace_arenas = kmem_zalloc(sizeof (struct unrhdr *) * DTRACE_MAX_INSTANCES,
+	    KM_SLEEP);
+/*	dtrace_arena = new_unrhdr(1, INT_MAX, &dtrace_unr_mtx); */
 
 	/* Register callbacks for linker file load and unload events. */
 	dtrace_kld_load_tag = EVENTHANDLER_REGISTER(kld_load,

@@ -967,9 +967,6 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 			return (EINVAL);
 		}
 
-		printf("instance = %s\n"
-		    "provname = %s\n", pvd->dtvd_instance, pvd->dtvd_name);
-
 		/*
 		 * If userspace has already provided an UUID to us, we will use
 		 * it to generate a UUIDv5
@@ -977,7 +974,7 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		if (pvd->dtvd_uuid != NULL) {
 			if ((puuid = dtrace_uuid_copyin(
 			    (uintptr_t) pvd->dtvd_uuid, &retval)) == NULL)
-				return (EINVAL);
+				return (retval);
 		} else {
 			puuid = NULL;
 		}
@@ -993,9 +990,11 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		 * can identify it and create probes for it
 		 */
 
-		if (copyout((void *)puuid, pvd + offsetof(dtrace_providerdesc_t, dtvd_uuid),
+		if (copyout((void *)puuid, pvd->dtvd_uuid,
 		    sizeof (struct uuid)) != 0)
 			return (EFAULT);
+
+		kmem_free(puuid, sizeof (struct uuid));
 
 		return (0);
 	}
@@ -1022,24 +1021,23 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		    (uintptr_t) pbd->vpbd_uuid, &retval)) == NULL)
 			return (retval);
 
-		if ((pdesc = dtrace_probedesc_copyin(
-		    (uintptr_t) pbd->vpbd_desc, &retval)) == NULL)
-			return (retval);
-
-
-		if (copyin((void *)pbd->vpbd_argsiz, argsiz,
-		    sizeof (size_t) * nargs) != 0)
-			return (EFAULT);
-
+		pdesc = &pbd->vpbd_desc;
 		argtypes = kmem_zalloc(nargs, KM_SLEEP);
 
 		if (copyin((void *)pbd->vpbd_args, argtypes,
-		    DTRACE_ARGTYPELEN * nargs) != 0)
+		    DTRACE_ARGTYPELEN * nargs) != 0) {
+			kmem_free(argtypes, nargs);
 			return (EFAULT);
+		}
 
-		retval = dtvirt_hook_create(puuid, pdesc, argtypes, argsiz, nargs);
+		printf("Going in there\n");
+		retval = dtvirt_hook_create(puuid, pdesc, argtypes,
+		    pbd->vpbd_argsiz, nargs);
 
+		printf("argtypes\n");
 		kmem_free(argtypes, nargs);
+		printf("puuid\n");
+		kmem_free(puuid, sizeof (struct uuid));
 
 		return (retval);
 	}

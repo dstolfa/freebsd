@@ -110,7 +110,8 @@ dtrace_unload()
 
 	kmem_cache_destroy(dtrace_state_cache);
 
-	delete_unrhdr(dtrace_arena);
+	kmem_free(dtrace_arenas,
+	    sizeof (struct unrhdr *) * DTRACE_MAX_INSTANCES);
 
 	if (dtrace_toxrange != NULL) {
 		kmem_free(dtrace_toxrange, 0);

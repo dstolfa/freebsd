@@ -1293,7 +1293,7 @@ typedef struct dtrace_virt_probedesc {
 	char			(*vpbd_args)[DTRACE_ARGTYPELEN];
 	size_t			vpbd_argsiz[DTRACE_MAXARGS];
 	struct uuid		*vpbd_uuid;
-	dtrace_probedesc_t	*vpbd_desc;
+	dtrace_probedesc_t	vpbd_desc;
 	uint8_t			vpbd_nargs;
 } dtrace_virt_probedesc_t;
 

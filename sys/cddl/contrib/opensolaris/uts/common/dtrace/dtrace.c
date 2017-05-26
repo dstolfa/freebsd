@@ -231,7 +231,10 @@ static vmem_t		*dtrace_arena;		/* probe ID arena */
 static vmem_t		*dtrace_minor;		/* minor number arena */
 #else
 static taskq_t		*dtrace_taskq;		/* task queue */
-static struct unrhdr	*dtrace_arena;		/* Probe ID number.     */
+/*
+ * FIXME: This should be decentralized as well, hash it.
+ */
+static struct unrhdr	**dtrace_arenas;	/* Probe ID number.     */
 #endif
 static dtrace_probe_t	***dtrace_istc_probes;	/* array of all probes */
 static uint32_t		*dtrace_istc_probecount; /* number of probes per instance */
@@ -9141,6 +9144,7 @@ dtrace_uuid_copyin(uintptr_t uarg, int *errp)
 		if (dtrace_err_verbose)
 			cmn_err(CE_WARN, "failed to copyin the provider UUID");
 		*errp = EFAULT;
+		kmem_free(uuid, sizeof (struct uuid));
 		return (NULL);
 	}
 
@@ -9160,6 +9164,7 @@ dtrace_probedesc_copyin(uintptr_t uarg, int *errp)
 		if (dtrace_err_verbose)
 			cmn_err(CE_WARN, "failed to copyin the probedesc");
 		*errp = EFAULT;
+		kmem_free(pdesc, sizeof (dtrace_probedesc_t));
 		return (NULL);
 	}
 
@@ -9175,6 +9180,7 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 	dtrace_provider_t *pnext = NULL;
 	dtrace_instance_t *instance = NULL;
 	dtrace_instance_t *inext = NULL;
+	struct unrhdr *dtrace_arena;
 	int i, self = 0, noreap = 0, error;
 	dtrace_probe_t *probe, *first = NULL;
 	dtrace_probe_t **dtrace_probes;
@@ -9352,6 +9358,9 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 	 */
 	dtrace_sync();
 
+	dtrace_arena = dtrace_arenas[idx];
+	ASSERT(dtrace_arena != NULL);
+
 	for (probe = first; probe != NULL; probe = first) {
 		first = probe->dtpr_nextmod;
 
@@ -9374,7 +9383,6 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 #endif
 		kmem_free(probe, sizeof (dtrace_probe_t));
 	}
-
 
 	instance = dtrace_instance_lookup(old->dtpv_instance);
 	ASSERT(instance != NULL);
@@ -9414,6 +9422,12 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 		kmem_free(dtrace_probes, DTRACE_MAX_INSTANCES * sizeof(dtrace_probe_t *));
 		kmem_free(instance->dtis_name, strlen(instance->dtis_name) + 1);
 		kmem_free(instance, sizeof (dtrace_instance_t));
+		instance = NULL;
+	}
+
+	if (instance == NULL) {
+		delete_unrhdr(dtrace_arena);
+		dtrace_arenas[idx] = NULL;
 	}
 
 	if (!self) {
@@ -9505,6 +9519,7 @@ dtrace_condense(dtrace_provider_id_t id)
 	int i;
 	dtrace_probe_t *probe;
 	dtrace_probe_t **dtrace_probes;
+	struct unrhdr *dtrace_arena;
 	uint32_t idx;
 	uint32_t dtrace_nprobes;
 
@@ -9520,8 +9535,10 @@ dtrace_condense(dtrace_provider_id_t id)
 	idx = dtrace_instance_lookup_id(prov->dtpv_instance);
 	dtrace_nprobes = dtrace_istc_probecount[idx];
 	dtrace_probes = dtrace_istc_probes[idx];
+	dtrace_arena = dtrace_arenas[idx];
 
 	ASSERT(dtrace_probes != NULL);
+	ASSERT(dtrace_arena != NULL);
 
 	/*
 	 * Attempt to destroy the probes associated with this provider.
@@ -9590,6 +9607,7 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 	dtrace_probe_t **dtrace_probes;
 	dtrace_provider_t *provider = (dtrace_provider_t *)prov;
 	dtrace_id_t id;
+	struct unrhdr *dtrace_arena;
 	uint32_t idx;
 	uint32_t dtrace_nprobes;
 
@@ -9602,6 +9620,14 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 	} else {
 		mutex_enter(&dtrace_lock);
 	}
+
+	idx = dtrace_instance_lookup_id(provider->dtpv_instance);
+	if (dtrace_arenas[idx] == NULL) {
+		dtrace_arenas[idx] = new_unrhdr(1, INT_MAX, &dtrace_unr_mtx);
+	}
+
+	dtrace_arena = dtrace_arenas[idx];
+
 
 #ifdef illumos
 	id = (dtrace_id_t)(uintptr_t)vmem_alloc(dtrace_arena, 1,
@@ -9625,8 +9651,6 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 	dtrace_hash_add(dtrace_bymod, probe);
 	dtrace_hash_add(dtrace_byfunc, probe);
 	dtrace_hash_add(dtrace_byname, probe);
-
-	idx = dtrace_instance_lookup_id(probe->dtpr_instance);
 
 	dtrace_nprobes = dtrace_istc_probecount[idx];
 	dtrace_probes = dtrace_istc_probes[idx];
@@ -17420,9 +17444,11 @@ dtrace_module_unloaded(modctl_t *ctl, int *error)
 	dtrace_provider_t *prov;
 	dtrace_instance_t *instance;
 #ifndef illumos
+	struct unrhdr *dtrace_arena;
 	char modname[DTRACE_MODNAMELEN];
 	size_t len;
 #endif
+	uint32_t idx;
 
 #ifdef illumos
 	template.dtpr_mod = ctl->mod_modname;
@@ -17535,21 +17561,33 @@ dtrace_module_unloaded(modctl_t *ctl, int *error)
 	 */
 	dtrace_sync();
 
-	for (probe = first; probe != NULL; probe = first) {
-		first = probe->dtpr_nextmod;
-		prov = probe->dtpr_provider;
-		prov->dtpv_pops.dtps_destroy(prov->dtpv_arg, probe->dtpr_id,
-		    probe->dtpr_arg);
-		kmem_free(probe->dtpr_instance, strlen(probe->dtpr_instance) + 1);
-		kmem_free(probe->dtpr_mod, strlen(probe->dtpr_mod) + 1);
-		kmem_free(probe->dtpr_func, strlen(probe->dtpr_func) + 1);
-		kmem_free(probe->dtpr_name, strlen(probe->dtpr_name) + 1);
+	for (instance = dtrace_instance;
+	    instance != NULL; instance = instance->dtis_next) {
+		idx = dtrace_instance_lookup_id(instance->dtis_name);
+		dtrace_arena = dtrace_arenas[idx];
+
+		for (probe = first; probe != NULL; probe = first) {
+			first = probe->dtpr_nextmod;
+			prov = probe->dtpr_provider;
+			if (prov->dtpv_pops.dtps_destroy ==
+			    (void (*)(void *, dtrace_id_t, void *))dtrace_virtop)
+				dtvirt_hook_destroy(prov->dtpv_arg, probe->dtpr_id,
+				    probe->dtpr_arg);
+			else
+				prov->dtpv_pops.dtps_destroy(prov->dtpv_arg, probe->dtpr_id,
+				    probe->dtpr_arg);
+			kmem_free(probe->dtpr_instance, strlen(probe->dtpr_instance) + 1);
+			kmem_free(probe->dtpr_mod, strlen(probe->dtpr_mod) + 1);
+			kmem_free(probe->dtpr_func, strlen(probe->dtpr_func) + 1);
+			kmem_free(probe->dtpr_name, strlen(probe->dtpr_name) + 1);
 #ifdef illumos
-		vmem_free(dtrace_arena, (void *)(uintptr_t)probe->dtpr_id, 1);
+			vmem_free(dtrace_arena, (void *)(uintptr_t)probe->dtpr_id, 1);
 #else
-		free_unr(dtrace_arena, probe->dtpr_id);
+			free_unr(dtrace_arena, probe->dtpr_id);
 #endif
-		kmem_free(probe, sizeof (dtrace_probe_t));
+			kmem_free(probe, sizeof (dtrace_probe_t));
+		}
+
 	}
 
 	mutex_exit(&dtrace_lock);

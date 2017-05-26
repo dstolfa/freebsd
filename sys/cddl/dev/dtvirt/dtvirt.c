@@ -159,17 +159,11 @@ dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
 	struct dtvirt_prov *prov, tmp;
 	dtrace_provider_id_t provid;
 
-	if (uuid == NULL)
-		return (EINVAL);
-
-	if (nargs > DTRACE_MAXARGS)
-		return (EINVAL);
-
 	tmp.dtvp_uuid = uuid;
 	prov = RB_FIND(dtvirt_provtree, &dtvirt_provider_tree, &tmp);
 
 	if (prov == NULL)
-		return (ENOENT);
+		return (ESRCH);
 
 	provid = prov->dtvp_id;
 
@@ -334,6 +328,9 @@ dtvirt_destroy(void *arg, dtrace_id_t id, void *parg)
 	KASSERT(parg != NULL, ("%s: parg is NULL", __func__));
 
 	virt_probe = (dtrace_virt_probe_t *) parg;
+
+	free(virt_probe->dtv_argtypes, M_DTVIRT);
+	free(virt_probe->dtv_vm, M_DTVIRT);
 
 }
 
