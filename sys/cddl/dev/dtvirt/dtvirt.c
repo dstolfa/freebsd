@@ -159,10 +159,15 @@ dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
 {
 	dtrace_virt_probe_t *virt_probe;
 	struct dtvirt_prov *prov, tmp;
+	struct uuid tmpuuid;
 	dtrace_provider_id_t provid;
-	int i;
+	char mod[DTRACE_MODNAMELEN];
+	char func[DTRACE_FUNCNAMELEN];
+	char name[DTRACE_NAMELEN];
 
-	tmp.dtvp_uuid = uuid;
+	memcpy(&tmpuuid, uuid, sizeof(struct uuid));
+
+	tmp.dtvp_uuid = &tmpuuid;
 	prov = RB_FIND(dtvirt_provtree, &dtvirt_provider_tree, &tmp);
 
 	if (prov == NULL)
@@ -203,8 +208,20 @@ dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
 	memcpy(virt_probe->dtv_argtypes, argtypes, DTRACE_ARGTYPELEN * nargs);
 	memcpy(virt_probe->dtv_argsizes, argsiz, sizeof(size_t) * nargs);
 
-	virt_probe->dtv_id = dtrace_probe_create(provid, desc->dtpd_mod,
-	    desc->dtpd_func, desc->dtpd_name, 0, virt_probe);
+	strncpy(mod, desc->dtpd_mod, DTRACE_MODNAMELEN);
+	strncpy(func, desc->dtpd_func, DTRACE_FUNCNAMELEN);
+	strncpy(name, desc->dtpd_name, DTRACE_NAMELEN);
+
+	mod[DTRACE_MODNAMELEN - 1] = '\0';
+	func[DTRACE_FUNCNAMELEN - 1] = '\0';
+	name[DTRACE_NAMELEN - 1] = '\0';
+
+	printf("dtvirt: (%s, %s, %s)\n", desc->dtpd_mod, desc->dtpd_func,
+	    desc->dtpd_name);
+
+	printf("dtvirt: curthread = %d\n", curthread->td_tid);
+	virt_probe->dtv_id = dtrace_probe_create(provid, mod,
+	    func, name, 0, virt_probe);
 	strncpy(virt_probe->dtv_vm,
 	    desc->dtpd_instance, DTRACE_INSTANCENAMELEN);
 
@@ -216,10 +233,11 @@ dtvirt_provider_register(const char *provname, const char *instance,
     struct uuid *uuid, dtrace_pattr_t *pattr, uint32_t priv,
     dtrace_pops_t *pops)
 {
-	struct dtvirt_prov *prov;
+	struct dtvirt_prov *prov, *tmp;
 	dtrace_provider_id_t provid;
 	int error;
 
+	printf("provname = %s\ninstance=%s\n", provname, instance);
 	error = dtrace_distributed_register(provname, instance,
 	    uuid, pattr, priv, NULL, pops, NULL, &provid);
 
@@ -245,6 +263,11 @@ dtvirt_provider_register(const char *provname, const char *instance,
 	strncpy(prov->dtvp_instance, instance, DTRACE_INSTANCENAMELEN);
 
 	RB_INSERT(dtvirt_provtree, &dtvirt_provider_tree, prov);
+
+	RB_FOREACH_SAFE(prov, dtvirt_provtree, &dtvirt_provider_tree, tmp) {
+		printf_uuid(prov->dtvp_uuid);
+		printf("\n");
+	}
 
 fail:
 	return (error);
@@ -371,27 +394,9 @@ static int
 dtvirt_prov_cmp(struct dtvirt_prov *p1, struct dtvirt_prov *p2)
 {
 	struct uuid *p1_uuid, *p2_uuid;
-	uint64_t *p1_hi, *p1_lo, *p2_hi, *p2_lo;
-
 
 	p1_uuid = p1->dtvp_uuid;
 	p2_uuid = p2->dtvp_uuid;
 
-	p1_hi = (uint64_t *) p1_uuid;
-	p1_lo = (uint64_t *) (p1_hi + 1);
-
-	p2_hi = (uint64_t *) p2_uuid;
-	p2_lo = (uint64_t *) (p2_hi + 1);
-
-	if (*p1_hi > *p2_hi)
-		return (1);
-	else if (*p1_hi < *p2_hi)
-		return (-1);
-
-	if (*p1_lo > *p2_lo)
-		return (1);
-	else if (*p1_lo < *p2_lo)
-		return (-1);
-
-	return (0);
+	return (uuidcmp(p1_uuid, p2_uuid));
 }

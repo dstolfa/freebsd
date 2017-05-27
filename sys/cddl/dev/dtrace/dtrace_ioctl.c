@@ -24,7 +24,7 @@
 
 static int dtrace_verbose_ioctl;
 SYSCTL_INT(_debug_dtrace, OID_AUTO, verbose_ioctl, CTLFLAG_RW,
-    &dtrace_verbose_ioctl, 0, "log DTrace ioctls");
+    &dtrace_verbose_ioctl, 1, "log DTrace ioctls");
 
 #define DTRACE_IOCTL_PRINTF(fmt, ...)	if (dtrace_verbose_ioctl) printf(fmt, ## __VA_ARGS__ )
 
@@ -1031,10 +1031,14 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 			return (retval);
 		}
 
+		printf("(%s, %s, %s, %s)\n", pdesc->dtpd_instance,
+		    pdesc->dtpd_mod, pdesc->dtpd_func, pdesc->dtpd_name);
+
 		argsiz = kmem_zalloc(nargs * sizeof (size_t), KM_SLEEP);
 
 		if (copyin((void *)pbd->vpbd_argsiz, argsiz,
 		    DTRACE_MAXARGS * sizeof (size_t)) != 0)  {
+			kmem_free(argsiz, nargs * sizeof (size_t));
 			return (EFAULT);
 		}
 
@@ -1042,6 +1046,8 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 
 		if (copyin((void *)pbd->vpbd_args, argtypes,
 		    DTRACE_ARGTYPELEN * nargs) != 0) {
+			kmem_free(argsiz, nargs * sizeof (size_t));
+			kmem_free(argtypes, nargs * DTRACE_ARGTYPELEN);
 			return (EFAULT);
 		}
 

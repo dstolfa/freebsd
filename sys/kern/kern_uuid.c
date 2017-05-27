@@ -545,13 +545,31 @@ parse_uuid(const char *str, struct uuid *uuid)
 	    (c[3] & 0xe0) != 0xc0) ? EINVAL : 0);	/* variant 2? */
 }
 
-u_int8_t
+int
 uuidcmp(const struct uuid *uuid1, const struct uuid *uuid2)
 {
-	return ((uuid1->time_low == uuid2->time_low)					&&
-	   (uuid1->time_mid == uuid2->time_mid)						&&
-	   (uuid1->time_hi_and_version == uuid2->time_hi_and_version)			&&
-	   (uuid1->clock_seq_hi_and_reserved == uuid2->clock_seq_hi_and_reserved)	&&
-	   (uuid1->clock_seq_low == uuid2->clock_seq_low)				&&
-	   (memcmp(uuid1->node, uuid2->node, UUID_NODE_LEN) == 0));
+	const uint64_t *u1_hi, *u1_lo, *u2_hi, *u2_lo;
+
+	KASSERT(uuid1 != NULL,
+	    ("%s: uuid1 is NULL\n", __func__));
+	KASSERT(uuid2 != NULL,
+	    ("%s: uuid2 is NULL\n", __func__));
+
+	u1_hi = (const uint64_t *) uuid1;
+	u1_lo = (const uint64_t *) (u1_hi + 1);
+
+	u2_hi = (const uint64_t *) uuid2;
+	u2_lo = (const uint64_t *) (u2_hi + 1);
+
+	if (*u1_hi > *u2_hi)
+		return (1);
+	else if (*u1_hi < *u2_hi)
+		return (-1);
+
+	if (*u1_lo > *u2_lo)
+		return (1);
+	else if (*u1_lo < *u2_lo)
+		return (-1);
+
+	return (0);
 }
