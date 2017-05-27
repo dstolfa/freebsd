@@ -367,13 +367,13 @@ dtrace_virtop(void)
 {}
 
 void	(*dtvirt_hook_commit)(const char *, dtrace_id_t,
-           	    uintptr_t, uintptr_t, uintptr_t,
-		    uintptr_t, uintptr_t);
+            uintptr_t, uintptr_t, uintptr_t,
+	    uintptr_t, uintptr_t);
 int	(*dtvirt_hook_register)(const char *, const char *,
-          	    struct uuid *, dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
+   	    struct uuid *, dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
 int	(*dtvirt_hook_unregister)(struct uuid *);
-int	(*dtvirt_hook_create)(struct uuid *, dtrace_probedesc_t *,
-           	    char *, size_t *, uint8_t);
+int	(*dtvirt_hook_create)(struct uuid *, const char *, const char *,
+   	    const char *, char *, size_t *, uint8_t);
 void	(*dtvirt_hook_enable)(void *, dtrace_id_t, void *);
 void	(*dtvirt_hook_disable)(void *, dtrace_id_t, void *);
 void	(*dtvirt_hook_getargdesc)(void *, dtrace_id_t, void *, dtrace_argdesc_t *);
@@ -8972,9 +8972,7 @@ dtrace_distributed_register(const char *name, const char *istcname,
 		return (EINVAL);
 	}
 
-	printf("alloc prov\n");
 	provider = kmem_zalloc(sizeof (dtrace_provider_t), KM_SLEEP);
-	printf("name\n");
 	provider->dtpv_name = dtrace_strdup(name);
 
 	provider->dtpv_attr = *pap;
@@ -9022,12 +9020,9 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	 * corresponding instance. The provider list itself should be
 	 * handled by the code following this block.
 	 */
-	printf("look up instance\n");
 	instance = dtrace_instance_lookup(istcname);
-	printf("instance = %p\n", instance);
 	if (instance == NULL) {
 		instance = kmem_zalloc(sizeof (dtrace_instance_t), KM_SLEEP);
-		printf("strdup instance: %s\n", istcname);
 		instance->dtis_name = dtrace_strdup(istcname);
 		/*
 		 * Here a modification needs to be made in a way that
@@ -9051,43 +9046,33 @@ dtrace_distributed_register(const char *name, const char *istcname,
 		instance->dtis_provhead->dtpv_next = provider;
 	}
 
-	printf("Past all the instance crap\n");
 
 
 	provider->dtpv_instance = instance->dtis_name;
-	printf("we just set dtpv_instance\n");
 
 	/*
 	 * If we're not running on the host instance, we want to
 	 * generate a UUIDv5, allowing for a way to keep track of
 	 * UUIDs across different machines.
 	 */
-	printf("uuid\n");
+	
+	provider->dtpv_advuuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
+	provider->dtpv_uuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
 	if (strcmp(provider->dtpv_instance, "host") != 0) {
 		ASSERT(uuid != NULL);
-		printf("Inside uuid\n");
-		provider->dtpv_advuuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
-		printf("Past first alloc, advuuid\n");
 		memcpy(provider->dtpv_advuuid, uuid, sizeof (struct uuid));
-		printf("Past memcpy, advuuid\n");
-		provider->dtpv_uuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
-		printf("Past second alloc, uuid\n");
 		uuid_generate_version5(provider->dtpv_uuid, provider->dtpv_advuuid,
 		    provider->dtpv_instance, strlen(provider->dtpv_instance));
-		printf("Past generate\n");
 		/*
 		 * XXX: For now, we assume that only non-host providers will ask
 		 * for a UUID, but this might not be true in the future. It
 		 * might be best to put this outside later on.
 		 */
 		memcpy(uuid, provider->dtpv_uuid, sizeof (struct uuid));
-		printf("Past memcpy, uuid\n");
 	} else {
 		ASSERT(uuid == NULL);
-		provider->dtpv_uuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
 		(void) kern_uuidgen(provider->dtpv_uuid, 1);
 	}
-	printf("done\n");
 
 	/*
 	 * Every provider must have an isntance name it belongs to in
@@ -9154,7 +9139,12 @@ dtrace_uuid_copyin(uintptr_t uarg, int *errp)
 
 	ASSERT(!MUTEX_HELD(&dtrace_lock));
 
-	uuid = kmem_zalloc(sizeof (struct uuid), KM_SLEEP);
+	uuid = kmem_zalloc(sizeof (struct uuid), KM_NOSLEEP);
+
+	if (uuid == NULL) {
+		*errp = ENOMEM;
+		return (NULL);
+	}
 
 	if (copyin((void *)uarg, uuid, sizeof (struct uuid)) != 0) {
 		if (dtrace_err_verbose)
@@ -9174,7 +9164,12 @@ dtrace_probedesc_copyin(uintptr_t uarg, int *errp)
 
 	ASSERT(!MUTEX_HELD(&dtrace_lock));
 
-	pdesc = kmem_zalloc(sizeof (dtrace_probedesc_t), KM_SLEEP);
+	pdesc = kmem_zalloc(sizeof (dtrace_probedesc_t), KM_NOSLEEP);
+
+	if (pdesc == NULL) {
+		*errp = ENOMEM;
+		return (NULL);
+	}
 
 	if (copyin((void *)uarg, pdesc, sizeof (dtrace_probedesc_t)) != 0) {
 		if (dtrace_err_verbose)
@@ -9402,7 +9397,6 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 	}
 
 	instance = dtrace_instance_lookup(old->dtpv_instance);
-	printf("old->dtpv_instance = %s\n", old->dtpv_instance);
 	ASSERT(instance != NULL);
 
 	prev = instance->dtis_provhead;
@@ -9631,7 +9625,6 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 	uint32_t idx;
 	uint32_t dtrace_nprobes;
 
-	printf("curthread = %d\n", curthread->td_tid);
 
 	/*
 	 * Not necessary to compare UUIDs here. Only relevant to
@@ -9657,30 +9650,22 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 #else
 	id = alloc_unr(dtrace_arena);
 #endif
-	printf("Past unr\n");
 	probe = kmem_zalloc(sizeof (dtrace_probe_t), KM_SLEEP);
-	printf("Past probe\n");
 
 	probe->dtpr_id = id;
 	probe->dtpr_gen = dtrace_probegen++;
-	printf("instance, %s\n", provider->dtpv_instance);
 	probe->dtpr_instance = dtrace_strdup(provider->dtpv_instance);
-	printf("mod, %s\n", mod);
 	probe->dtpr_mod = dtrace_strdup(mod);
-	printf("func, %s\n", func);
 	probe->dtpr_func = dtrace_strdup(func);
-	printf("name, %s\n", name);
 	probe->dtpr_name = dtrace_strdup(name);
 	probe->dtpr_arg = arg;
 	probe->dtpr_aframes = aframes;
 	probe->dtpr_provider = provider;
-	printf("Past assign\n");
 
 	dtrace_hash_add(dtrace_byinstance, probe);
 	dtrace_hash_add(dtrace_bymod, probe);
 	dtrace_hash_add(dtrace_byfunc, probe);
 	dtrace_hash_add(dtrace_byname, probe);
-	printf("Past hash\n");
 
 	dtrace_nprobes = dtrace_istc_probecount[idx];
 	dtrace_probes = dtrace_istc_probes[idx];
@@ -9696,7 +9681,6 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 		}
 
 		probes = kmem_zalloc(nsize, KM_SLEEP);
-		printf("PROBEEEEES\n");
 
 		if (dtrace_probes == NULL) {
 			ASSERT(osize == 0);
@@ -9715,7 +9699,6 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 			 * All CPUs are now seeing the new probes array; we can
 			 * safely free the old array.
 			 */
-			printf("This free\n");
 			kmem_free(oprobes, osize);
 			dtrace_nprobes <<= 1;
 		}

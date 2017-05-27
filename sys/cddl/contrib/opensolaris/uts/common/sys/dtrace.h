@@ -1282,18 +1282,23 @@ typedef struct dtrace_providerdesc {
 	    						/* instance name */
 	char		dtvd_name[DTRACE_PROVNAMELEN];
 	    						/* provider name */
-	struct uuid	*dtvd_uuid;			/* guest UUID */
 	dtrace_pattr_t	dtvd_attr;			/* stability attributes */
 	dtrace_ppriv_t	dtvd_priv;			/* privileges required */
-	int		dtvd_purpose;			/* provider purpose */
-#define	DTRACE_PURPOSE_VIRT	0x00
 } dtrace_providerdesc_t;
+
+typedef struct dtrace_virt_providerdesc {
+	char		vpvd_instance[DTRACE_INSTANCENAMELEN];
+	char		vpvd_name[DTRACE_PROVNAMELEN];
+	struct uuid	*vpvd_uuid;
+} dtrace_virt_providerdesc_t;
 
 typedef struct dtrace_virt_probedesc {
 	char			(*vpbd_args)[DTRACE_ARGTYPELEN];
 	size_t			*vpbd_argsiz;
 	struct uuid		*vpbd_uuid;
-	dtrace_probedesc_t	*vpbd_desc;
+	char			vpbd_mod[DTRACE_MODNAMELEN];
+	char			vpbd_func[DTRACE_FUNCNAMELEN];
+	char			vpbd_name[DTRACE_NAMELEN];
 	uint8_t			vpbd_nargs;
 } dtrace_virt_probedesc_t;
 
@@ -1359,11 +1364,11 @@ typedef struct {
 							/* get DOF */
 #define	DTRACEIOC_REPLICATE	_IOW('x',18,dtrace_repldesc_t)	
 							/* replicate enab */
-#define	DTRACEIOC_PROVCREATE	_IOWR('x',19,dtrace_providerdesc_t)
+#define	DTRACEIOC_PROVCREATE	_IOWR('x',19,dtrace_virt_providerdesc_t)
 							/* create provider */
 #define	DTRACEIOC_PROBECREATE	_IOWR('x',20,dtrace_virt_probedesc_t)
 							/* create probe */
-#define	DTRACEIOC_PROVDESTROY	_IOWR('x',21,struct uuid)
+#define	DTRACEIOC_PROVDESTROY	_IOWR('x',21,struct uuid *)
 							/* destroy provider */
 #endif
 

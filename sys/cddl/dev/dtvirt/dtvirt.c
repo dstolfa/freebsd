@@ -46,8 +46,8 @@ static void	dtvirt_load(void);
 static void	dtvirt_unload(void);
 static void	dtvirt_commit(const char *, dtrace_id_t,
            	    uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t);
-static int	dtvirt_probe_create(struct uuid *, dtrace_probedesc_t *,
-          	    char *, size_t *, uint8_t);
+static int	dtvirt_probe_create(struct uuid *, const char *, const char *,
+          	    const char *, char *, size_t *, uint8_t);
 static int	dtvirt_provider_register(const char *,
           	    const char *, struct uuid *,
 		    dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
@@ -154,16 +154,13 @@ dtvirt_commit(const char *vm, dtrace_id_t id,
 }
 
 static int
-dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
-    char *argtypes, size_t *argsiz, uint8_t nargs)
+dtvirt_probe_create(struct uuid *uuid, const char *mod, const char *func,
+    const char *name, char *argtypes, size_t *argsiz, uint8_t nargs)
 {
 	dtrace_virt_probe_t *virt_probe;
 	struct dtvirt_prov *prov, tmp;
 	struct uuid tmpuuid;
 	dtrace_provider_id_t provid;
-	char mod[DTRACE_MODNAMELEN];
-	char func[DTRACE_FUNCNAMELEN];
-	char name[DTRACE_NAMELEN];
 
 	memcpy(&tmpuuid, uuid, sizeof(struct uuid));
 
@@ -174,10 +171,6 @@ dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
 		return (ESRCH);
 
 	provid = prov->dtvp_id;
-
-	if (strncmp(prov->dtvp_instance, desc->dtpd_instance,
-	    DTRACE_INSTANCENAMELEN) != 0)
-		return (EINVAL);
 
 	virt_probe = malloc(sizeof(dtrace_virt_probe_t), M_DTVIRT,
 	    M_NOWAIT | M_ZERO);
@@ -208,22 +201,10 @@ dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
 	memcpy(virt_probe->dtv_argtypes, argtypes, DTRACE_ARGTYPELEN * nargs);
 	memcpy(virt_probe->dtv_argsizes, argsiz, sizeof(size_t) * nargs);
 
-	strncpy(mod, desc->dtpd_mod, DTRACE_MODNAMELEN);
-	strncpy(func, desc->dtpd_func, DTRACE_FUNCNAMELEN);
-	strncpy(name, desc->dtpd_name, DTRACE_NAMELEN);
-
-	mod[DTRACE_MODNAMELEN - 1] = '\0';
-	func[DTRACE_FUNCNAMELEN - 1] = '\0';
-	name[DTRACE_NAMELEN - 1] = '\0';
-
-	printf("dtvirt: (%s, %s, %s)\n", desc->dtpd_mod, desc->dtpd_func,
-	    desc->dtpd_name);
-
-	printf("dtvirt: curthread = %d\n", curthread->td_tid);
-	virt_probe->dtv_id = dtrace_probe_create(provid, mod,
-	    func, name, 0, virt_probe);
+	virt_probe->dtv_id = dtrace_probe_create(provid, mod, func,
+	    name, 0, virt_probe);
 	strncpy(virt_probe->dtv_vm,
-	    desc->dtpd_instance, DTRACE_INSTANCENAMELEN);
+	    prov->dtvp_instance, DTRACE_INSTANCENAMELEN);
 
 	return (0);
 }
@@ -233,16 +214,15 @@ dtvirt_provider_register(const char *provname, const char *instance,
     struct uuid *uuid, dtrace_pattr_t *pattr, uint32_t priv,
     dtrace_pops_t *pops)
 {
-	struct dtvirt_prov *prov, *tmp;
+	struct dtvirt_prov *prov;
 	dtrace_provider_id_t provid;
 	int error;
 
-	printf("provname = %s\ninstance=%s\n", provname, instance);
 	error = dtrace_distributed_register(provname, instance,
 	    uuid, pattr, priv, NULL, pops, NULL, &provid);
 
 	if (error) {
-		goto fail;
+		return (error);
 	}
 
 	prov = malloc(sizeof(struct dtvirt_prov), M_DTVIRT, M_NOWAIT | M_ZERO);
@@ -264,13 +244,7 @@ dtvirt_provider_register(const char *provname, const char *instance,
 
 	RB_INSERT(dtvirt_provtree, &dtvirt_provider_tree, prov);
 
-	RB_FOREACH_SAFE(prov, dtvirt_provtree, &dtvirt_provider_tree, tmp) {
-		printf_uuid(prov->dtvp_uuid);
-		printf("\n");
-	}
-
-fail:
-	return (error);
+	return (0);
 }
 
 static int
@@ -301,6 +275,9 @@ dtvirt_provider_unregister(struct uuid *uuid)
 
 	tmp.dtvp_uuid = uuid;
 	prov = RB_FIND(dtvirt_provtree, &dtvirt_provider_tree, &tmp);
+	if (prov == NULL)
+		return (ESRCH);
+
 	return (dtvirt_priv_unregister(prov));
 }
 

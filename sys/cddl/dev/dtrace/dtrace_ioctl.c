@@ -791,12 +791,6 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		pvd->dtvd_name[DTRACE_PROVNAMELEN - 1] = '\0';
 		retval = 0;
 
-		if (pvd->dtvd_uuid != NULL) {
-			if ((puuid = dtrace_uuid_copyin(
-			    (uintptr_t) pvd->dtvd_uuid, &retval)) == NULL)
-				return (EINVAL);
-		}
-
 		mutex_enter(&dtrace_provider_lock);
 
 		for (pvp = dtrace_provider; pvp != NULL; pvp = pvp->dtpv_next) {
@@ -921,53 +915,39 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		return (rval);
 	}
 	case DTRACEIOC_PROVCREATE: {
-		dtrace_providerdesc_t *pvd = (dtrace_providerdesc_t *) addr;
+		dtrace_virt_providerdesc_t *pvd = (dtrace_virt_providerdesc_t *) addr;
 		dtrace_provider_id_t provid;
 		dtrace_pops_t *ppops;
 		struct uuid *puuid;
 		dtrace_pattr_t *pattr;
-		int purpose, retval;
+		char vm[DTRACE_INSTANCENAMELEN];
+		char provname[DTRACE_PROVNAMELEN];
+		int retval;
 		uint32_t priv;
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROVCREATE\n",__func__,__LINE__);
 
 		puuid = NULL;
-		pvd->dtvd_instance[DTRACE_INSTANCENAMELEN - 1] = '\0';
-		pvd->dtvd_name[DTRACE_PROVNAMELEN - 1] = '\0';
 		retval = 0;
+		pvd->vpvd_instance[DTRACE_INSTANCENAMELEN - 1] = '\0';
+		pvd->vpvd_name[DTRACE_PROVNAMELEN - 1] = '\0';
 
-		purpose = pvd->dtvd_purpose;
-
-		/*
-		 * Identify the purpose of this provider
-		 */
-		switch (purpose) {
-		/*
-		 * If it's a virtual provider (resides inside a virtual machine
-		 * and has been advertised by the emulated virtio device), we
-		 * check if we have the proper hooks to operate on the provider
-		 * correctly
-		 */
-		case DTRACE_PURPOSE_VIRT:
-			if (dtvirt_hook_commit == NULL     ||
-			    dtvirt_hook_register == NULL   ||
-			    dtvirt_hook_unregister == NULL ||
-			    dtvirt_hook_create == NULL     ||
-			    dtvirt_hook_enable == NULL     ||
-			    dtvirt_hook_disable == NULL    ||
-			    dtvirt_hook_getargdesc == NULL ||
-			    dtvirt_hook_getargval == NULL  ||
-			    dtvirt_hook_destroy == NULL)
-				return (EINVAL);
-			ppops = &dtvirt_pops;
-			pattr = &dtvirt_attr;
-			priv = DTRACE_PRIV_USER;
-			break;
-		default:
+		if (dtvirt_hook_commit == NULL     ||
+		    dtvirt_hook_register == NULL   ||
+		    dtvirt_hook_unregister == NULL ||
+		    dtvirt_hook_create == NULL     ||
+		    dtvirt_hook_enable == NULL     ||
+		    dtvirt_hook_disable == NULL    ||
+		    dtvirt_hook_getargdesc == NULL ||
+		    dtvirt_hook_getargval == NULL  ||
+		    dtvirt_hook_destroy == NULL)
 			return (EINVAL);
-		}
 
-		if (pvd->dtvd_uuid == NULL)
+		ppops = &dtvirt_pops;
+		pattr = &dtvirt_attr;
+		priv = DTRACE_PRIV_USER;
+
+		if (pvd->vpvd_uuid == NULL)
 			return (EINVAL);
 
 		/*
@@ -975,50 +955,57 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		 * it to generate a UUIDv5
 		 */
 		if ((puuid = dtrace_uuid_copyin(
-		    (uintptr_t) pvd->dtvd_uuid, &retval)) == NULL)
+		    (uintptr_t) pvd->vpvd_uuid, &retval)) == NULL)
 			return (retval);
+
+		bcopy(pvd->vpvd_instance, vm, DTRACE_INSTANCENAMELEN);
+		bcopy(pvd->vpvd_name, provname, DTRACE_PROVNAMELEN);
 
 		/*
 		 * Hook into the dtvirt module to register the provider
 		 */
-		dtvirt_hook_register(pvd->dtvd_name, pvd->dtvd_instance,
-		    puuid, pattr, priv, ppops);
+		retval = dtvirt_hook_register(provname, vm, puuid, pattr, priv, ppops);
+
+		if (retval)
+			goto end;
 
 		/*
 		 * We copyout the provider UUID to userspace, so that userspace
 		 * can identify it and create probes for it
 		 */
 
-		if (copyout((void *)puuid, pvd->dtvd_uuid,
+		if (copyout((void *)puuid, pvd->vpvd_uuid,
 		    sizeof (struct uuid)) != 0) {
-			kmem_free(puuid, sizeof (struct uuid));
-			return (EFAULT);
+			retval = EFAULT;
 		}
 
+end:
 		kmem_free(puuid, sizeof (struct uuid));
 
-		return (0);
+		return (retval);
 	}
 	case DTRACEIOC_PROBECREATE: {
 		dtrace_virt_probedesc_t *pbd = (dtrace_virt_probedesc_t *) addr;
-		dtrace_probedesc_t *pdesc;
 		struct uuid *puuid;
 		size_t *argsiz;
 		uint8_t nargs;
 		char *argtypes;
+		char mod[DTRACE_MODNAMELEN];
+		char func[DTRACE_FUNCNAMELEN];
+		char name[DTRACE_NAMELEN];
 		int retval;
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROBECREATE\n",__func__,__LINE__);
 
+		pbd->vpbd_mod[DTRACE_MODNAMELEN - 1] = '\0';
+		pbd->vpbd_func[DTRACE_FUNCNAMELEN - 1] = '\0';
+		pbd->vpbd_name[DTRACE_NAMELEN - 1] = '\0';
 		nargs = pbd->vpbd_nargs;
 
-		if (nargs > DTRACE_MAXARGS)
-			return (EINVAL);
-
-		if (pbd->vpbd_uuid == NULL)
-			return (EINVAL);
-
-		if (pbd->vpbd_desc == NULL)
+		if (nargs > DTRACE_MAXARGS  ||
+		    pbd->vpbd_uuid == NULL  ||
+		    pbd->vpbd_args == NULL  ||
+		    pbd->vpbd_argsiz == NULL)
 			return (EINVAL);
 
 		if ((puuid = dtrace_uuid_copyin(
@@ -1026,19 +1013,12 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 			return (retval);
 		}
 
-		if ((pdesc = dtrace_probedesc_copyin(
-		    (uintptr_t) pbd->vpbd_desc, &retval)) == NULL) {
-			return (retval);
-		}
-
-		printf("(%s, %s, %s, %s)\n", pdesc->dtpd_instance,
-		    pdesc->dtpd_mod, pdesc->dtpd_func, pdesc->dtpd_name);
-
 		argsiz = kmem_zalloc(nargs * sizeof (size_t), KM_SLEEP);
-
+		
 		if (copyin((void *)pbd->vpbd_argsiz, argsiz,
-		    DTRACE_MAXARGS * sizeof (size_t)) != 0)  {
+		    nargs * sizeof (size_t)) != 0)  {
 			kmem_free(argsiz, nargs * sizeof (size_t));
+
 			return (EFAULT);
 		}
 
@@ -1046,27 +1026,48 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 
 		if (copyin((void *)pbd->vpbd_args, argtypes,
 		    DTRACE_ARGTYPELEN * nargs) != 0) {
-			kmem_free(argsiz, nargs * sizeof (size_t));
 			kmem_free(argtypes, nargs * DTRACE_ARGTYPELEN);
+			kmem_free(argsiz, nargs * sizeof (size_t));
+
 			return (EFAULT);
 		}
 
+		bcopy(pbd->vpbd_mod, mod, DTRACE_MODNAMELEN);
+		bcopy(pbd->vpbd_func, func, DTRACE_FUNCNAMELEN);
+		bcopy(pbd->vpbd_name, name, DTRACE_NAMELEN);
 
-		retval = dtvirt_hook_create(puuid, pdesc, argtypes,
-		    argsiz, nargs);
+		retval = dtvirt_hook_create(puuid, mod, func,
+		    name, argtypes, argsiz, nargs);
 
 		kmem_free(puuid, sizeof (struct uuid));
-		kmem_free(pdesc, sizeof (dtrace_probedesc_t));
 		kmem_free(argsiz, nargs * sizeof (size_t));
 		kmem_free(argtypes, nargs * DTRACE_ARGTYPELEN);
 		return (retval);
 	}
 	case DTRACEIOC_PROVDESTROY: {
-		struct uuid puuid;
+		struct uuid *user_uuid = (struct uuid *) addr;
+		struct uuid *puuid;
+		int retval;
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROVDESTROY\n",__func__,__LINE__);
 
-		return (0);
+		if (user_uuid == NULL)
+			return (EINVAL);
+
+		printf("%p\n", user_uuid);
+
+		if ((puuid = dtrace_uuid_copyin(
+		    (uintptr_t) user_uuid, &retval)) == NULL) {
+			return (retval);
+		}
+
+		printf_uuid(puuid);
+		printf("\n");
+
+		retval = dtvirt_hook_unregister(puuid);
+		kmem_free(puuid, sizeof (struct uuid));
+
+		return (retval);
 	}
 	default:
 		error = ENOTTY;
