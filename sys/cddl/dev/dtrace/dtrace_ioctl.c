@@ -967,17 +967,16 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 			return (EINVAL);
 		}
 
+		if (pvd->dtvd_uuid == NULL)
+			return (EINVAL);
+
 		/*
 		 * If userspace has already provided an UUID to us, we will use
 		 * it to generate a UUIDv5
 		 */
-		if (pvd->dtvd_uuid != NULL) {
-			if ((puuid = dtrace_uuid_copyin(
-			    (uintptr_t) pvd->dtvd_uuid, &retval)) == NULL)
-				return (retval);
-		} else {
-			puuid = NULL;
-		}
+		if ((puuid = dtrace_uuid_copyin(
+		    (uintptr_t) pvd->dtvd_uuid, &retval)) == NULL)
+			return (retval);
 
 		/*
 		 * Hook into the dtvirt module to register the provider
@@ -991,8 +990,12 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		 */
 
 		if (copyout((void *)puuid, pvd->dtvd_uuid,
-		    sizeof (struct uuid)) != 0)
+		    sizeof (struct uuid)) != 0) {
+			kmem_free(puuid, sizeof (struct uuid));
 			return (EFAULT);
+		}
+
+		kmem_free(puuid, sizeof (struct uuid));
 
 		return (0);
 	}
@@ -1019,29 +1022,37 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 			return (EINVAL);
 
 		if ((puuid = dtrace_uuid_copyin(
-		    (uintptr_t) pbd->vpbd_uuid, &retval)) == NULL)
+		    (uintptr_t) pbd->vpbd_uuid, &retval)) == NULL) {
 			return (retval);
+		}
 
 		if ((pdesc = dtrace_probedesc_copyin(
-		    (uintptr_t) pbd->vpbd_desc, &retval)) == NULL)
+		    (uintptr_t) pbd->vpbd_desc, &retval)) == NULL) {
 			return (retval);
+		}
 
 		argsiz = kmem_zalloc(nargs * sizeof (size_t), KM_SLEEP);
 
 		if (copyin((void *)pbd->vpbd_argsiz, argsiz,
-		    DTRACE_MAXARGS * sizeof (size_t)) != 0) 
+		    DTRACE_MAXARGS * sizeof (size_t)) != 0)  {
 			return (EFAULT);
+		}
 
 		argtypes = kmem_zalloc(nargs * DTRACE_ARGTYPELEN, KM_SLEEP);
 
 		if (copyin((void *)pbd->vpbd_args, argtypes,
-		    DTRACE_ARGTYPELEN * nargs) != 0)
+		    DTRACE_ARGTYPELEN * nargs) != 0) {
 			return (EFAULT);
+		}
 
 
 		retval = dtvirt_hook_create(puuid, pdesc, argtypes,
 		    argsiz, nargs);
 
+		kmem_free(puuid, sizeof (struct uuid));
+		kmem_free(pdesc, sizeof (dtrace_probedesc_t));
+		kmem_free(argsiz, nargs * sizeof (size_t));
+		kmem_free(argtypes, nargs * DTRACE_ARGTYPELEN);
 		return (retval);
 	}
 	case DTRACEIOC_PROVDESTROY: {

@@ -373,7 +373,7 @@ int	(*dtvirt_hook_register)(const char *, const char *,
           	    struct uuid *, dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
 int	(*dtvirt_hook_unregister)(struct uuid *);
 int	(*dtvirt_hook_create)(struct uuid *, dtrace_probedesc_t *,
-           	    const char *, const size_t *, uint8_t);
+           	    char *, size_t *, uint8_t);
 void	(*dtvirt_hook_enable)(void *, dtrace_id_t, void *);
 void	(*dtvirt_hook_disable)(void *, dtrace_id_t, void *);
 void	(*dtvirt_hook_getargdesc)(void *, dtrace_id_t, void *, dtrace_argdesc_t *);
@@ -9359,7 +9359,8 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 	dtrace_sync();
 
 	dtrace_arena = dtrace_arenas[idx];
-	ASSERT(dtrace_arena != NULL);
+	if (dtrace_nprobes > 0)
+		ASSERT(dtrace_arena != NULL);
 
 	for (probe = first; probe != NULL; probe = first) {
 		first = probe->dtpr_nextmod;
@@ -9426,8 +9427,10 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 	}
 
 	if (instance == NULL) {
-		delete_unrhdr(dtrace_arena);
-		dtrace_arenas[idx] = NULL;
+		if (dtrace_arena) {
+			delete_unrhdr(dtrace_arena);
+			dtrace_arenas[idx] = NULL;
+		}
 	}
 
 	if (!self) {

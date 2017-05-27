@@ -47,7 +47,7 @@ static void	dtvirt_unload(void);
 static void	dtvirt_commit(const char *, dtrace_id_t,
            	    uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 static int	dtvirt_probe_create(struct uuid *, dtrace_probedesc_t *,
-          	    const char *, const size_t *, uint8_t);
+          	    char *, size_t *, uint8_t);
 static int	dtvirt_provider_register(const char *,
           	    const char *, struct uuid *,
 		    dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
@@ -155,7 +155,7 @@ dtvirt_commit(const char *vm, dtrace_id_t id,
 
 static int
 dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
-    const char *argtypes, const size_t *argsiz, uint8_t nargs)
+    char *argtypes, size_t *argsiz, uint8_t nargs)
 {
 	dtrace_virt_probe_t *virt_probe;
 	struct dtvirt_prov *prov, tmp;
@@ -174,16 +174,27 @@ dtvirt_probe_create(struct uuid *uuid, dtrace_probedesc_t *desc,
 	    DTRACE_INSTANCENAMELEN) != 0)
 		return (EINVAL);
 
-	virt_probe = malloc(sizeof(dtrace_virt_probe_t),
-	    M_DTVIRT, M_ZERO | M_NOWAIT);
+	virt_probe = malloc(sizeof(dtrace_virt_probe_t), M_DTVIRT,
+	    M_NOWAIT | M_ZERO);
 	
 	if (virt_probe == NULL) {
 		return (ENOMEM);
 	}
 
-	virt_probe->dtv_argtypes = malloc(nargs, M_DTVIRT, M_ZERO | M_NOWAIT);
+	virt_probe->dtv_argtypes = malloc(nargs * DTRACE_ARGTYPELEN, M_DTVIRT,
+	    M_NOWAIT | M_ZERO);
 
 	if (virt_probe->dtv_argtypes == NULL) {
+		free(virt_probe, M_DTVIRT);
+		return (ENOMEM);
+	}
+
+	virt_probe->dtv_argsizes = malloc(sizeof(size_t) * nargs, M_DTVIRT,
+	    M_NOWAIT | M_ZERO);
+
+	if (virt_probe->dtv_argsizes == NULL) {
+		free(virt_probe->dtv_argtypes, M_DTVIRT);
+		free(virt_probe, M_DTVIRT);
 		return (ENOMEM);
 	}
 
@@ -216,11 +227,21 @@ dtvirt_provider_register(const char *provname, const char *instance,
 		goto fail;
 	}
 
-	prov = malloc(sizeof(struct dtvirt_prov), M_DTVIRT,
+	prov = malloc(sizeof(struct dtvirt_prov), M_DTVIRT, M_NOWAIT | M_ZERO);
+
+	if (prov == NULL)
+		return (ENOMEM);
+
+	prov->dtvp_uuid = malloc(sizeof(struct uuid), M_DTVIRT,
 	    M_NOWAIT | M_ZERO);
 
+	if (prov->dtvp_uuid == NULL) {
+		free(prov, M_DTVIRT);
+		return (ENOMEM);
+	}
+
 	prov->dtvp_id = provid;
-	prov->dtvp_uuid = dtrace_provider_uuid(provid);
+	memcpy(prov->dtvp_uuid, uuid, sizeof(struct uuid));
 	strncpy(prov->dtvp_instance, instance, DTRACE_INSTANCENAMELEN);
 
 	RB_INSERT(dtvirt_provtree, &dtvirt_provider_tree, prov);
@@ -241,6 +262,7 @@ dtvirt_priv_unregister(struct dtvirt_prov *prov)
 	provid = prov->dtvp_id;
 	error = dtrace_unregister(provid);
 	RB_REMOVE(dtvirt_provtree, &dtvirt_provider_tree, prov);
+	free(prov->dtvp_uuid, M_DTVIRT);
 	free(prov, M_DTVIRT);
 
 	return (error);
@@ -337,15 +359,20 @@ dtvirt_destroy(void *arg, dtrace_id_t id, void *parg)
 	virt_probe = (dtrace_virt_probe_t *) parg;
 
 	free(virt_probe->dtv_argtypes, M_DTVIRT);
-	free(virt_probe->dtv_vm, M_DTVIRT);
+	free(virt_probe->dtv_argsizes, M_DTVIRT);
+	free(virt_probe, M_DTVIRT);
 
 }
 
+/*
+ * FIXME: This should be generalized with a better uuidcmp()
+ */
 static int
 dtvirt_prov_cmp(struct dtvirt_prov *p1, struct dtvirt_prov *p2)
 {
 	struct uuid *p1_uuid, *p2_uuid;
 	uint64_t *p1_hi, *p1_lo, *p2_hi, *p2_lo;
+
 
 	p1_uuid = p1->dtvp_uuid;
 	p2_uuid = p2->dtvp_uuid;
