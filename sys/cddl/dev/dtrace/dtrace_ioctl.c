@@ -707,10 +707,35 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 
 		mutex_enter(&dtrace_lock);
 
-		idx = dtrace_instance_lookup_id(p_desc->dtpd_instance);
-		dtrace_probes = dtrace_istc_probes[idx];
-		dtrace_nprobes = dtrace_istc_probecount[idx];
+		if (strlen(p_desc->dtpd_instance) > 0) {
+			idx = dtrace_instance_lookup_id(p_desc->dtpd_instance);
+			dtrace_probes = dtrace_istc_probes[idx];
+			dtrace_nprobes = dtrace_istc_probecount[idx];
+		} else {
+			dtrace_probes = NULL;
+		}
 
+		/*
+		 * FIXME: The way probe matching in DTrace works is by doing an
+		 * ioctl and getting the probe description back in userspace.
+		 * We have to allow for a way to specify _which_ instance we
+		 * want here. For -l, we should go instance-by-instance and
+		 * allow for listing of all of them.
+		 *
+		 * Currently, we have this problem:
+		 * dtrace: invalid probe specifier vm-1: Unknown provider name
+		 *
+		 * An example is:
+		 *
+		 *  # dtrace -l -> lists all of the probes in all of the
+		 *  instances
+		 *
+		 *  # dtrace -l -M foo -> lists all of the probes in 'foo'
+		 *
+		 *  # dtrace -M foo -> attach all of the probes in 'foo'
+		 *
+		 *  # dtrace -n 'foo::::' -> match all of the probes in 'foo'
+		 */
 		if (dtrace_probes != NULL) {
 			if (cmd == DTRACEIOC_PROBEMATCH) {
 				for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {

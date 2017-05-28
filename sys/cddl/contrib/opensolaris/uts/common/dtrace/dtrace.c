@@ -9827,7 +9827,7 @@ dtrace_probe_description(const dtrace_probe_t *prp, dtrace_probedesc_t *pdp)
 	pdp->dtpd_id = prp->dtpr_id;
 
 	(void) strncpy(pdp->dtpd_instance, prp->dtpr_instance,
-	    DTRACE_INSTANCENAMELEN -1);
+	    DTRACE_INSTANCENAMELEN - 1);
 
 	(void) strncpy(pdp->dtpd_provider,
 	    prp->dtpr_provider->dtpv_name, DTRACE_PROVNAMELEN - 1);
