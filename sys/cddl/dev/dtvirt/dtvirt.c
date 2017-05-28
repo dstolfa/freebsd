@@ -257,6 +257,11 @@ dtvirt_priv_unregister(struct dtvirt_prov *prov)
 		return (ENOENT);
 
 	provid = prov->dtvp_id;
+	/*
+	 * We first have to invalidate the provider because in this case, we are
+	 * guaranteed to have /dev/dtrace open.
+	 */
+	dtrace_invalidate(provid);
 	error = dtrace_unregister(provid);
 	RB_REMOVE(dtvirt_provtree, &dtvirt_provider_tree, prov);
 	free(prov->dtvp_uuid, M_DTVIRT);

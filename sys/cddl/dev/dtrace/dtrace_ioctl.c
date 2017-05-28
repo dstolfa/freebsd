@@ -24,7 +24,7 @@
 
 static int dtrace_verbose_ioctl;
 SYSCTL_INT(_debug_dtrace, OID_AUTO, verbose_ioctl, CTLFLAG_RW,
-    &dtrace_verbose_ioctl, 1, "log DTrace ioctls");
+    &dtrace_verbose_ioctl, 0, "log DTrace ioctls");
 
 #define DTRACE_IOCTL_PRINTF(fmt, ...)	if (dtrace_verbose_ioctl) printf(fmt, ## __VA_ARGS__ )
 
@@ -1045,28 +1045,15 @@ end:
 		return (retval);
 	}
 	case DTRACEIOC_PROVDESTROY: {
-		struct uuid *user_uuid = (struct uuid *) addr;
-		struct uuid *puuid;
+		struct uuid *puuid = (struct uuid *) addr;
 		int retval;
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROVDESTROY\n",__func__,__LINE__);
 
-		if (user_uuid == NULL)
+		if (puuid == NULL)
 			return (EINVAL);
 
-		printf("%p\n", user_uuid);
-
-		if ((puuid = dtrace_uuid_copyin(
-		    (uintptr_t) user_uuid, &retval)) == NULL) {
-			return (retval);
-		}
-
-		printf_uuid(puuid);
-		printf("\n");
-
 		retval = dtvirt_hook_unregister(puuid);
-		kmem_free(puuid, sizeof (struct uuid));
-
 		return (retval);
 	}
 	default:

@@ -9275,6 +9275,7 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 			mutex_exit(&dtrace_provider_lock);
 			mutex_exit(&dtrace_instance_lock);
 		}
+		printf("First\n");
 		return (EBUSY);
 	}
 
@@ -9326,8 +9327,10 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 			mutex_exit(&dtrace_instance_lock);
 		}
 
-		if (noreap)
+		if (noreap) {
+			printf("First\n");
 			return (EBUSY);
+		}
 
 		(void) taskq_dispatch(dtrace_taskq,
 		    (task_func_t *)dtrace_enabling_reap, NULL, TQ_SLEEP);
@@ -9434,6 +9437,8 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 		kmem_free(dtrace_probes, DTRACE_MAX_INSTANCES * sizeof(dtrace_probe_t *));
 		kmem_free(instance->dtis_name, strlen(instance->dtis_name) + 1);
 		kmem_free(instance, sizeof (dtrace_instance_t));
+		dtrace_istc_probes[idx] = NULL;
+		dtrace_istc_names[idx] = NULL;
 		instance = NULL;
 	}
 
@@ -9458,7 +9463,6 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 	 * TODO: Actually implement this.
 	 */
 
-	dtrace_istc_names[idx] = NULL;
 	kmem_free(old->dtpv_name, strlen(old->dtpv_name) + 1);
 	kmem_free(old->dtpv_uuid, sizeof (struct uuid));
 	kmem_free(old->dtpv_advuuid, sizeof (struct uuid));
