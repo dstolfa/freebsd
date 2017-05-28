@@ -9439,6 +9439,7 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 		kmem_free(instance, sizeof (dtrace_instance_t));
 		dtrace_istc_probes[idx] = NULL;
 		dtrace_istc_names[idx] = NULL;
+		dtrace_istc_probecount[idx] = 0;
 		instance = NULL;
 	}
 
