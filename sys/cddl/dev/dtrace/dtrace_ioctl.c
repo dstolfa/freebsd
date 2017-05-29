@@ -1081,6 +1081,73 @@ end:
 		retval = dtvirt_hook_unregister(puuid);
 		return (retval);
 	}
+	case DTRACEIOC_INSTANCES: {
+		dtrace_instance_t *instance;
+		char *buf;
+		dtrace_instance_info_t *instinfo = (dtrace_instance_info_t *) addr;
+		int retval, size, nentries;
+		uint32_t offset;
+
+		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_INSTANCES\n",__func__,__LINE__);
+
+		offset = 0;
+		retval = 0;
+		buf = NULL;
+		size = 1;
+		nentries = 0;
+
+		if (instinfo->dtii_action == DTRACE_INSTANCEINFO_ACTION_UNMAP) {
+			retval = copyout_unmap(curthread,
+			    (vm_offset_t) *instinfo->dtii_instances,
+			    instinfo->dtii_size * DTRACE_INSTANCENAMELEN);
+
+			return (retval);
+		}
+
+		if (instinfo->dtii_instances == NULL)
+			return (EINVAL);
+
+		buf = kmem_zalloc(size * DTRACE_INSTANCENAMELEN, KM_SLEEP);
+		if (buf == NULL)
+			return (ENOMEM);
+
+		mutex_enter(&dtrace_instance_lock);
+		instance = dtrace_instance;
+		while (instance) {
+			if (nentries >= size) {
+				char *obuf = buf;
+				int osize = size;
+
+				size <<= 1;
+				buf = kmem_zalloc(size * DTRACE_INSTANCENAMELEN, KM_SLEEP);
+				bcopy(obuf, buf, osize * DTRACE_INSTANCENAMELEN);
+
+				kmem_free(obuf, osize * DTRACE_INSTANCENAMELEN);
+			}
+
+			strncpy(buf + offset, instance->dtis_name,
+			    DTRACE_INSTANCENAMELEN);
+
+			offset += DTRACE_INSTANCENAMELEN;
+			nentries++;
+			instance = instance->dtis_next;
+		}
+		mutex_exit(&dtrace_instance_lock);
+
+		retval = copyout_map(curthread,
+		    (vm_offset_t *)instinfo->dtii_instances,
+		    nentries * DTRACE_INSTANCENAMELEN);
+
+		if (retval)
+			return (retval);
+
+		retval = copyout(buf, instinfo->dtii_instances,
+		    nentries * DTRACE_INSTANCENAMELEN);
+
+		instinfo->dtii_size = nentries;
+
+		return (retval);
+	}
 	default:
 		error = ENOTTY;
 	}

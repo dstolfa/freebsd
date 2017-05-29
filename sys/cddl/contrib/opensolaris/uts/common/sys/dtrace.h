@@ -1302,6 +1302,14 @@ typedef struct dtrace_virt_probedesc {
 	uint8_t			vpbd_nargs;
 } dtrace_virt_probedesc_t;
 
+typedef struct dtrace_instance_info {
+	char		**dtii_instances;
+	int		dtii_action;
+	int		dtii_size;
+#define	DTRACE_INSTANCEINFO_ACTION_MAP		0x00
+#define	DTRACE_INSTANCEINFO_ACTION_UNMAP	0x00
+} dtrace_instance_info_t;
+
 /*
  * DTrace Pseudodevice Interface
  *
@@ -1370,6 +1378,8 @@ typedef struct {
 							/* create probe */
 #define	DTRACEIOC_PROVDESTROY	_IOWR('x',21,struct uuid)
 							/* destroy provider */
+#define	DTRACEIOC_INSTANCES	_IOWR('x',22,dtrace_instance_info_t)
+							/* get instances */
 #endif
 
 /*

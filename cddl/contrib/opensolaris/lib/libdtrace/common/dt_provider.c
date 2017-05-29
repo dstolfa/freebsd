@@ -841,17 +841,42 @@ dtrace_probe_iter(dtrace_hdl_t *dtp,
     const dtrace_probedesc_t *pdp, dtrace_probe_f *func, void *arg)
 {
 	const char *provider = pdp ? pdp->dtpd_provider : NULL;
+	char (*instance)[DTRACE_INSTANCENAMELEN];
 	dtrace_id_t id = DTRACE_IDNONE;
 
+	dtrace_instance_info_t iinfo;
 	dtrace_probedesc_t pd;
 	dt_probe_iter_t pit;
-	int cmd, rv;
+	int cmd, rv, i;
 
 	bzero(&pit, sizeof (pit));
 	pit.pit_hdl = dtp;
 	pit.pit_func = func;
 	pit.pit_arg = arg;
 	pit.pit_pat = pdp ? pdp->dtpd_name : NULL;
+
+	/*
+	 * XXX(dstolfa): This is very ugly. It needs to be done in a better way.
+	 * Perhaps with a file descriptor somehow?
+	 */
+	if (pdp != NULL) {
+		instance = malloc(DTRACE_INSTANCENAMELEN);
+		if (strlen(pdp->dtpd_instance) <= 0)
+			strcpy(instance[0], "host");
+		else
+			strncpy(instance[0], pdp->dtpd_instance,
+			    DTRACE_INSTANCENAMELEN);
+
+		instance[0][DTRACE_INSTANCENAMELEN - 1] = '\0';
+	} else {
+		iinfo.dtii_action = DTRACE_INSTANCEINFO_ACTION_MAP;
+		iinfo.dtii_instances = (char **)instance;
+		rv = dt_ioctl(dtp, DTRACEIOC_INSTANCES, &iinfo);
+
+		if (rv != 0) {
+			return (dt_set_errno(dtp, errno));
+		}
+	}
 
 	for (pit.pit_pvp = dt_list_next(&dtp->dt_provlist);
 	    pit.pit_pvp != NULL; pit.pit_pvp = dt_list_next(pit.pit_pvp)) {
@@ -875,19 +900,34 @@ dtrace_probe_iter(dtrace_hdl_t *dtp,
 	else
 		cmd = DTRACEIOC_PROBES;
 
-	for (;;) {
-		if (pdp != NULL)
-			bcopy(pdp, &pd, sizeof (pd));
+	for (i = 0; i < iinfo.dtii_size; i++) {
+		strncpy(pd.dtpd_instance, instance[i],
+		    DTRACE_INSTANCENAMELEN);
+		for (;;) {
+			if (pdp != NULL)
+				bcopy(pdp, &pd, sizeof (pd));
 
-		pd.dtpd_id = id;
+			pd.dtpd_id = id;
 
-		if (dt_ioctl(dtp, cmd, &pd) != 0)
-			break;
-		else if ((rv = func(dtp, &pd, arg)) != 0)
-			return (rv);
+			if (dt_ioctl(dtp, cmd, &pd) != 0)
+				break;
+			else if ((rv = func(dtp, &pd, arg)) != 0)
+				return (rv);
 
-		pit.pit_matches++;
-		id = pd.dtpd_id + 1;
+			pit.pit_matches++;
+			id = pd.dtpd_id + 1;
+		}
+	}
+
+	if (pdp != NULL) {
+		free(instance);
+	} else {
+		iinfo.dtii_action = DTRACE_INSTANCEINFO_ACTION_UNMAP;
+		rv = dt_ioctl(dtp, DTRACEIOC_INSTANCES, &iinfo);
+
+		if (rv != 0) {
+			return (dt_set_errno(dtp, errno));
+		}
 	}
 
 	switch (errno) {
