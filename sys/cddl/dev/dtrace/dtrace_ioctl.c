@@ -1085,6 +1085,7 @@ end:
 		dtrace_instance_t *instance;
 		char *buf;
 		dtrace_instance_info_t *instinfo = (dtrace_instance_info_t *) addr;
+		char *ubuf;
 		int retval, size, nentries;
 		uint32_t offset;
 
@@ -1095,6 +1096,12 @@ end:
 		buf = NULL;
 		size = 1;
 		nentries = 0;
+
+		if (instinfo == NULL)
+			return (EINVAL);
+
+		if (instinfo->dtii_instances == NULL)
+			return (EINVAL);
 
 		if (instinfo->dtii_action == DTRACE_INSTANCEINFO_ACTION_UNMAP) {
 			retval = copyout_unmap(curthread,
@@ -1134,14 +1141,16 @@ end:
 		}
 		mutex_exit(&dtrace_instance_lock);
 
+		ubuf = (char *)instinfo->dtii_instances;
+
 		retval = copyout_map(curthread,
-		    (vm_offset_t *)instinfo->dtii_instances,
+		    (vm_offset_t *)&ubuf,
 		    nentries * DTRACE_INSTANCENAMELEN);
 
 		if (retval)
 			return (retval);
 
-		retval = copyout(buf, instinfo->dtii_instances,
+		retval = copyout(buf, ubuf,
 		    nentries * DTRACE_INSTANCENAMELEN);
 
 		instinfo->dtii_size = nentries;
