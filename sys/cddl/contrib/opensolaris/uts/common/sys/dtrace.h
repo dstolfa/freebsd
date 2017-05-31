@@ -1303,11 +1303,11 @@ typedef struct dtrace_virt_probedesc {
 } dtrace_virt_probedesc_t;
 
 typedef struct dtrace_instance_info {
-	char		**dtii_instances;
+	char		*dtii_instances;
 	int		dtii_action;
 	int		dtii_size;
 #define	DTRACE_INSTANCEINFO_ACTION_MAP		0x00
-#define	DTRACE_INSTANCEINFO_ACTION_UNMAP	0x00
+#define	DTRACE_INSTANCEINFO_ACTION_UNMAP	0x01
 } dtrace_instance_info_t;
 
 /*

@@ -1100,9 +1100,6 @@ end:
 		if (instinfo == NULL)
 			return (EINVAL);
 
-		if (instinfo->dtii_instances == NULL)
-			return (EINVAL);
-
 		if (instinfo->dtii_action == DTRACE_INSTANCEINFO_ACTION_UNMAP) {
 			retval = copyout_unmap(curthread,
 			    (vm_offset_t) *instinfo->dtii_instances,
@@ -1110,9 +1107,6 @@ end:
 
 			return (retval);
 		}
-
-		if (instinfo->dtii_instances == NULL)
-			return (EINVAL);
 
 		buf = kmem_zalloc(size * DTRACE_INSTANCENAMELEN, KM_SLEEP);
 		if (buf == NULL)
@@ -1147,10 +1141,12 @@ end:
 		    (vm_offset_t *)&ubuf,
 		    nentries * DTRACE_INSTANCENAMELEN);
 
+		instinfo->dtii_instances = ubuf;
+
 		if (retval)
 			return (retval);
 
-		retval = copyout(buf, ubuf,
+		retval = copyout(buf, instinfo->dtii_instances,
 		    nentries * DTRACE_INSTANCENAMELEN);
 
 		instinfo->dtii_size = nentries;

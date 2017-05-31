@@ -870,7 +870,7 @@ dtrace_probe_iter(dtrace_hdl_t *dtp,
 		instance[0][DTRACE_INSTANCENAMELEN - 1] = '\0';
 	} else {
 		iinfo.dtii_action = DTRACE_INSTANCEINFO_ACTION_MAP;
-		iinfo.dtii_instances = (char **)instance;
+		iinfo.dtii_instances = NULL;
 		rv = dt_ioctl(dtp, DTRACEIOC_INSTANCES, &iinfo);
 
 		if (rv != 0) {
