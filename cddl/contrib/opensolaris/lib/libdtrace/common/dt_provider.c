@@ -876,6 +876,9 @@ dtrace_probe_iter(dtrace_hdl_t *dtp,
 		if (rv != 0) {
 			return (dt_set_errno(dtp, errno));
 		}
+
+		instance = (char (*)[DTRACE_INSTANCENAMELEN])
+		    iinfo.dtii_instances;
 	}
 
 	for (pit.pit_pvp = dt_list_next(&dtp->dt_provlist);
