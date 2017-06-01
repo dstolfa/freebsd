@@ -699,6 +699,9 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		}
 
 		if (cmd == DTRACEIOC_PROBEMATCH)  {
+			/*
+			 * FIXME: This does not seem to yield any useful data :(
+			 */
 			dtrace_probekey(p_desc, &pkey);
 			pkey.dtpk_id = DTRACE_IDNONE;
 		}
@@ -766,6 +769,7 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 				dtrace_nprobes = dtrace_istc_probecount[idx];
 
 				if (cmd == DTRACEIOC_PROBEMATCH) {
+					printf("pkp->dtpk_instance = %s\n", pkey.dtpk_instance);
 					for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {
 						if ((probe = dtrace_probes[i - 1]) != NULL &&
 						    (m = dtrace_match_probe(probe, &pkey,
@@ -805,6 +809,7 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 	}
 	case DTRACEIOC_PROVIDER: {
 		dtrace_providerdesc_t *pvd = (dtrace_providerdesc_t *) addr;
+		dtrace_instance_t *instance;
 		dtrace_provider_t *pvp;
 		struct uuid *puuid;
 		int retval;
@@ -824,6 +829,14 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		}
 
 		mutex_exit(&dtrace_provider_lock);
+
+		if (*pvd->dtvd_instance != '\0') {
+			mutex_enter(&dtrace_instance_lock);
+			instance = dtrace_instance_lookup(pvd->dtvd_instance);
+			if (instance != NULL)
+				pvp = instance->dtis_provhead;
+			mutex_exit(&dtrace_instance_lock);
+		}
 
 		if (pvp == NULL)
 			return (ESRCH);
