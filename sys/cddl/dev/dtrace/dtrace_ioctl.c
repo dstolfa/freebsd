@@ -28,6 +28,20 @@ SYSCTL_INT(_debug_dtrace, OID_AUTO, verbose_ioctl, CTLFLAG_RW,
 
 #define DTRACE_IOCTL_PRINTF(fmt, ...)	if (dtrace_verbose_ioctl) printf(fmt, ## __VA_ARGS__ )
 
+static __inline int
+dtvirt_loaded(void)
+{
+	return (dtvirt_hook_commit &&
+	    dtvirt_hook_register   &&
+	    dtvirt_hook_unregister &&
+	    dtvirt_hook_create     &&
+	    dtvirt_hook_enable     &&
+	    dtvirt_hook_disable    &&
+	    dtvirt_hook_getargdesc &&
+	    dtvirt_hook_getargval  &&
+	    dtvirt_hook_destroy);
+}
+
 static int
 dtrace_ioctl_helper(struct cdev *dev, u_long cmd, caddr_t addr, int flags,
     struct thread *td)
@@ -769,7 +783,6 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 				dtrace_nprobes = dtrace_istc_probecount[idx];
 
 				if (cmd == DTRACEIOC_PROBEMATCH) {
-					printf("pkp->dtpk_instance = %s\n", pkey.dtpk_instance);
 					for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {
 						if ((probe = dtrace_probes[i - 1]) != NULL &&
 						    (m = dtrace_match_probe(probe, &pkey,
@@ -970,15 +983,7 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		pvd->vpvd_instance[DTRACE_INSTANCENAMELEN - 1] = '\0';
 		pvd->vpvd_name[DTRACE_PROVNAMELEN - 1] = '\0';
 
-		if (dtvirt_hook_commit == NULL     ||
-		    dtvirt_hook_register == NULL   ||
-		    dtvirt_hook_unregister == NULL ||
-		    dtvirt_hook_create == NULL     ||
-		    dtvirt_hook_enable == NULL     ||
-		    dtvirt_hook_disable == NULL    ||
-		    dtvirt_hook_getargdesc == NULL ||
-		    dtvirt_hook_getargval == NULL  ||
-		    dtvirt_hook_destroy == NULL)
+		if (!dtvirt_loaded())
 			return (EINVAL);
 
 		ppops = &dtvirt_pops;
@@ -1040,6 +1045,9 @@ end:
 		pbd->vpbd_name[DTRACE_NAMELEN - 1] = '\0';
 		nargs = pbd->vpbd_nargs;
 
+		if (!dtvirt_loaded())
+			return (EINVAL);
+
 		if (nargs > DTRACE_MAXARGS  ||
 		    pbd->vpbd_uuid == NULL  ||
 		    pbd->vpbd_args == NULL  ||
@@ -1087,6 +1095,10 @@ end:
 		int retval;
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROVDESTROY\n",__func__,__LINE__);
+
+
+		if (!dtvirt_loaded())
+			return (EINVAL);
 
 		if (puuid == NULL)
 			return (EINVAL);
@@ -1164,6 +1176,7 @@ end:
 
 		instinfo->dtii_size = nentries;
 
+		kmem_free(buf, size * DTRACE_INSTANCENAMELEN);
 		return (retval);
 	}
 	default:
