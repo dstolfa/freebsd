@@ -828,7 +828,6 @@ compile_str(dtrace_cmd_t *dcp)
 {
 	char *p;
 
-	printf("%s\n", dcp->dc_arg);
 	if ((dcp->dc_prog = dtrace_program_strcompile(g_dtp, dcp->dc_arg,
 	    dcp->dc_spec, g_cflags | DTRACE_C_PSPEC, g_argc, g_argv)) == NULL)
 		dfatal("invalid probe specifier %s", dcp->dc_arg);
