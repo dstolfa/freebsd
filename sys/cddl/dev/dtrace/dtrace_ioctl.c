@@ -787,7 +787,7 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 						if ((probe = dtrace_probes[i - 1]) != NULL &&
 						    (m = dtrace_match_probe(probe, &pkey,
 						    priv, uid, zoneid)) != 0)
-							break;
+							goto exit;
 					}
 
 					if (m < 0) {
@@ -800,13 +800,14 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 					for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {
 						if ((probe = dtrace_probes[i - 1]) != NULL &&
 						    dtrace_match_priv(probe, priv, uid, zoneid))
-							break;
+							goto exit;
 					}
 				}
 
 				instance = instance->dtis_next;
 			}
 
+exit:
 			mutex_exit(&dtrace_instance_lock);
 		}
 
@@ -822,9 +823,10 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 	}
 	case DTRACEIOC_PROVIDER: {
 		dtrace_providerdesc_t *pvd = (dtrace_providerdesc_t *) addr;
-		dtrace_instance_t *instance;
+		dtrace_instance_t *is;
 		dtrace_provider_t *pvp;
 		struct uuid *puuid;
+		char istcname[DTRACE_INSTANCENAMELEN];
 		int retval;
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROVIDER\n",__func__,__LINE__);
@@ -834,28 +836,41 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		pvd->dtvd_name[DTRACE_PROVNAMELEN - 1] = '\0';
 		retval = 0;
 
+		if (strlen(pvd->dtvd_instance) == 0)
+			strlcpy(istcname, "host", DTRACE_INSTANCENAMELEN);
+		else
+			strlcpy(istcname, pvd->dtvd_instance,
+			    DTRACE_INSTANCENAMELEN);
+
+		mutex_enter(&dtrace_instance_lock);
 		mutex_enter(&dtrace_provider_lock);
 
-		for (pvp = dtrace_provider; pvp != NULL; pvp = pvp->dtpv_next) {
-			if (strcmp(pvp->dtpv_name, pvd->dtvd_name) == 0)
+		for (is = dtrace_instance; is != NULL; is = is->dtis_next) {
+			if (strcmp(is->dtis_name, istcname) == 0)
 				break;
 		}
 
+		printf("is->dtis_name = %s\n", is->dtis_name);
+		printf("istcname = %s\n", istcname);
+
+		if (is != NULL)
+			for (pvp = is->dtis_provhead; pvp != NULL; pvp = pvp->dtpv_next) {
+				printf("pvp->dtpv_name = %s\n", pvp->dtpv_name);
+				printf("pvd->dtvd_name = %s\n", pvd->dtvd_name);
+				if (strcmp(pvp->dtpv_name, pvd->dtvd_name) == 0)
+					break;
+			}
+
 		mutex_exit(&dtrace_provider_lock);
+		mutex_exit(&dtrace_instance_lock);
 
-		if (*pvd->dtvd_instance != '\0') {
-			mutex_enter(&dtrace_instance_lock);
-			instance = dtrace_instance_lookup(pvd->dtvd_instance);
-			if (instance != NULL)
-				pvp = instance->dtis_provhead;
-			mutex_exit(&dtrace_instance_lock);
-		}
-
+		printf("pvp = %p\n", pvp);
 		if (pvp == NULL)
 			return (ESRCH);
 
 		bcopy(&pvp->dtpv_priv, &pvd->dtvd_priv, sizeof (dtrace_ppriv_t));
 		bcopy(&pvp->dtpv_attr, &pvd->dtvd_attr, sizeof (dtrace_pattr_t));
+		printf("Exit!\n");
 
 		return (0);
 	}
@@ -1151,7 +1166,7 @@ end:
 				kmem_free(obuf, osize * DTRACE_INSTANCENAMELEN);
 			}
 
-			strncpy(buf + offset, instance->dtis_name,
+			strlcpy(buf + offset, instance->dtis_name,
 			    DTRACE_INSTANCENAMELEN);
 
 			offset += DTRACE_INSTANCENAMELEN;

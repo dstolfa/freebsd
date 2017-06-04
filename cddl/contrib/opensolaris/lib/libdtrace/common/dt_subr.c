@@ -156,7 +156,6 @@ dtrace_xstr2desc(dtrace_hdl_t *dtp, dtrace_probespec_t spec,
 		bcopy(v, (char *)pdp + off + len, vlen);
 		bcopy(w, (char *)pdp + off + len + vlen, wlen);
 		cnt++;
-		printf("%s, %s, %s\n", q, v, w);
 	} while (--p >= s);
 
 	pdp->dtpd_id = DTRACE_IDNONE;

@@ -62,7 +62,8 @@ dt_provider_insert(dtrace_hdl_t *dtp, dt_provider_t *pvp, uint_t h)
 }
 
 dt_provider_t *
-dt_provider_lookup(dtrace_hdl_t *dtp, const char *name)
+dt_provider_distributed_lookup(dtrace_hdl_t *dtp,
+    const char *instance, const char *name)
 {
 	uint_t h = dt_strtab_hash(name, NULL) % dtp->dt_provbuckets;
 	dtrace_providerdesc_t desc;
@@ -80,6 +81,7 @@ dt_provider_lookup(dtrace_hdl_t *dtp, const char *name)
 
 	bzero(&desc, sizeof (desc));
 	(void) strlcpy(desc.dtvd_name, name, DTRACE_PROVNAMELEN);
+	(void) strlcpy(desc.dtvd_instance, instance, DTRACE_INSTANCENAMELEN);
 
 	if (dt_ioctl(dtp, DTRACEIOC_PROVIDER, &desc) == -1) {
 		(void) dt_set_errno(dtp, errno == ESRCH ? EDT_NOPROV : errno);
@@ -92,6 +94,12 @@ dt_provider_lookup(dtrace_hdl_t *dtp, const char *name)
 	bcopy(&desc, &pvp->pv_desc, sizeof (desc));
 	pvp->pv_flags |= DT_PROVIDER_IMPL;
 	return (pvp);
+}
+
+dt_provider_t *
+dt_provider_lookup(dtrace_hdl_t *dtp, const char *name)
+{
+	return (dt_provider_distributed_lookup(dtp, "host", name));
 }
 
 dt_provider_t *
@@ -906,6 +914,7 @@ dtrace_probe_iter(dtrace_hdl_t *dtp,
 	for (i = 0; i < iinfo.dtii_size; i++) {
 		strncpy(pd.dtpd_instance, instance[i],
 		    DTRACE_INSTANCENAMELEN);
+		id = 0;
 		for (;;) {
 			if (pdp != NULL)
 				bcopy(pdp, &pd, sizeof (pd));

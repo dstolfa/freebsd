@@ -8917,8 +8917,8 @@ dtrace_distributed_register(const char *name, const char *istcname,
     const dtrace_pops_t *pops, void *arg, dtrace_provider_id_t *idp)
 {
 
-	dtrace_instance_t *instance;
-	dtrace_provider_t *provider;
+	dtrace_instance_t *instance, *tmpinstance;
+	dtrace_provider_t *provider, *tmpprovider;
 
 	if (name == NULL || pap == NULL ||
 	    pops == NULL || idp == NULL || istcname == NULL) {
@@ -9111,6 +9111,18 @@ dtrace_distributed_register(const char *name, const char *istcname,
 		dtrace_enabling_matchall();
 
 		return (0);
+	}
+
+	tmpinstance = dtrace_instance;
+	while (tmpinstance != NULL) {
+		printf("%s:\n", tmpinstance->dtis_name);
+		tmpprovider = tmpinstance->dtis_provhead;
+		while (tmpprovider != NULL) {
+			printf(" -> %s\n", tmpprovider->dtpv_name);
+			tmpprovider = tmpprovider->dtpv_next;
+		}
+
+		tmpinstance = tmpinstance->dtis_next;
 	}
 
 	mutex_exit(&dtrace_lock);

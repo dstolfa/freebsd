@@ -1705,7 +1705,8 @@ dt_setcontext(dtrace_hdl_t *dtp, dtrace_probedesc_t *pdp)
 	 * and tag -- we just have to longjmp() out of here.
 	 */
 	if (isdigit(pdp->dtpd_provider[strlen(pdp->dtpd_provider) - 1]) &&
-	    ((pvp = dt_provider_lookup(dtp, pdp->dtpd_provider)) == NULL ||
+	    ((pvp = dt_provider_distributed_lookup(dtp,
+	    pdp->dtpd_instance, pdp->dtpd_provider)) == NULL ||
 	    pvp->pv_desc.dtvd_priv.dtpp_flags & DTRACE_PRIV_PROC) &&
 	    dt_pid_create_probes(pdp, dtp, yypcb) != 0) {
 		longjmp(yypcb->pcb_jmpbuf, EDT_COMPILER);
