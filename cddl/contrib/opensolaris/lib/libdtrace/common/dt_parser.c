@@ -2177,24 +2177,11 @@ dt_node_pdesc_by_name(char *spec)
 	if (dnp->dn_desc == NULL)
 		longjmp(yypcb->pcb_jmpbuf, EDT_NOMEM);
 
-	printf("Is this called\n");
 	if (dtrace_xstr2desc(dtp, yypcb->pcb_pspec, dnp->dn_spec,
 	    yypcb->pcb_sargc, yypcb->pcb_sargv, dnp->dn_desc) != 0) {
 		xyerror(D_PDESC_INVAL, "invalid probe description \"%s\": %s\n",
 		    dnp->dn_spec, dtrace_errmsg(dtp, dtrace_errno(dtp)));
 	}
-	printf("Yaaaaas\n");
-
-	printf("dn->desc = {\n"
-	    "dtpd_instance = %s\n"
-	    "dtpd_name = %s\n"
-	    "dtpd_mod = %s\n"
-	    "dtpd_func = %s\n"
-	    "dtpd_name = %s\n"
-	    "}\n",
-	    dnp->dn_desc->dtpd_instance, dnp->dn_desc->dtpd_name,
-	    dnp->dn_desc->dtpd_mod, dnp->dn_desc->dtpd_func,
-	    dnp->dn_desc->dtpd_name);
 
 	free(dnp->dn_spec);
 	dnp->dn_spec = NULL;
@@ -2615,10 +2602,6 @@ dt_node_provider(char *name, dt_node_t *probes)
 	 * If not, create a new provider and set its interface-only flag.  This
 	 * flag may be cleared later by calls made to dt_probe_declare().
 	 */
-	if (name)
-		printf("dt_node_provider: name = %s\n", name);
-	else
-		printf("dt_node_provider: name = NULL\n");
 	if ((dnp->dn_provider = dt_provider_lookup(dtp, name)) != NULL)
 		dnp->dn_provred = B_TRUE;
 	else if ((dnp->dn_provider = dt_provider_create(dtp, name)) == NULL)

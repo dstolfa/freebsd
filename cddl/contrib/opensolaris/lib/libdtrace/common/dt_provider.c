@@ -701,7 +701,8 @@ dt_probe_info(dtrace_hdl_t *dtp,
 	 * If none is found and an explicit probe ID was specified, discover
 	 * that specific probe and cache its description and arguments.
 	 */
-	if ((pvp = dt_provider_lookup(dtp, pdp->dtpd_provider)) != NULL) {
+	if ((pvp = dt_provider_distributed_lookup(dtp,
+	    pdp->dtpd_instance, pdp->dtpd_provider)) != NULL) {
 		size_t keylen = dt_probe_keylen(pdp);
 		char *key = dt_probe_key(pdp, alloca(keylen));
 
@@ -735,7 +736,8 @@ dt_probe_info(dtrace_hdl_t *dtp,
 		if ((m = dtrace_probe_iter(dtp, pdp, dt_probe_desc, &pd)) < 0)
 			return (NULL); /* dt_errno is set for us */
 
-		if ((pvp = dt_provider_lookup(dtp, pd.dtpd_provider)) == NULL)
+		if ((pvp = dt_provider_distributed_lookup(dtp,
+		    pd.dtpd_instance, pd.dtpd_provider)) == NULL)
 			return (NULL); /* dt_errno is set for us */
 
 		/*

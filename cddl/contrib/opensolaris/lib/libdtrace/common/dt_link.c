@@ -1590,8 +1590,6 @@ process_obj(dtrace_hdl_t *dtp, const char *obj, int *eprobesp)
 			} else
 				goto err;
 
-			printf("process_obj: pname = %s\n", pname);
-			
 			if ((pvp = dt_provider_lookup(dtp, pname)) == NULL) {
 				return (dt_link_error(dtp, elf, fd, bufs,
 				    "no such provider %s", pname));

@@ -795,6 +795,7 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 						mutex_exit(&dtrace_lock);
 						return (EINVAL);
 					}
+					goto exit;
 
 				} else {
 					for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {
@@ -850,13 +851,8 @@ exit:
 				break;
 		}
 
-		printf("is->dtis_name = %s\n", is->dtis_name);
-		printf("istcname = %s\n", istcname);
-
 		if (is != NULL)
 			for (pvp = is->dtis_provhead; pvp != NULL; pvp = pvp->dtpv_next) {
-				printf("pvp->dtpv_name = %s\n", pvp->dtpv_name);
-				printf("pvd->dtvd_name = %s\n", pvd->dtvd_name);
 				if (strcmp(pvp->dtpv_name, pvd->dtvd_name) == 0)
 					break;
 			}
@@ -864,13 +860,11 @@ exit:
 		mutex_exit(&dtrace_provider_lock);
 		mutex_exit(&dtrace_instance_lock);
 
-		printf("pvp = %p\n", pvp);
 		if (pvp == NULL)
 			return (ESRCH);
 
 		bcopy(&pvp->dtpv_priv, &pvd->dtvd_priv, sizeof (dtrace_ppriv_t));
 		bcopy(&pvp->dtpv_attr, &pvd->dtvd_attr, sizeof (dtrace_pattr_t));
-		printf("Exit!\n");
 
 		return (0);
 	}
