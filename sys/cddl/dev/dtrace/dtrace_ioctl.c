@@ -795,8 +795,6 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 						mutex_exit(&dtrace_lock);
 						return (EINVAL);
 					}
-					goto exit;
-
 				} else {
 					for (i = p_desc->dtpd_id; i <= dtrace_nprobes; i++) {
 						if ((probe = dtrace_probes[i - 1]) != NULL &&

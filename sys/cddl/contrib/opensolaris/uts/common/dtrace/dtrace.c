@@ -8538,9 +8538,6 @@ dtrace_match_probe(const dtrace_probe_t *prp, const dtrace_probekey_t *pkp,
 	if (pvp->dtpv_defunct)
 		return (0);
 
-	/*
-	 * XXX(dstolfa): This might break everything
-	 */
 	if ((rv = pkp->dtpk_imatch(pvp->dtpv_instance, pkp->dtpk_instance, 0)) <= 0)
 		return (rv);
 
@@ -9275,7 +9272,6 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 			mutex_exit(&dtrace_provider_lock);
 			mutex_exit(&dtrace_instance_lock);
 		}
-		printf("First\n");
 		return (EBUSY);
 	}
 
@@ -9328,7 +9324,6 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 		}
 
 		if (noreap) {
-			printf("First\n");
 			return (EBUSY);
 		}
 
@@ -9768,14 +9763,11 @@ dtrace_probe_lookup(dtrace_provider_id_t prid, char *mod,
 	dtrace_id_t id;
 	int match;
 
-	pkey.dtpk_prov = prov->dtpv_name;
-	pkey.dtpk_pmatch = &dtrace_match_string;
-	/*
-	 * XXX(dstolfa): This might break everything
-	 */
 	pkey.dtpk_instance = prov->dtpv_instance;
 	pkey.dtpk_imatch = prov->dtpv_instance ?
 	    &dtrace_match_string : &dtrace_match_nul;
+	pkey.dtpk_prov = prov->dtpv_name;
+	pkey.dtpk_pmatch = &dtrace_match_string;
 	pkey.dtpk_mod = mod;
 	pkey.dtpk_mmatch = mod ? &dtrace_match_string : &dtrace_match_nul;
 	pkey.dtpk_func = func;
