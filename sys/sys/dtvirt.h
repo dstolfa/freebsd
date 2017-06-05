@@ -29,12 +29,12 @@
 #include <sys/dtrace.h>
 
 typedef struct dtrace_virt_probe {
-	char		(*dtv_argtypes)[DTRACE_ARGTYPELEN];
-	size_t		*dtv_argsizes;
+	/*char		(*dtv_argtypes)[DTRACE_ARGTYPELEN];*/
+	/*size_t		*dtv_argsizes;*/
 	char		dtv_vm[DTRACE_INSTANCENAMELEN];
 	dtrace_id_t	dtv_id;
 	uint8_t		dtv_enabled;
-	uint8_t		dtv_nargs;
+	/*uint8_t		dtv_nargs;*/
 } dtrace_virt_probe_t;
 
 extern void	(*dtvirt_hook_commit)(const char *, dtrace_id_t,
@@ -44,7 +44,7 @@ extern int	(*dtvirt_hook_register)(const char *, const char *,
           	    struct uuid *, dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
 extern int	(*dtvirt_hook_unregister)(struct uuid *);
 extern int	(*dtvirt_hook_create)(struct uuid *, const char *, const char *,
-		const char *, char *, size_t *, uint8_t);
+		const char *);
 extern void	(*dtvirt_hook_enable)(void *, dtrace_id_t, void *);
 extern void	(*dtvirt_hook_disable)(void *, dtrace_id_t, void *);
 extern void	(*dtvirt_hook_getargdesc)(void *, dtrace_id_t,

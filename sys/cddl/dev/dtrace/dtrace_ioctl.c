@@ -1037,9 +1037,6 @@ end:
 	case DTRACEIOC_PROBECREATE: {
 		dtrace_virt_probedesc_t *pbd = (dtrace_virt_probedesc_t *) addr;
 		struct uuid *puuid;
-		size_t *argsiz;
-		uint8_t nargs;
-		char *argtypes;
 		char mod[DTRACE_MODNAMELEN];
 		char func[DTRACE_FUNCNAMELEN];
 		char name[DTRACE_NAMELEN];
@@ -1050,15 +1047,11 @@ end:
 		pbd->vpbd_mod[DTRACE_MODNAMELEN - 1] = '\0';
 		pbd->vpbd_func[DTRACE_FUNCNAMELEN - 1] = '\0';
 		pbd->vpbd_name[DTRACE_NAMELEN - 1] = '\0';
-		nargs = pbd->vpbd_nargs;
 
 		if (!dtvirt_loaded())
 			return (EINVAL);
 
-		if (nargs > DTRACE_MAXARGS  ||
-		    pbd->vpbd_uuid == NULL  ||
-		    pbd->vpbd_args == NULL  ||
-		    pbd->vpbd_argsiz == NULL)
+		if (pbd->vpbd_uuid == NULL)
 			return (EINVAL);
 
 		if ((puuid = dtrace_uuid_copyin(
@@ -1066,6 +1059,7 @@ end:
 			return (retval);
 		}
 
+		/*
 		argsiz = kmem_zalloc(nargs * sizeof (size_t), KM_SLEEP);
 		
 		if (copyin((void *)pbd->vpbd_argsiz, argsiz,
@@ -1084,17 +1078,19 @@ end:
 
 			return (EFAULT);
 		}
+		*/
 
 		bcopy(pbd->vpbd_mod, mod, DTRACE_MODNAMELEN);
 		bcopy(pbd->vpbd_func, func, DTRACE_FUNCNAMELEN);
 		bcopy(pbd->vpbd_name, name, DTRACE_NAMELEN);
 
-		retval = dtvirt_hook_create(puuid, mod, func,
-		    name, argtypes, argsiz, nargs);
+		retval = dtvirt_hook_create(puuid, mod, func, name);
 
 		kmem_free(puuid, sizeof (struct uuid));
+		/*
 		kmem_free(argsiz, nargs * sizeof (size_t));
 		kmem_free(argtypes, nargs * DTRACE_ARGTYPELEN);
+		*/
 		return (retval);
 	}
 	case DTRACEIOC_PROVDESTROY: {

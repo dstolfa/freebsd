@@ -70,7 +70,8 @@ __DEFAULT_NO_OPTIONS = \
     CCACHE_BUILD \
     CTF \
     INSTALL_AS_USER \
-    STALE_STAGED
+    STALE_STAGED \
+    DTVIRT
 
 # meta mode related
 __DEFAULT_DEPENDENT_OPTIONS = \

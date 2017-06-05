@@ -192,6 +192,7 @@ __DEFAULT_NO_OPTIONS = \
     SHARED_TOOLCHAIN \
     SORT_THREADS \
     SVN \
+    DTVIRT \
 
 
 #
@@ -347,6 +348,7 @@ MK_SOURCELESS_UCODE:= no
 .if ${MK_CDDL} == "no"
 MK_ZFS:=	no
 MK_CTF:=	no
+MK_DTVIRT:=	no
 .endif
 
 .if ${MK_CRYPT} == "no"

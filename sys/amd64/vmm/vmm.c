@@ -1781,6 +1781,21 @@ hc_handle_dtrace_probe(struct vm *vm, int vcpuid,
 	 * (2) Load each of the arguments in using the base + length approach
 	 * (3) Call dtrace_distributed_probe() from the host context
 	 */
+	struct seg_desc ds_desc;
+	int error, probeid;
+
+	error = vm_get_seg_desc(vm, vcpuid, VM_REG_GUEST_DS, &ds_desc);
+	KASSERT(error == 0, ("%s: error %d getting DS descriptor",
+	    __func__, error));
+
+	/*
+	error = hypercall_copy_arg(vm, vcpuid, ds_desc.base, w0t,
+	    sizeof(int), paging, &probeid);
+	*/
+
+	probeid = (int) args[0];
+
+	vmmdt_hook_fire_probe(vm->name, probeid, 0, 0, 0, 0, 0);
 	return (HYPERCALL_RET_SUCCESS);
 }
 

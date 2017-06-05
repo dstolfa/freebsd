@@ -47,7 +47,7 @@ static void	dtvirt_unload(void);
 static void	dtvirt_commit(const char *, dtrace_id_t,
            	    uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 static int	dtvirt_probe_create(struct uuid *, const char *, const char *,
-          	    const char *, char *, size_t *, uint8_t);
+          	    const char *);
 static int	dtvirt_provider_register(const char *,
           	    const char *, struct uuid *,
 		    dtrace_pattr_t *, uint32_t, dtrace_pops_t *);
@@ -155,7 +155,7 @@ dtvirt_commit(const char *vm, dtrace_id_t id,
 
 static int
 dtvirt_probe_create(struct uuid *uuid, const char *mod, const char *func,
-    const char *name, char *argtypes, size_t *argsiz, uint8_t nargs)
+    const char *name)
 {
 	dtrace_virt_probe_t *virt_probe;
 	struct dtvirt_prov *prov, tmp;
@@ -179,6 +179,7 @@ dtvirt_probe_create(struct uuid *uuid, const char *mod, const char *func,
 		return (ENOMEM);
 	}
 
+	/*
 	virt_probe->dtv_argtypes = malloc(nargs * DTRACE_ARGTYPELEN, M_DTVIRT,
 	    M_NOWAIT | M_ZERO);
 
@@ -195,15 +196,18 @@ dtvirt_probe_create(struct uuid *uuid, const char *mod, const char *func,
 		free(virt_probe, M_DTVIRT);
 		return (ENOMEM);
 	}
+	*/
 
 	virt_probe->dtv_enabled = 0;
+	/*
 	virt_probe->dtv_nargs = nargs;
 	memcpy(virt_probe->dtv_argtypes, argtypes, DTRACE_ARGTYPELEN * nargs);
 	memcpy(virt_probe->dtv_argsizes, argsiz, sizeof(size_t) * nargs);
+	*/
 
 	virt_probe->dtv_id = dtrace_probe_create(provid, mod, func,
 	    name, 0, virt_probe);
-	strncpy(virt_probe->dtv_vm,
+	strlcpy(virt_probe->dtv_vm,
 	    prov->dtvp_instance, DTRACE_INSTANCENAMELEN);
 
 	return (0);
@@ -240,7 +244,7 @@ dtvirt_provider_register(const char *provname, const char *instance,
 
 	prov->dtvp_id = provid;
 	memcpy(prov->dtvp_uuid, uuid, sizeof(struct uuid));
-	strncpy(prov->dtvp_instance, instance, DTRACE_INSTANCENAMELEN);
+	strlcpy(prov->dtvp_instance, instance, DTRACE_INSTANCENAMELEN);
 
 	RB_INSERT(dtvirt_provtree, &dtvirt_provider_tree, prov);
 
@@ -252,9 +256,6 @@ dtvirt_priv_unregister(struct dtvirt_prov *prov)
 {
 	int error;
 	dtrace_provider_id_t provid;
-
-	if (prov == NULL)
-		return (ENOENT);
 
 	provid = prov->dtvp_id;
 	/*
@@ -312,6 +313,7 @@ static void
 dtvirt_getargdesc(void *arg, dtrace_id_t id,
     void *parg, dtrace_argdesc_t *adesc)
 {
+	/*
 	dtrace_virt_probe_t *virt_probe;
 	int ndx;
 
@@ -327,12 +329,15 @@ dtvirt_getargdesc(void *arg, dtrace_id_t id,
 
 	strlcpy(adesc->dtargd_native, virt_probe->dtv_argtypes[ndx],
 	    sizeof(adesc->dtargd_native));
+	*/
+	adesc->dtargd_ndx = DTRACE_ARGNONE;
 }
 
 static uint64_t
 dtvirt_getargval(void *arg, dtrace_id_t id,
     void *parg, uint64_t ndx, int aframes)
 {
+	/*
 	dtrace_virt_probe_t *virt_probe;
 	uint64_t val;
 	char *vm;
@@ -352,6 +357,8 @@ dtvirt_getargval(void *arg, dtrace_id_t id,
 		val = 0;
 
 	return (val);
+	*/
+	return (0);
 }
 
 static void
@@ -363,15 +370,14 @@ dtvirt_destroy(void *arg, dtrace_id_t id, void *parg)
 
 	virt_probe = (dtrace_virt_probe_t *) parg;
 
+	/*
 	free(virt_probe->dtv_argtypes, M_DTVIRT);
 	free(virt_probe->dtv_argsizes, M_DTVIRT);
+	*/
 	free(virt_probe, M_DTVIRT);
 
 }
 
-/*
- * FIXME: This should be generalized with a better uuidcmp()
- */
 static int
 dtvirt_prov_cmp(struct dtvirt_prov *p1, struct dtvirt_prov *p2)
 {
