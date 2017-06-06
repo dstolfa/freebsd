@@ -35,6 +35,7 @@ __FBSDID("$FreeBSD$");
 #endif
 #include <sys/event.h>
 #include <sys/uio.h>
+#include <sys/uuid.h>
 #include <sys/types.h>
 #include <sys/dtrace_bsd.h>
 
@@ -49,6 +50,7 @@ __FBSDID("$FreeBSD$");
 
 #include <vmmapi.h>
 
+#include "dthyve.h"
 #include "bhyverun.h"
 #include "pci_emul.h"
 #include "virtio.h"
@@ -83,11 +85,10 @@ static int pci_vtdtr_debug;
 #define	WPRINTF(params)		printf params
 
 struct pci_vtdtr_probe_create_event {
-	uint32_t /* dtrace_provider_id_t */	prov;
-	char					mod[DTRACE_MODNAMELEN];
-	char					func[DTRACE_FUNCNAMELEN];
-	char					name[DTRACE_NAMELEN];
-	int					aframes;
+	char		mod[DTRACE_MODNAMELEN];
+	char		func[DTRACE_FUNCNAMELEN];
+	char		name[DTRACE_NAMELEN];
+	struct uuid	uuid;
 }__attribute__((packed));
 
 struct pci_vtdtr_probe_toggle_event {
@@ -102,16 +103,16 @@ struct pci_vtdtr_ctrl_pbevent {
 	} upbev;
 }__attribute__((packed));
 
-struct pci_vtdtrl_ctrl_provevent {
-	uint32_t /* dtrace_provider_id_t */	id;
-	
+struct pci_vtdtr_ctrl_provevent {
+	char		name[DTRACE_PROVNAMELEN];
+	struct uuid	uuid;
 }__attribute__((packed));
 
 struct pci_vtdtr_control {
 	uint32_t	event;
 	union _uctrl {
 		struct pci_vtdtr_ctrl_pbevent		probe_ev;
-		struct pci_vtdtrl_ctrl_provevent	prov_ev;
+		struct pci_vtdtr_ctrl_provevent		prov_ev;
 	} uctrl;
 }__attribute__((packed));
 
@@ -210,8 +211,10 @@ pci_vtdtr_control_tx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 static int
 pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 {
-	int retval;
 	struct pci_vtdtr_control *ctrl;
+	struct pci_vtdtr_ctrl_provevent *pv_ev;
+	struct pci_vtdtr_ctrl_pbevent *pb_ev;
+	int retval, error;
 
 	assert(niov == 1);
 	retval = 0;
@@ -223,31 +226,50 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 		sc->vsd_guest_ready = 1;
 		pthread_mutex_unlock(&sc->vsd_mtx);
 		break;
-	/*
-	 * We could possibly handle these events individually here with
-	 * designing a function that returns provider information, that way we
-	 * don't switch-case twice.
-	 */
 	case VTDTR_DEVICE_REGISTER:
-	case VTDTR_DEVICE_UNREGISTER:
-	case VTDTR_DEVICE_DESTROY:
 		sc->vsd_ready = 0;
-		pci_vtdtr_process_prov_evt(sc, ctrl);
-		/*
-		 * FIXME: retval = 2 doesn't mean anything, this needs to be
-		 * defined somewhere
-		 */
+		retval = 2;
+		pv_ev = &ctrl->uctrl.prov_ev;
+		error = dthyve_register_provider(&pv_ev->uuid,
+		    vm_get_name(sc->vsd_vmctx), pv_ev->name);
+		if (error)
+			WPRINTF(("%s: error %d during registration",
+			    __func__, error));
+		break;
+	case VTDTR_DEVICE_UNREGISTER:
+		sc->vsd_ready = 0;
+		retval = 2;
+		pv_ev = &ctrl->uctrl.prov_ev;
+		error = dthyve_unregister_provider(&pv_ev->uuid);
+		if (error)
+			WPRINTF(("%s: error %d during unregistration",
+			    __func__, error));
+		break;
+	case VTDTR_DEVICE_DESTROY:
 		retval = 2;
 		break;
-	/*
-	 * Likewise here
-	 */
-	case VTDTR_DEVICE_PROBE_CREATE:
+	case VTDTR_DEVICE_PROBE_CREATE: {
+		char *mod;
+		char *func;
+		char *name;
+		struct uuid *uuid;
+		sc->vsd_ready = 0;
+		retval = 2;
+		pb_ev = &ctrl->uctrl.probe_ev;
+
+		mod = pb_ev->upbev.probe_evcreate.mod;
+		func = pb_ev->upbev.probe_evcreate.func;
+		name = pb_ev->upbev.probe_evcreate.name;
+		uuid = &pb_ev->upbev.probe_evcreate.uuid;
+
+		error = dthyve_probe_create(uuid, mod, func, name);
+		if (error)
+			WPRINTF(("%s: error %d during probe creation",
+			    __func__, error));
+		break;
+	}
 	case VTDTR_DEVICE_PROBE_INSTALL:
 	case VTDTR_DEVICE_PROBE_UNINSTALL:
-		sc->vsd_ready = 0;
-		pci_vtdtr_process_probe_evt(sc, ctrl);
-		retval = 2;
 		break;
 	case VTDTR_DEVICE_EOF:
 		retval = 1;
@@ -620,6 +642,7 @@ pci_vtdtr_init(struct vmctx *ctx, struct pci_devinst *pci_inst, char *opts)
 
 	sc->vsd_mev = mevent_add(0, EVF_DTRACE, pci_vtdtr_handle_mev,
 	    sc, (__intptr_t)&(sc->vsd_pbi));
+
 	return (0);
 }
 

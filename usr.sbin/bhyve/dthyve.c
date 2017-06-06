@@ -75,7 +75,7 @@ dthyve_open(void)
 }
 
 int
-dthyve_register_provider(const char *vm, const char *name)
+dthyve_register_provider(struct uuid *uuid, const char *vm, const char *name)
 {
 	dtrace_virt_providerdesc_t virt_pv;
 	struct dthyve_prov *pv;
@@ -88,7 +88,7 @@ dthyve_register_provider(const char *vm, const char *name)
 	if (virt_pv.vpvd_uuid == NULL)
 		return (ENOMEM);
 
-	uuidgen(virt_pv.vpvd_uuid, 1);
+	memcpy(virt_pv.vpvd_uuid, uuid, sizeof(struct uuid));
 
 	if ((error = dt_ioctl(g_dtp, DTRACEIOC_PROVCREATE, &virt_pv)) != 0)
 		return (error);

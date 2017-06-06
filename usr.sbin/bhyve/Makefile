@@ -40,7 +40,6 @@ SRCS=	\
 	pci_passthru.c		\
 	pci_virtio_block.c	\
 	pci_virtio_console.c	\
-	pci_virtio_dtrace.c	\
 	pci_virtio_net.c	\
 	pci_virtio_rnd.c	\
 	pci_uart.c		\
@@ -64,7 +63,7 @@ SRCS=	\
 
 
 .if ${MK_DTVIRT} != "no"
-SRCS+=  dthyve.c
+SRCS+=  dthyve.c pci_virtio_dtrace.c
 DTHYVE_INCLUDES= -I${.CURDIR}/../../cddl/compat/opensolaris/include
 DTHYVE_INCLUDES+= -I${.CURDIR}/../../cddl/contrib/opensolaris/lib/libdtrace/common
 DTHYVE_INCLUDES+= -I${.CURDIR}/../../cddl/contrib/opensolaris/lib/libctf/common

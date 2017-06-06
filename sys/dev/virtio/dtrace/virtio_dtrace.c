@@ -43,10 +43,8 @@ __FBSDID("$FreeBSD$");
 #include <sys/kthread.h>
 #include <sys/taskqueue.h>
 #include <sys/queue.h>
-/*
- * We will include this later to handle DTrace-related things.
-#include <sys/dtvirt.h>
-*/
+#include <sys/uuid.h>
+#include <sys/dtrace.h>
 
 #include <sys/conf.h>
 
@@ -179,6 +177,9 @@ static struct vtdtr_ctrl_entry * vtdtr_cq_dequeue(struct vtdtr_ctrlq *);
 static void	vtdtr_notify(struct virtio_dtrace_queue *);
 static void	vtdtr_poll(struct virtio_dtrace_queue *);
 static void	vtdtr_run(void *);
+static void	vtdtr_enq_prov(const char *, struct uuid *);
+static void	vtdtr_enq_probe(const char *, const char *,
+           	    const char *, struct uuid *);
 
 static device_method_t vtdtr_methods[] = {
 	/* Device methods. */
@@ -362,6 +363,7 @@ vtdtr_attach(device_t dev)
 	vtdtr_notify_ready(sc);
 	kthread_add(vtdtr_run, sc, NULL, &sc->vtdtr_commtd,
 	    0, 0, NULL, "vtdtr_communicator");
+	dtrace_vtdtr_enable((void *)sc);
 fail:
 	if (error)
 		vtdtr_detach(dev);
@@ -1377,3 +1379,93 @@ vtdtr_run(void *xsc)
 	}
 }
 
+static void
+vtdtr_enq_prov_register(void *xsc, const char *name, struct uuid *uuid)
+{
+	struct vtdtr_softc *sc;
+	struct vtdtr_ctrl_entry *ctrl_entry;
+	struct virtio_dtrace_control *ctrl;
+	device_t dev;
+
+	sc = xsc;
+	dev = sc->vtdtr_dev;
+
+	ctrl_entry = malloc(sizeof(struct vtdtr_ctrl_entry),
+	    M_DEVBUF, M_NOWAIT | M_ZERO);
+
+	if (ctrl_entry == NULL) {
+		device_printf(dev, "no memory to allocate a control entry");
+		return;
+	}
+
+	ctrl = &ctrl_entry->ctrl;
+	ctrl->event = VIRTIO_DTRACE_REGISTER;
+	memcpy(&ctrl->uctrl.prov_ev.uuid, uuid, sizeof(struct uuid));
+	strlcpy(ctrl->uctrl.prov_ev.name, name, DTRACE_INSTANCENAMELEN);
+
+	mtx_lock(&sc->vtdtr_ctrlq->mtx);
+	vtdtr_cq_enqueue_front(sc->vtdtr_ctrlq, ctrl_entry);
+	mtx_unlock(&sc->vtdtr_ctrlq->mtx);
+}
+
+static void
+vtdtr_enq_prov_unregister(void *xsc, struct uuid *uuid)
+{
+	struct vtdtr_softc *sc;
+	struct vtdtr_ctrl_entry *ctrl_entry;
+	struct virtio_dtrace_control *ctrl;
+	device_t dev;
+
+	sc = xsc;
+	dev = sc->vtdtr_dev;
+
+	ctrl_entry = malloc(sizeof(struct vtdtr_ctrl_entry),
+	    M_DEVBUF, M_NOWAIT | M_ZERO);
+
+	if (ctrl_entry == NULL) {
+		device_printf(dev, "no memory to allocate a control entry");
+		return;
+	}
+
+	ctrl = &ctrl_entry->ctrl;
+	ctrl->event = VIRTIO_DTRACE_UNREGISTER;
+	memcpy(&ctrl->uctrl.prov_ev.uuid, uuid, sizeof(struct uuid));
+
+	mtx_lock(&sc->vtdtr_ctrlq->mtx);
+	vtdtr_cq_enqueue_front(sc->vtdtr_ctrlq, ctrl_entry);
+	mtx_unlock(&sc->vtdtr_ctrlq->mtx);
+}
+
+static void
+vtdtr_enq_probe_create(void *xsc, const char *mod, const char *func,
+    const char *name, struct uuid *uuid)
+{
+	struct vtdtr_softc *sc;
+	struct vtdtr_ctrl_entry *ctrl_entry;
+	struct virtio_dtrace_control *ctrl;
+	struct vtdtr_pbev_create_event *cevent;
+	device_t dev;
+
+	sc = xsc;
+	dev = sc->vtdtr_dev;
+
+	ctrl_entry = malloc(sizeof(struct vtdtr_ctrl_entry),
+	    M_DEVBUF, M_NOWAIT | M_ZERO);
+
+	if (ctrl_entry == NULL) {
+		device_printf(dev, "no memory to allocate a control entry");
+		return;
+	}
+
+	ctrl = &ctrl_entry->ctrl;
+	ctrl->event = VIRTIO_DTRACE_PROBE_CREATE;
+	cevent = &ctrl->uctrl.probe_ev.upbev.create;
+	strlcpy(cevent->mod, mod, DTRACE_MODNAMELEN);
+	strlcpy(cevent->func, func, DTRACE_FUNCNAMELEN);
+	strlcpy(cevent->name, name, DTRACE_NAMELEN);
+	memcpy(&cevent->uuid, uuid, sizeof(struct uuid));
+
+	mtx_lock(&sc->vtdtr_ctrlq->mtx);
+	vtdtr_cq_enqueue_front(sc->vtdtr_ctrlq, ctrl_entry);
+	mtx_unlock(&sc->vtdtr_ctrlq->mtx);
+}

@@ -196,6 +196,9 @@ uint64_t	dtrace_gethrestime(void);
 
 #endif /* _KERNEL */
 
+/*
+ * XXX: Hack
+ */
 #define	DTRACE_INSTANCENAMELEN	64
 #define	DTRACE_PROVNAMELEN	64
 #define	DTRACE_MODNAMELEN	64

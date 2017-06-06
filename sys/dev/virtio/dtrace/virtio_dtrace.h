@@ -52,13 +52,13 @@
 #define	VIRTIO_DTRACE_EOF		0x07	/* EOF Signal */
 
 struct vtdtr_softc;
+struct uuid;
 
 struct vtdtr_pbev_create_event {
-	uint32_t /* dtrace_provider_id_t */	prov;
-	char					mod[DTRACE_MODNAMELEN];
-	char					func[DTRACE_FUNCNAMELEN];
-	char					name[DTRACE_NAMELEN];
-	int					aframes;
+	char		mod[DTRACE_MODNAMELEN];
+	char		func[DTRACE_FUNCNAMELEN];
+	char		name[DTRACE_NAMELEN];
+	struct uuid	uuid;
 }__attribute__((packed));
 
 struct vtdtr_pbev_toggle_event {
@@ -68,14 +68,14 @@ struct vtdtr_pbev_toggle_event {
 struct vtdtr_ctrl_pbevent {
 	uint32_t probe;
 	union _upbev {
-		struct vtdtr_pbev_create_event	probe_evcreate;
-		struct vtdtr_pbev_toggle_event	probe_evtoggle;
+		struct vtdtr_pbev_create_event	create;
+		struct vtdtr_pbev_toggle_event	toggle;
 	} upbev;
 }__attribute__((packed));
 
 struct vtdtr_ctrl_provevent {
-	uint32_t /* dtrace_provider_id_t */	id;
-	
+	char		name[DTRACE_PROVNAMELEN];
+	struct uuid	uuid;
 }__attribute__((packed));
 
 struct virtio_dtrace_control {
@@ -116,5 +116,10 @@ struct vtdtr_ctrlq {
 	mtx_assert(&((__q)->vtdq_mtx), MA_OWNED)
 #define	VTDTR_QUEUE_LOCK_ASSERT_NOTOWNED(__q)	\
 	mtx_assert(&((__q)->vtdq_mtx), MA_NOTOWNED)
+
+extern void *	(*vtdtr_hook_register)(void);
+extern void	(*vtdtr_hook_enq_prov)(void *, const char *, struct uuid *);
+extern void	(*vtdtr_hook_enq_probe)(void *, const char *, const char *,
+           	    const char *, struct uuid *);
 
 #endif

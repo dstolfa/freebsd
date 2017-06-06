@@ -23,19 +23,28 @@
 # SUCH DAMAGE.
 #
 
+.include <src.opts.mk>
+
+.if ${MK_DTVIRT} != "no"
 KMOD=	virtio_dtrace
 
-CFLAGS_INCLUDE_SOLARIS= -I${.CURDIR}/../../../cddl/compat/opensolaris
-CFLAGS_INCLUDE_SOLARIS+= -I${.CURDIR}/../../../cddl/contrib/opensolaris/uts/common
-
 .PATH: ${.CURDIR}/../../../dev/virtio/dtrace
+
+VTDTR_CFLAGS= -I${SRCTOP}/sys/cddl/compat/opensolaris
+VTDTR_CFLAGS+= -I${SRCTOP}/sys/cddl/contrib/opensolaris/uts/common
+VTDTR_CFLAGS+= -I${SRCTOP}/sys/cddl/contrib/opensolaris/common
+
 
 SRCS=	virtio_dtrace.c
 SRCS+=	virtio_bus_if.h virtio_if.h
 SRCS+=	bus_if.h device_if.h
 
 virtio_dtrace.o:
-	${CC} -c ${CFLAGS_INCLUDE_SOLARIS} ${CFLAGS} \
+	${CC} -c \
+		${CFLAGS} \
+		-I${SRCTOP}/sys/cddl/compat/opensolaris \
+		-I${SRCTOP}/sys/cddl/contrib/opensolaris/uts/common/ \
 		${.IMPSRC} -o ${.TARGET}
 
 .include <bsd.kmod.mk>
+.endif

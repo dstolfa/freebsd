@@ -34,7 +34,7 @@
 struct uuid;
 
 int	dthyve_open(void);
-int	dthyve_register_provider(const char *, const char *);
+int	dthyve_register_provider(struct uuid *, const char *, const char *);
 int	dthyve_unregister_provider(struct uuid *);
 int	dthyve_probe_create(struct uuid *, const char *,
    	    const char *, const char *);

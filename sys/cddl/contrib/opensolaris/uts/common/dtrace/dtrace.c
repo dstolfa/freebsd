@@ -267,6 +267,7 @@ static dtrace_enabling_t *dtrace_retained;	/* list of retained enablings */
 static dtrace_genid_t	dtrace_retained_gen;	/* current retained enab gen */
 static dtrace_dynvar_t	dtrace_dynhash_sink;	/* end of dynamic hash chains */
 static int		dtrace_dynvar_failclean; /* dynvars failed to clean */
+static void		*vtdtr_sc;		/* vtdtr softc */
 #ifndef illumos
 static struct mtx	dtrace_unr_mtx;
 MTX_SYSINIT(dtrace_unr_mtx, &dtrace_unr_mtx, "Unique resource identifier", MTX_DEF);
@@ -8036,6 +8037,13 @@ dtrace_probe(dtrace_id_t id, uintptr_t arg0, uintptr_t arg1,
 {
 	dtrace_distributed_probe("host", id, arg0, arg1,
 	    arg2, arg3, arg4);
+}
+
+void
+dtrace_vtdtr_enable(void *xsc)
+{
+
+	vtdtr_sc = xsc;
 }
 
 /*
