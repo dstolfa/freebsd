@@ -25,26 +25,23 @@
 
 .include <src.opts.mk>
 
+SYSDIR?=	${SRCTOP}/sys
+
 .if ${MK_DTVIRT} != "no"
 KMOD=	virtio_dtrace
 
 .PATH: ${.CURDIR}/../../../dev/virtio/dtrace
 
-VTDTR_CFLAGS= -I${SRCTOP}/sys/cddl/compat/opensolaris
-VTDTR_CFLAGS+= -I${SRCTOP}/sys/cddl/contrib/opensolaris/uts/common
-VTDTR_CFLAGS+= -I${SRCTOP}/sys/cddl/contrib/opensolaris/common
-
+CFLAGS+=	-I${SYSDIR}/cddl/compat/opensolaris \
+		-I${SYSDIR}/cddl/contrib/opensolaris/uts/common \
+		-I${SYSDIR}
 
 SRCS=	virtio_dtrace.c
+SRCS+=	vnode_if.h
 SRCS+=	virtio_bus_if.h virtio_if.h
 SRCS+=	bus_if.h device_if.h
 
-virtio_dtrace.o:
-	${CC} -c \
-		${CFLAGS} \
-		-I${SRCTOP}/sys/cddl/compat/opensolaris \
-		-I${SRCTOP}/sys/cddl/contrib/opensolaris/uts/common/ \
-		${.IMPSRC} -o ${.TARGET}
-
 .include <bsd.kmod.mk>
+
+CFLAGS+=	-include ${SYSDIR}/cddl/compat/opensolaris/sys/debug_compat.h
 .endif
