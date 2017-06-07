@@ -355,11 +355,8 @@ pci_vtdtr_handle_mev(int fd __unused, enum ev_type et __unused, int ne,
 	sc = xsc;
 	name = vm_get_name(sc->vsd_vmctx);
 
-/*	if (strcmp(name, sc->vsd_pbi.instance) != 0)
-		return; */
-	/*
-	 * Testing purposes... good god.
-	 */
+	if (strcmp(name, sc->vsd_pbi.instance) != 0)
+		return;
 
 	ctrl_entry = malloc(sizeof(struct pci_vtdtr_ctrl_entry));
 	assert(ctrl_entry != NULL);
