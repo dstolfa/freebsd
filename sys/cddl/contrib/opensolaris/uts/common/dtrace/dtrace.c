@@ -131,6 +131,7 @@
 #include <sys/rwlock.h>
 #include <sys/sx.h>
 #include <sys/sysctl.h>
+#include <sys/vtdtr.h>
 
 #include <sys/dtrace_bsd.h>
 
@@ -380,6 +381,11 @@ void	(*dtvirt_hook_disable)(void *, dtrace_id_t, void *);
 void	(*dtvirt_hook_getargdesc)(void *, dtrace_id_t, void *, dtrace_argdesc_t *);
 uint64_t (*dtvirt_hook_getargval)(void *, dtrace_id_t, void *, uint64_t, int);
 void	(*dtvirt_hook_destroy)(void *, dtrace_id_t, void *);
+
+void	(*vtdtr_advertise_prov)(void *, const char *, struct uuid *);
+void	(*vtdtr_destroy_prov)(void *, struct uuid *);
+void	(*vtdtr_advertise_probe)(void *, const char *,
+           	    const char *, const char *, struct uuid *);
 
 static dtrace_pops_t dtvirt_pops = {
 	(void (*)(void *, dtrace_probedesc_t *))dtrace_virtop,
@@ -8039,9 +8045,94 @@ dtrace_probe(dtrace_id_t id, uintptr_t arg0, uintptr_t arg1,
 	    arg2, arg3, arg4);
 }
 
-static void
-dtrace_priv_vtdtr_enable(void *xsc)
+void
+dtrace_probeid_enable(dtrace_id_t id)
 {
+}
+
+void
+dtrace_probeid_disable(dtrace_id_t id)
+{
+}
+
+/*
+ * We've just attached with virtio_dtrace. We must advertise all of the
+ * providers and probes to the host that we already have.
+ */
+void
+dtrace_vtdtr_enable(void *xsc)
+{
+	dtrace_instance_t *is;
+	dtrace_provider_t *pv;
+	dtrace_probe_t *probe, **dtrace_probes;
+	uint32_t dtrace_nprobes, idx, i;
+
+	if (xsc == NULL)
+		return;
+
+	/*
+	 * virtio_dtrace _must_ be loaded, there is nothing we can do here if it
+	 * isn't.
+	 */
+	ASSERT(vtdtr_advertise_prov != NULL);
+	ASSERT(vtdtr_destroy_prov != NULL);
+	ASSERT(vtdtr_advertise_probe != NULL);
+
+	mutex_enter(&dtrace_instance_lock);
+	mutex_enter(&dtrace_provider_lock);
+	mutex_enter(&dtrace_lock);
+
+	is = dtrace_instance;
+	ASSERT(is != NULL);
+
+	/*
+	 * We iterate through all the instances
+	 */
+	while (is != NULL) {
+		/*
+		 * Grab all of the necessary providers/probes
+		 */
+		pv = is->dtis_provhead;
+		ASSERT(pv != NULL);
+
+		idx = dtrace_instance_lookup_id(is->dtis_name);
+		dtrace_probes = dtrace_istc_probes[idx];
+		dtrace_nprobes = dtrace_istc_probecount[idx];
+
+		ASSERT(dtrace_nprobes > 0);
+		ASSERT(dtrace_probes != NULL);
+
+		/*
+		 * Advertise each provider
+		 */
+		while (pv) {
+			vtdtr_advertise_prov(xsc, pv->dtpv_name, pv->dtpv_uuid);
+			pv = pv->dtpv_next;
+		}
+
+		/*
+		 * Advertise each probe
+		 */
+		for (i = 0; i < dtrace_nprobes; i++) {
+			probe = dtrace_probes[i];
+			/* We have reached the last probe */
+			if (probe == NULL)
+				break;
+
+			pv = probe->dtpr_provider;
+			ASSERT(pv != NULL);
+
+			vtdtr_advertise_probe(xsc,
+			    probe->dtpr_mod, probe->dtpr_func,
+			    probe->dtpr_name, pv->dtpv_uuid);
+		}
+
+		is = is->dtis_next;
+	}
+
+	mutex_exit(&dtrace_lock);
+	mutex_exit(&dtrace_provider_lock);
+	mutex_exit(&dtrace_instance_lock);
 
 	vtdtr_sc = xsc;
 }
@@ -9086,6 +9177,12 @@ dtrace_distributed_register(const char *name, const char *istcname,
 	 */
 	ASSERT(provider->dtpv_instance != NULL);
 
+	if (vtdtr_sc != NULL) {
+		ASSERT(vtdtr_advertise_prov != NULL);
+		vtdtr_advertise_prov(vtdtr_sc,
+		    provider->dtpv_name, provider->dtpv_uuid);
+	}
+
 	if (pops == &dtrace_provider_ops) {
 		ASSERT(MUTEX_HELD(&dtrace_instance_lock));
 		ASSERT(MUTEX_HELD(&dtrace_provider_lock));
@@ -9467,6 +9564,11 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 	 * TODO: Actually implement this.
 	 */
 
+	if (vtdtr_sc != NULL) {
+		ASSERT(vtdtr_destroy_prov != NULL);
+		vtdtr_destroy_prov(vtdtr_sc, old->dtpv_uuid);
+	}
+
 	kmem_free(old->dtpv_name, strlen(old->dtpv_name) + 1);
 	kmem_free(old->dtpv_uuid, sizeof (struct uuid));
 	kmem_free(old->dtpv_advuuid, sizeof (struct uuid));
@@ -9723,12 +9825,18 @@ dtrace_probe_create(dtrace_provider_id_t prov, const char *mod,
 	 * dtps_provide_module()
 	 */
 
-	if (provider != dtrace_provider)
-		mutex_exit(&dtrace_lock);
-
 	dtrace_istc_probes[idx] = dtrace_probes;
 	dtrace_istc_probecount[idx] = dtrace_nprobes;
 	dtrace_istc_names[idx] = provider->dtpv_instance;
+
+	if (vtdtr_sc != NULL) {
+		ASSERT(vtdtr_advertise_probe != NULL);
+		vtdtr_advertise_probe(vtdtr_sc, probe->dtpr_mod,
+		    probe->dtpr_func, probe->dtpr_name, provider->dtpv_uuid);
+	}
+
+	if (provider != dtrace_provider)
+		mutex_exit(&dtrace_lock);
 
 	return (id);
 }
