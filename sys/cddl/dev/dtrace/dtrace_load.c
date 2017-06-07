@@ -77,7 +77,6 @@ dtrace_load(void *dummy)
 	dtrace_arenas = kmem_zalloc(sizeof (struct unrhdr *) * DTRACE_MAX_INSTANCES,
 	    KM_SLEEP);
 
-	dtrace_vtdtr_enable = dtrace_priv_vtdtr_enable;
 /*	dtrace_arena = new_unrhdr(1, INT_MAX, &dtrace_unr_mtx); */
 
 	/* Register callbacks for linker file load and unload events. */

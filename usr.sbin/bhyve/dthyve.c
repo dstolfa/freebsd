@@ -53,6 +53,7 @@ struct dthyve_prov {
 	char			vm[DTRACE_INSTANCENAMELEN];
 	char			name[DTRACE_PROVNAMELEN];
 	struct uuid		*uuid;
+	struct uuid		*host_uuid;
 };
 
 static int	dthyve_priv_unregister(struct dthyve_prov *);
@@ -88,24 +89,25 @@ dthyve_register_provider(struct uuid *uuid, const char *vm, const char *name)
 	if (virt_pv.vpvd_uuid == NULL)
 		return (ENOMEM);
 
+	pv = malloc(sizeof(struct dthyve_prov));
+
+	if (pv == NULL)
+		return (ENOMEM);
+
+	pv->uuid = malloc(sizeof(struct uuid));
+
+	if (pv->uuid == NULL)
+		return (ENOMEM);
+
 	memcpy(virt_pv.vpvd_uuid, uuid, sizeof(struct uuid));
+	memcpy(pv->uuid, uuid, sizeof(struct uuid));
 
 	if ((error = dt_ioctl(g_dtp, DTRACEIOC_PROVCREATE, &virt_pv)) != 0)
 		return (error);
 
-	pv = malloc(sizeof(struct dthyve_prov));
-	if (pv == NULL) {
-		error = dt_ioctl(g_dtp, DTRACEIOC_PROVDESTROY,
-		    virt_pv.vpvd_uuid);
-		assert(error == 0);
-
-		free(virt_pv.vpvd_uuid);
-		return (ENOMEM);
-	}
-
 	strlcpy(pv->vm, vm, DTRACE_INSTANCENAMELEN);
 	strlcpy(pv->name, name, DTRACE_PROVNAMELEN);
-	pv->uuid = virt_pv.vpvd_uuid;
+	pv->host_uuid = virt_pv.vpvd_uuid;
 
 	RB_INSERT(dthyve_provtree, &dthyve_provider_tree, pv);
 
@@ -117,8 +119,9 @@ dthyve_priv_unregister(struct dthyve_prov *pv)
 {
 	int error;
 
-	error = dt_ioctl(g_dtp, DTRACEIOC_PROVDESTROY, pv->uuid);
+	error = dt_ioctl(g_dtp, DTRACEIOC_PROVDESTROY, pv->host_uuid);
 	RB_REMOVE(dthyve_provtree, &dthyve_provider_tree, pv);
+	free(pv->host_uuid);
 	free(pv->uuid);
 	free(pv);
 
@@ -145,15 +148,29 @@ int
 dthyve_probe_create(struct uuid *uuid, const char *mod,
     const char *func, const char *name)
 {
+	struct dthyve_prov *pv, tmp;
 	dtrace_virt_probedesc_t vpdesc;
+	int error;
+
+	tmp.uuid = uuid;
+
+	pv = RB_FIND(dthyve_provtree, &dthyve_provider_tree, &tmp);
+
+	if (pv == NULL)
+		return (ESRCH);
 
 	strlcpy(vpdesc.vpbd_mod, mod, DTRACE_MODNAMELEN);
 	strlcpy(vpdesc.vpbd_func, func, DTRACE_FUNCNAMELEN);
 	strlcpy(vpdesc.vpbd_name, name, DTRACE_NAMELEN);
 
-	vpdesc.vpbd_uuid = uuid;
+	vpdesc.vpbd_uuid = malloc(sizeof(struct uuid));
+	memcpy(vpdesc.vpbd_uuid, pv->host_uuid, sizeof(struct uuid));
 
-	return (dt_ioctl(g_dtp, DTRACEIOC_PROBECREATE, &vpdesc));
+	error = dt_ioctl(g_dtp, DTRACEIOC_PROBECREATE, &vpdesc);
+
+	free(vpdesc.vpbd_uuid);
+
+	return (error);
 }
 
 void

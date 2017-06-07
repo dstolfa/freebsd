@@ -44,6 +44,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/taskqueue.h>
 #include <sys/queue.h>
 #include <sys/uuid.h>
+#include <sys/vtdtr.h>
 #include <sys/dtrace.h>
 
 #include <sys/conf.h>
@@ -83,6 +84,8 @@ struct vtdtr_softc {
 	struct vtdtr_ctrlq			*vtdtr_ctrlq;
 
 	struct thread				*vtdtr_commtd;
+
+	struct sema				vtdtr_exit;
 
 	/*
 	 * We need to keep track of all the enabled probes in the
@@ -177,11 +180,10 @@ static struct vtdtr_ctrl_entry * vtdtr_cq_dequeue(struct vtdtr_ctrlq *);
 static void	vtdtr_notify(struct virtio_dtrace_queue *);
 static void	vtdtr_poll(struct virtio_dtrace_queue *);
 static void	vtdtr_run(void *);
-static void	vtdtr_enq_prov(const char *, struct uuid *);
-static void	vtdtr_enq_probe(const char *, const char *,
+static void	vtdtr_advertise_prov_priv(void *, const char *, struct uuid *);
+static void	vtdtr_destroy_prov_priv(void *, struct uuid *);
+static void	vtdtr_advertise_probe_priv(void *, const char *, const char *,
            	    const char *, struct uuid *);
-
-void		(*dtrace_vtdtr_enable)(void *);
 
 static device_method_t vtdtr_methods[] = {
 	/* Device methods. */
@@ -281,6 +283,11 @@ vtdtr_attach(device_t dev)
 	sc->vtdtr_tx_nseg = 1;
 	sc->vtdtr_shutdown = 0;
 	sc->vtdtr_host_ready = 1;
+
+	vtdtr_advertise_prov = vtdtr_advertise_prov_priv;
+	vtdtr_destroy_prov = vtdtr_destroy_prov_priv;
+	vtdtr_advertise_probe = vtdtr_advertise_probe_priv;
+
 	sc->vtdtr_ctrlq = malloc(sizeof(struct vtdtr_ctrlq),
 	    M_DEVBUF, M_NOWAIT | M_ZERO);
 
@@ -357,6 +364,7 @@ vtdtr_attach(device_t dev)
 	}
 	cv_init(&sc->vtdtr_condvar, "Virtio DTrace CV");
 	mtx_init(&sc->vtdtr_condmtx, "vtdtrcondmtx", NULL, MTX_DEF);
+	sema_init(&sc->vtdtr_exit, 0, "vtdtrexitsema");
 
 	vtdtr_enable_interrupts(sc);
 
@@ -365,6 +373,7 @@ vtdtr_attach(device_t dev)
 	vtdtr_notify_ready(sc);
 	kthread_add(vtdtr_run, sc, NULL, &sc->vtdtr_commtd,
 	    0, 0, NULL, "vtdtr_communicator");
+
 	dtrace_vtdtr_enable((void *)sc);
 fail:
 	if (error)
@@ -801,7 +810,7 @@ vtdtr_ctrl_process_probe_install(struct vtdtr_softc *sc,
 	LIST_INSERT_HEAD(&list->head, probe, vtdprobe_next);
 	num_dtprobes++;
 	mtx_unlock(&list->mtx);
-/*	dtrace_probeid_disable(probe->vtdprobe_id); */
+	dtrace_probeid_enable(probe->vtdprobe_id); 
 	return (0);
 }
 
@@ -833,6 +842,8 @@ vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
 		}
 	}
 	mtx_unlock(&list->mtx);
+
+	dtrace_probeid_disable(probe->vtdprobe_id);
 
 	return (0);
 }
@@ -928,10 +939,9 @@ vtdtr_drain_virtqueues(struct vtdtr_softc *sc)
 static void
 vtdtr_disable_interrupts(struct vtdtr_softc *sc)
 {
-	VTDTR_LOCK(sc);
+	VTDTR_LOCK_ASSERT(sc);
 	vtdtr_vq_disable_intr(&sc->vtdtr_rxq);
 	vtdtr_vq_disable_intr(&sc->vtdtr_txq);
-	VTDTR_UNLOCK(sc);
 }
 
 /*
@@ -1014,6 +1024,10 @@ vtdtr_notify_ready(struct vtdtr_softc *sc)
 	mtx_lock(&sc->vtdtr_ctrlq->mtx);
 	vtdtr_cq_enqueue_front(sc->vtdtr_ctrlq, ctrl_entry);
 	mtx_unlock(&sc->vtdtr_ctrlq->mtx);
+
+	mtx_lock(&sc->vtdtr_condmtx);
+	cv_signal(&sc->vtdtr_condvar);
+	mtx_unlock(&sc->vtdtr_condmtx);
 }
 
 /*
@@ -1224,7 +1238,7 @@ vtdtr_cq_empty(struct vtdtr_ctrlq *cq)
 	return (STAILQ_EMPTY(&cq->head));
 }
 
-static __inline size_t
+static __inline __unused size_t
 vtdtr_cq_count(struct vtdtr_ctrlq *cq)
 {
 
@@ -1286,8 +1300,6 @@ vtdtr_run(void *xsc)
 	int nent;
 	int ready_flag;
 
-	KASSERT(dtrace_vtdtr_enable != NULL,
-	    ("%s: dtrace_vtdtr_enable == NULL", __func__));;
 	sc = xsc;
 	dev = sc->vtdtr_dev;
 
@@ -1322,12 +1334,12 @@ vtdtr_run(void *xsc)
 			cv_wait(&sc->vtdtr_condvar, &sc->vtdtr_condmtx);
 		}
 		mtx_unlock(&sc->vtdtr_condmtx);
-		
 
 		kthread_suspend_check();
 
 		if (sc->vtdtr_shutdown == 1) {
 			free(ctrls, M_VTDTR);
+			sema_post(&sc->vtdtr_exit);
 			kthread_exit();
 		}
 
@@ -1373,7 +1385,9 @@ vtdtr_run(void *xsc)
 				vtdtr_send_eof(txq);
 			}
 
+			VTDTR_LOCK(sc);
 			sc->vtdtr_host_ready = ready_flag;
+			VTDTR_UNLOCK(sc);
 			vtdtr_poll(txq);
 		}
 
@@ -1384,7 +1398,7 @@ vtdtr_run(void *xsc)
 }
 
 static void
-vtdtr_enq_prov_register(void *xsc, const char *name, struct uuid *uuid)
+vtdtr_advertise_prov_priv(void *xsc, const char *name, struct uuid *uuid)
 {
 	struct vtdtr_softc *sc;
 	struct vtdtr_ctrl_entry *ctrl_entry;
@@ -1405,15 +1419,19 @@ vtdtr_enq_prov_register(void *xsc, const char *name, struct uuid *uuid)
 	ctrl = &ctrl_entry->ctrl;
 	ctrl->event = VIRTIO_DTRACE_REGISTER;
 	memcpy(&ctrl->uctrl.prov_ev.uuid, uuid, sizeof(struct uuid));
-	strlcpy(ctrl->uctrl.prov_ev.name, name, DTRACE_INSTANCENAMELEN);
+	strlcpy(ctrl->uctrl.prov_ev.name, name, DTRACE_PROVNAMELEN);
 
 	mtx_lock(&sc->vtdtr_ctrlq->mtx);
-	vtdtr_cq_enqueue_front(sc->vtdtr_ctrlq, ctrl_entry);
+	vtdtr_cq_enqueue(sc->vtdtr_ctrlq, ctrl_entry);
 	mtx_unlock(&sc->vtdtr_ctrlq->mtx);
+
+	mtx_lock(&sc->vtdtr_condmtx);
+	cv_signal(&sc->vtdtr_condvar);
+	mtx_unlock(&sc->vtdtr_condmtx);
 }
 
 static void
-vtdtr_enq_prov_unregister(void *xsc, struct uuid *uuid)
+vtdtr_destroy_prov_priv(void *xsc, struct uuid *uuid)
 {
 	struct vtdtr_softc *sc;
 	struct vtdtr_ctrl_entry *ctrl_entry;
@@ -1436,12 +1454,16 @@ vtdtr_enq_prov_unregister(void *xsc, struct uuid *uuid)
 	memcpy(&ctrl->uctrl.prov_ev.uuid, uuid, sizeof(struct uuid));
 
 	mtx_lock(&sc->vtdtr_ctrlq->mtx);
-	vtdtr_cq_enqueue_front(sc->vtdtr_ctrlq, ctrl_entry);
+	vtdtr_cq_enqueue(sc->vtdtr_ctrlq, ctrl_entry);
 	mtx_unlock(&sc->vtdtr_ctrlq->mtx);
+
+	mtx_lock(&sc->vtdtr_condmtx);
+	cv_signal(&sc->vtdtr_condvar);
+	mtx_unlock(&sc->vtdtr_condmtx);
 }
 
 static void
-vtdtr_enq_probe_create(void *xsc, const char *mod, const char *func,
+vtdtr_advertise_probe_priv(void *xsc, const char *mod, const char *func,
     const char *name, struct uuid *uuid)
 {
 	struct vtdtr_softc *sc;
@@ -1470,6 +1492,10 @@ vtdtr_enq_probe_create(void *xsc, const char *mod, const char *func,
 	memcpy(&cevent->uuid, uuid, sizeof(struct uuid));
 
 	mtx_lock(&sc->vtdtr_ctrlq->mtx);
-	vtdtr_cq_enqueue_front(sc->vtdtr_ctrlq, ctrl_entry);
+	vtdtr_cq_enqueue(sc->vtdtr_ctrlq, ctrl_entry);
 	mtx_unlock(&sc->vtdtr_ctrlq->mtx);
+
+	mtx_lock(&sc->vtdtr_condmtx);
+	cv_signal(&sc->vtdtr_condvar);
+	mtx_unlock(&sc->vtdtr_condmtx);
 }

@@ -117,9 +117,4 @@ struct vtdtr_ctrlq {
 #define	VTDTR_QUEUE_LOCK_ASSERT_NOTOWNED(__q)	\
 	mtx_assert(&((__q)->vtdq_mtx), MA_NOTOWNED)
 
-extern void *	(*vtdtr_hook_register)(void);
-extern void	(*vtdtr_hook_enq_prov)(void *, const char *, struct uuid *);
-extern void	(*vtdtr_hook_enq_probe)(void *, const char *, const char *,
-           	    const char *, struct uuid *);
-
 #endif

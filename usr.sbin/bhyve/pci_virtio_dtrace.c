@@ -47,6 +47,7 @@ __FBSDID("$FreeBSD$");
 #include <unistd.h>
 #include <assert.h>
 #include <pthread.h>
+#include <errno.h>
 
 #include <vmmapi.h>
 
@@ -72,9 +73,9 @@ __FBSDID("$FreeBSD$");
  * to be sent to the guest in order to clean up the TX virtqueue.
  */
 #define	VTDTR_DEVICE_READY		0x00
-#define	VTDTR_DEVICE_DESTROY		0x01
-#define	VTDTR_DEVICE_REGISTER		0x02
-#define	VTDTR_DEVICE_UNREGISTER		0x03
+#define	VTDTR_DEVICE_REGISTER		0x01
+#define	VTDTR_DEVICE_UNREGISTER		0x02
+#define	VTDTR_DEVICE_DESTROY		0x03
 #define	VTDTR_DEVICE_PROBE_CREATE	0x04
 #define	VTDTR_DEVICE_PROBE_INSTALL	0x05
 #define	VTDTR_DEVICE_PROBE_UNINSTALL	0x06
@@ -228,17 +229,15 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 		break;
 	case VTDTR_DEVICE_REGISTER:
 		sc->vsd_ready = 0;
-		retval = 2;
 		pv_ev = &ctrl->uctrl.prov_ev;
 		error = dthyve_register_provider(&pv_ev->uuid,
 		    vm_get_name(sc->vsd_vmctx), pv_ev->name);
 		if (error)
 			WPRINTF(("%s: error %d during registration",
-			    __func__, error));
+			    __func__, errno));
 		break;
 	case VTDTR_DEVICE_UNREGISTER:
 		sc->vsd_ready = 0;
-		retval = 2;
 		pv_ev = &ctrl->uctrl.prov_ev;
 		error = dthyve_unregister_provider(&pv_ev->uuid);
 		if (error)
@@ -246,7 +245,6 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 			    __func__, error));
 		break;
 	case VTDTR_DEVICE_DESTROY:
-		retval = 2;
 		break;
 	case VTDTR_DEVICE_PROBE_CREATE: {
 		char *mod;
@@ -254,7 +252,6 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 		char *name;
 		struct uuid *uuid;
 		sc->vsd_ready = 0;
-		retval = 2;
 		pb_ev = &ctrl->uctrl.probe_ev;
 
 		mod = pb_ev->upbev.probe_evcreate.mod;
@@ -265,7 +262,7 @@ pci_vtdtr_control_rx(struct pci_vtdtr_softc *sc, struct iovec *iov, int niov)
 		error = dthyve_probe_create(uuid, mod, func, name);
 		if (error)
 			WPRINTF(("%s: error %d during probe creation",
-			    __func__, error));
+			    __func__, errno));
 		break;
 	}
 	case VTDTR_DEVICE_PROBE_INSTALL:
@@ -324,7 +321,7 @@ pci_vtdtr_notify_rx(void *xsc, struct vqueue_info *vq)
 	while (vq_has_descs(vq)) {
 		n = vq_getchain(vq, &idx, iov, 1, flags);
 		retval = pci_vtdtr_control_rx(sc, iov, 1);
-		vq_relchain(vq, idx, sizeof(struct dtrace_probeinfo));
+		vq_relchain(vq, idx, sizeof(struct pci_vtdtr_control));
 		if (retval == 1)
 			break;
 	}
