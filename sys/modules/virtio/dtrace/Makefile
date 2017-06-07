@@ -23,9 +23,9 @@
 # SUCH DAMAGE.
 #
 
-#.include <src.opts.mk>
+.include <src.opts.mk>
 
-#.if ${MK_DTVIRT} != "no"
+.if ${MK_DTVIRT} != "no"
 
 SYSDIR?=	${SRCTOP}/sys
 
@@ -39,10 +39,11 @@ SRCS+=	bus_if.h device_if.h
 
 CFLAGS+=	-I${SYSDIR}/cddl/compat/opensolaris \
 		-I${SYSDIR}/cddl/contrib/opensolaris/uts/common \
-		-I${SYSDIR}
+		-I${SYSDIR} \
+		-nostdinc
 
 .include <bsd.kmod.mk>
 
 CFLAGS+=	-include ${SYSDIR}/cddl/compat/opensolaris/sys/debug_compat.h
 
-#.endif
+.endif

@@ -150,6 +150,7 @@ dtrace_unload()
 
 	/* Unhook from the trap handler. */
 	dtrace_trap_func = NULL;
+	dtrace_vtdtr_enable = NULL;
 
 	return (error);
 }

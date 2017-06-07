@@ -181,6 +181,8 @@ static void	vtdtr_enq_prov(const char *, struct uuid *);
 static void	vtdtr_enq_probe(const char *, const char *,
            	    const char *, struct uuid *);
 
+void		(*dtrace_vtdtr_enable)(void *);
+
 static device_method_t vtdtr_methods[] = {
 	/* Device methods. */
 	DEVMETHOD(device_probe,		vtdtr_probe),
@@ -1284,6 +1286,8 @@ vtdtr_run(void *xsc)
 	int nent;
 	int ready_flag;
 
+	KASSERT(dtrace_vtdtr_enable != NULL,
+	    ("%s: dtrace_vtdtr_enable == NULL", __func__));;
 	sc = xsc;
 	dev = sc->vtdtr_dev;
 

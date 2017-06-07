@@ -2214,7 +2214,8 @@ extern void dtrace_distributed_probe(const char *, dtrace_id_t, uintptr_t arg0,
     uintptr_t arg1, uintptr_t arg2, uintptr_t arg3, uintptr_t arg4);
 extern void dtrace_probeid_enable(dtrace_id_t id);
 extern void dtrace_probeid_disable(dtrace_id_t id);
-extern void dtrace_vtdtr_enable(void *xsc);
+
+extern void (*dtrace_vtdtr_enable)(void *xsc);
 
 /*
  * DTrace Meta Provider API

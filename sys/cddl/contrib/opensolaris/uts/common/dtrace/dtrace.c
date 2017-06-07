@@ -8039,8 +8039,8 @@ dtrace_probe(dtrace_id_t id, uintptr_t arg0, uintptr_t arg1,
 	    arg2, arg3, arg4);
 }
 
-void
-dtrace_vtdtr_enable(void *xsc)
+static void
+dtrace_priv_vtdtr_enable(void *xsc)
 {
 
 	vtdtr_sc = xsc;
