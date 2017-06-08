@@ -577,14 +577,19 @@ vmexit_suspend(struct vmctx *ctx, struct vm_exit *vmexit, int *pvcpu)
 
 	switch (how) {
 	case VM_SUSPEND_RESET:
+		dthyve_cleanup();
 		exit(0);
 	case VM_SUSPEND_POWEROFF:
+		dthyve_cleanup();
 		exit(1);
 	case VM_SUSPEND_HALT:
+		dthyve_cleanup();
 		exit(2);
 	case VM_SUSPEND_TRIPLEFAULT:
+		dthyve_cleanup();
 		exit(3);
 	default:
+		dthyve_cleanup();
 		fprintf(stderr, "vmexit_suspend: invalid reason %d\n", how);
 		exit(100);
 	}
@@ -635,6 +640,7 @@ vm_loop(struct vmctx *ctx, int vcpu, uint64_t startrip)
 		if (exitcode >= VM_EXITCODE_MAX || handler[exitcode] == NULL) {
 			fprintf(stderr, "vm_loop: unexpected exitcode 0x%x\n",
 			    exitcode);
+			dthyve_cleanup();
 			exit(1);
 		}
 
@@ -649,6 +655,7 @@ vm_loop(struct vmctx *ctx, int vcpu, uint64_t startrip)
 #endif
 			abort();
 		default:
+			dthyve_cleanup();
 			exit(1);
 		}
 	}
@@ -681,6 +688,7 @@ fbsdrun_set_capabilities(struct vmctx *ctx, int cpu)
 		err = vm_get_capability(ctx, cpu, VM_CAP_HALT_EXIT, &tmp);
 		if (err < 0) {
 			fprintf(stderr, "VM exit on HLT not supported\n");
+			dthyve_cleanup();
 			exit(1);
 		}
 		vm_set_capability(ctx, cpu, VM_CAP_HALT_EXIT, 1);
@@ -696,6 +704,7 @@ fbsdrun_set_capabilities(struct vmctx *ctx, int cpu)
 		if (err < 0) {
 			fprintf(stderr,
 			    "SMP mux requested, no pause support\n");
+			dthyve_cleanup();
 			exit(1);
 		}
 		vm_set_capability(ctx, cpu, VM_CAP_PAUSE_EXIT, 1);
@@ -710,6 +719,7 @@ fbsdrun_set_capabilities(struct vmctx *ctx, int cpu)
 
 	if (err) {
 		fprintf(stderr, "Unable to set x2apic state (%d)\n", err);
+		dthyve_cleanup();
 		exit(1);
 	}
 
@@ -746,6 +756,7 @@ do_open(const char *vmname)
 			}
 		} else {
 			perror("vm_create");
+			dthyve_cleanup();
 			exit(1);
 		}
 	} else {
@@ -755,6 +766,7 @@ do_open(const char *vmname)
 			 * bootrom must be configured to boot it.
 			 */
 			fprintf(stderr, "virtual machine cannot be booted\n");
+			dthyve_cleanup();
 			exit(1);
 		}
 	}
@@ -762,6 +774,7 @@ do_open(const char *vmname)
 	ctx = vm_open(vmname);
 	if (ctx == NULL) {
 		perror("vm_open");
+		dthyve_cleanup();
 		exit(1);
 	}
 
@@ -784,6 +797,7 @@ do_open(const char *vmname)
 		error = vm_reinit(ctx);
 		if (error) {
 			perror("vm_reinit");
+			dthyve_cleanup();
 			exit(1);
 		}
 	}

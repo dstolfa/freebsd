@@ -355,6 +355,10 @@ pci_vtdtr_handle_mev(int fd __unused, enum ev_type et __unused, int ne,
 	sc = xsc;
 	name = vm_get_name(sc->vsd_vmctx);
 
+	/*
+	 * FIXME: The DTrace error probe for each VM instance gets enabled
+	 * regardless of what we're tracing. This maybe shouldn't happen?
+	 */
 	if (strcmp(name, sc->vsd_pbi.instance) != 0)
 		return;
 
