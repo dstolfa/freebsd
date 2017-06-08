@@ -133,11 +133,6 @@ struct dtrace_probe {
 	dtrace_genid_t dtpr_gen;		/* probe generation ID */
 };
 
-#define	DTRACE_PROBE_MODE_DISABLED		0
-#define	DTRACE_PROBE_MODE_LOCAL			1
-#define	DTRACE_PROBE_MODE_VIRT			2
-#define	DTRACE_PROBE_MODE_BOTH			3
-
 typedef int dtrace_probekey_f(const char *, const char *, int);
 
 typedef struct dtrace_probekey {

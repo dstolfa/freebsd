@@ -505,6 +505,19 @@ typedef struct dtrace_difv {
 #define	DTRACEACT_ISAGG(x)		\
 	(DTRACEACT_CLASS(x) == DTRACEACT_AGGREGATION)
 
+/*
+ * DTrace-virt actions
+ *
+ * These are actions that are related to tracing the guest operating system from
+ * the host.
+ */
+
+#define	DTRACEACT_VIRT			0x0800
+#define	DTRACEVT_HYPERCALL		(DTRACEACT_VIRT + 1)
+
+#define	DTRACEACT_ISVIRT(x)		\
+	(DTRACEACT_CLASS(x) == DTRACEACT_VIRT)
+
 #define	DTRACE_QUANTIZE_NBUCKETS	\
 	(((sizeof (uint64_t) * NBBY) - 1) * 2 + 1)
 
@@ -2212,8 +2225,8 @@ extern void dtrace_probe(dtrace_id_t, uintptr_t arg0, uintptr_t arg1,
     uintptr_t arg2, uintptr_t arg3, uintptr_t arg4);
 extern void dtrace_distributed_probe(const char *, dtrace_id_t, uintptr_t arg0,
     uintptr_t arg1, uintptr_t arg2, uintptr_t arg3, uintptr_t arg4);
-extern void dtrace_probeid_enable(dtrace_id_t id);
-extern void dtrace_probeid_disable(dtrace_id_t id);
+extern int dtrace_probeid_enable(dtrace_id_t id);
+extern int dtrace_probeid_disable(dtrace_id_t id);
 
 extern void dtrace_vtdtr_enable(void *xsc);
 

@@ -40,6 +40,7 @@
 #ifndef __asm__
 
 #include <sys/stdint.h>
+#include <machine/cpufunc.h>
 
 /*
  * Arguments are only specified in this header file.
@@ -50,6 +51,15 @@
 int	hypercall_prototype(void /* args */);
 int	hypercall_dtrace_probe(uint32_t, uintptr_t, uintptr_t, uintptr_t,
    	    uintptr_t, uintptr_t);
+
+static __inline int
+bhyve_hypercalls_enabled(void)
+{
+	u_int regs[4] = { 0 };
+	do_cpuid(0x40000001, regs);
+
+	return (regs[0]);
+}
 
 #endif
 

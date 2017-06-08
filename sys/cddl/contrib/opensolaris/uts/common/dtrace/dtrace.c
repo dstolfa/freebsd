@@ -7364,7 +7364,7 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 	dtrace_action_t *act;
 	intptr_t offs;
 	size_t size;
-	int vtime, onintr;
+	int vtime, onintr, error;
 	volatile uint16_t *flags;
 	hrtime_t now;
 
@@ -7492,6 +7492,22 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 				continue;
 			}
 		}
+
+#ifndef illumos
+		/*
+		 * We check if the action is used in a virtualization context.
+		 * Currently, it is only possible to have one action in this
+		 * list, so we assert it's correctness (TODO).
+		 */
+		if (DTRACEACT_ISVIRT(ecb->dte_action->dta_kind)) {
+			if (vm_guest == VM_GUEST_BHYVE &&
+			    bhyve_hypercalls_enabled())
+				if (ecb->dte_action->dta_kind == DTRACEVT_HYPERCALL)
+					error = hypercall_dtrace_probe(id, arg0, arg1,
+					    arg2, arg3, arg4);
+			continue;
+		}
+#endif
 
 		if (ecb->dte_cond) {
 			/*
@@ -8045,15 +8061,6 @@ dtrace_probe(dtrace_id_t id, uintptr_t arg0, uintptr_t arg1,
 	    arg2, arg3, arg4);
 }
 
-void
-dtrace_probeid_enable(dtrace_id_t id)
-{
-}
-
-void
-dtrace_probeid_disable(dtrace_id_t id)
-{
-}
 
 /*
  * We've just attached with virtio_dtrace. We must advertise all of the
@@ -11865,11 +11872,6 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 	free(probe_info, M_KQUEUE);
 
 	if (probe->dtpr_ecb == NULL) {
-		if (probe->dtpr_mode == DTRACE_PROBE_MODE_VIRT)
-			probe->dtpr_mode = DTRACE_PROBE_MODE_BOTH;
-		else if (probe->dtpr_mode == DTRACE_PROBE_MODE_DISABLED)
-			probe->dtpr_mode = DTRACE_PROBE_MODE_LOCAL;
-
 		dtrace_provider_t *prov = probe->dtpr_provider;
 
 		/*
@@ -11880,16 +11882,14 @@ dtrace_ecb_enable(dtrace_ecb_t *ecb)
 		if (ecb->dte_predicate != NULL)
 			probe->dtpr_predcache = ecb->dte_predicate->dtp_cacheid;
 
-		if (probe->dtpr_mode == DTRACE_PROBE_MODE_LOCAL) {
-			if (prov->dtpv_pops.dtps_enable ==
-			    (void (*)(void *, dtrace_id_t, void *))dtrace_virtop) {
-				ASSERT(dtvirt_hook_enable != NULL);
-				dtvirt_hook_enable(prov->dtpv_arg,
-				    probe->dtpr_id, probe->dtpr_arg);
-			} else {
-				prov->dtpv_pops.dtps_enable(prov->dtpv_arg,
-				    probe->dtpr_id, probe->dtpr_arg);
-			}
+		if (prov->dtpv_pops.dtps_enable ==
+		    (void (*)(void *, dtrace_id_t, void *))dtrace_virtop) {
+			ASSERT(dtvirt_hook_enable != NULL);
+			dtvirt_hook_enable(prov->dtpv_arg,
+			    probe->dtpr_id, probe->dtpr_arg);
+		} else {
+			prov->dtpv_pops.dtps_enable(prov->dtpv_arg,
+			    probe->dtpr_id, probe->dtpr_arg);
 		}
 	} else {
 		/*
@@ -12361,6 +12361,7 @@ dtrace_ecb_action_add(dtrace_ecb_t *ecb, dtrace_actdesc_t *desc)
 		case DTRACEACT_STOP:
 		case DTRACEACT_BREAKPOINT:
 		case DTRACEACT_PANIC:
+		case DTRACEACT_VIRT:
 			break;
 
 		case DTRACEACT_CHILL:
@@ -12577,26 +12578,19 @@ dtrace_ecb_disable(dtrace_ecb_t *ecb)
 		 * cache ID for the probe, disable it and sync one more time
 		 * to assure that we'll never hit it again.
 		 */
-		if (probe->dtpr_mode == DTRACE_PROBE_MODE_BOTH)
-			probe->dtpr_mode = DTRACE_PROBE_MODE_VIRT;
-		else if (probe->dtpr_mode == DTRACE_PROBE_MODE_LOCAL)
-			probe->dtpr_mode = DTRACE_PROBE_MODE_DISABLED;
-
 		dtrace_provider_t *prov = probe->dtpr_provider;
 
 		ASSERT(ecb->dte_next == NULL);
 		ASSERT(probe->dtpr_ecb_last == NULL);
 		probe->dtpr_predcache = DTRACE_CACHEIDNONE;
-		if (probe->dtpr_mode == DTRACE_PROBE_MODE_DISABLED) {
-			if (prov->dtpv_pops.dtps_disable ==
-			    (void (*)(void *, dtrace_id_t, void *))dtrace_virtop) {
-				ASSERT(dtvirt_hook_disable != NULL);
-				dtvirt_hook_disable(prov->dtpv_arg,
-				    probe->dtpr_id, probe->dtpr_arg);
-			} else {
-				prov->dtpv_pops.dtps_disable(prov->dtpv_arg,
-				    probe->dtpr_id, probe->dtpr_arg);
-			}
+		if (prov->dtpv_pops.dtps_disable ==
+		    (void (*)(void *, dtrace_id_t, void *))dtrace_virtop) {
+			ASSERT(dtvirt_hook_disable != NULL);
+			dtvirt_hook_disable(prov->dtpv_arg,
+			    probe->dtpr_id, probe->dtpr_arg);
+		} else {
+			prov->dtpv_pops.dtps_disable(prov->dtpv_arg,
+			    probe->dtpr_id, probe->dtpr_arg);
 		}
 		dtrace_sync();
 	} else {
@@ -16343,6 +16337,97 @@ dtrace_state_destroy(dtrace_state_t *state)
 	vmem_free(dtrace_minor, (void *)(uintptr_t)minor, 1);
 #endif
 }
+
+#ifndef illumos
+int
+dtrace_probeid_enable(dtrace_id_t id)
+{
+	dtrace_probe_t **dtrace_probes, *probe;
+	dtrace_ecb_t *ecb;
+	dtrace_state_t *state;
+	dtrace_actdesc_t *adesc;
+	const char *host = "host";
+	uint32_t idx;
+	int error;
+
+	error = 0;
+
+	mutex_enter(&cpu_lock);
+	mutex_enter(&dtrace_lock);
+	idx = dtrace_instance_lookup_id(host);
+	dtrace_probes = dtrace_istc_probes[idx];
+	ASSERT(dtrace_probes != NULL);
+
+	probe = dtrace_probes[id - 1];
+	ASSERT(probe != NULL);
+
+	state = dtrace_state_create(NULL, NULL);
+	ASSERT(state != NULL);
+	ecb = dtrace_ecb_add(state, probe);
+	ASSERT(ecb != NULL);
+	adesc = dtrace_actdesc_create(DTRACEACT_VIRT, 0, 0, 0);
+	ASSERT(adesc != NULL);
+	
+	error = dtrace_ecb_action_add(ecb, adesc);
+	if (error) {
+		kmem_free(state, sizeof (dtrace_state_t));
+		kmem_free(ecb, sizeof (dtrace_ecb_t));
+		kmem_free(adesc, sizeof (dtrace_actdesc_t));
+		return (error);
+	}
+
+	dtrace_ecb_enable(ecb);
+	mutex_exit(&dtrace_lock);
+	mutex_exit(&cpu_lock);
+
+	return (error);
+}
+
+int
+dtrace_probeid_disable(dtrace_id_t id)
+{
+	dtrace_probe_t **dtrace_probes, *probe;
+	dtrace_ecb_t *ecb;
+	dtrace_state_t *state;
+	dtrace_action_t *act;
+	const char *host = "host";
+	uint32_t idx;
+	int error;
+
+	mutex_enter(&cpu_lock);
+	mutex_enter(&dtrace_lock);
+	idx = dtrace_instance_lookup_id(host);
+	dtrace_probes = dtrace_istc_probes[idx];
+	ASSERT(dtrace_probes != NULL);
+
+	probe = dtrace_probes[id - 1];
+	ASSERT(probe != NULL);
+
+	ecb = probe->dtpr_ecb;
+
+	/*
+	 * Find the necessary ECB to destroy
+	 */
+	while (ecb != probe->dtpr_ecb_last) {
+		act = ecb->dte_action;
+		if (DTRACEACT_ISVIRT(act->dta_kind))
+			break;
+		ecb = ecb->dte_next;
+	}
+
+	if (!DTRACEACT_ISVIRT(ecb->dte_action->dta_kind))
+		return (ESRCH);
+
+	state = ecb->dte_state;
+	dtrace_state_destroy(state);
+	dtrace_ecb_action_remove(ecb);
+	dtrace_ecb_destroy(ecb);
+	mutex_exit(&dtrace_lock);
+	mutex_exit(&cpu_lock);
+
+	return (0);
+}
+#endif
 
 /*
  * DTrace Anonymous Enabling Functions

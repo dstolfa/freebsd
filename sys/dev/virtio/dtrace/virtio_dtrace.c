@@ -139,22 +139,6 @@ static int	vtdtr_enable_interrupts(struct vtdtr_softc *);
 static void	vtdtr_disable_interrupts(struct vtdtr_softc *);
 static int	vtdtr_ctrl_process_event(struct vtdtr_softc *,
            	    struct virtio_dtrace_control *);
-static int	vtdtr_ctrl_process_provaction(struct vtdtr_softc *,
-           	    struct virtio_dtrace_control *);
-static void	vtdtr_ctrl_process_selfdestroy(struct vtdtr_softc *,
-           	    struct virtio_dtrace_control *);
-static int	vtdtr_ctrl_process_probeaction(struct vtdtr_softc *,
-           	    struct virtio_dtrace_control *);
-static int	vtdtr_ctrl_process_prov_register(struct vtdtr_softc *,
-          	    struct virtio_dtrace_control *);
-static int	vtdtr_ctrl_process_prov_unregister(struct vtdtr_softc *,
-          	    struct virtio_dtrace_control *);
-static int	vtdtr_ctrl_process_probe_create(struct vtdtr_softc *,
-          	    struct virtio_dtrace_control *);
-static int	vtdtr_ctrl_process_probe_install(struct vtdtr_softc *,
-          	    struct virtio_dtrace_control *);
-static int	vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *,
-          	    struct virtio_dtrace_control *);
 static void	vtdtr_destroy_probelist(struct vtdtr_softc *);
 static void	vtdtr_start_taskqueues(struct vtdtr_softc *);
 static void	vtdtr_drain_taskqueues(struct vtdtr_softc *);
@@ -636,8 +620,13 @@ static int
 vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
     struct virtio_dtrace_control *ctrl)
 {
+	struct vtdtr_ctrl_pbevent *pb;
+	struct vtdtr_ctrl_provevent *pv;
+	struct vtdtr_probelist *list;
+	struct vtdtr_probe *probe, *ptmp;
 	device_t dev;
 	int retval;
+	int error;
 	
 	dev = sc->vtdtr_dev;
 	retval = 0;
@@ -650,20 +639,74 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 		sc->vtdtr_host_ready = 1;
 		break;
 	case VIRTIO_DTRACE_REGISTER:
+		sc->vtdtr_ready = 0;
+		pv = &ctrl->uctrl.prov_ev;
+		break;
 	case VIRTIO_DTRACE_UNREGISTER:
 		sc->vtdtr_ready = 0;
-		retval = vtdtr_ctrl_process_provaction(sc, ctrl);
+		pv = &ctrl->uctrl.prov_ev;
 		break;
 	case VIRTIO_DTRACE_DESTROY:
 		sc->vtdtr_ready = 0;
-		vtdtr_ctrl_process_selfdestroy(sc, ctrl);
 		break;
 	case VIRTIO_DTRACE_PROBE_CREATE:
-	case VIRTIO_DTRACE_PROBE_INSTALL:
-	case VIRTIO_DTRACE_PROBE_UNINSTALL:
+		pb = &ctrl->uctrl.probe_ev;
 		sc->vtdtr_ready = 0;
-		retval = vtdtr_ctrl_process_probeaction(sc, ctrl);
 		break;
+	case VIRTIO_DTRACE_PROBE_INSTALL: {
+		sc->vtdtr_ready = 0;
+
+		list = sc->vtdtr_probelist;
+		probe = malloc(sizeof(struct vtdtr_probe),
+		    M_VTDTR, M_WAITOK | M_ZERO);
+
+		pb = &ctrl->uctrl.probe_ev;
+
+		probe->vtdprobe_id = pb->probe;
+		mtx_lock(&list->mtx);
+		LIST_INSERT_HEAD(&list->head, probe, vtdprobe_next);
+		num_dtprobes++;
+		mtx_unlock(&list->mtx);
+
+		error = dtrace_probeid_enable(pb->probe);
+		if (error) {
+			device_printf(dev, "%s: error %d enabling"
+			    " probe %d\n", __func__, error, pb->probe);
+		} else {
+
+		}
+		break;
+	}
+	case VIRTIO_DTRACE_PROBE_UNINSTALL: {
+		int found;
+		sc->vtdtr_ready = 0;
+
+		list = sc->vtdtr_probelist;
+
+		pb = &ctrl->uctrl.probe_ev;
+
+		found = 0;
+		mtx_lock(&list->mtx);
+		LIST_FOREACH_SAFE(probe, &list->head, vtdprobe_next, ptmp) {
+			if (probe->vtdprobe_id == pb->probe) {
+				LIST_REMOVE(probe, vtdprobe_next);
+				free(probe, M_VTDTR);
+				num_dtprobes--;
+				found = 1;
+				break;
+			}
+		}
+		mtx_unlock(&list->mtx);
+
+		KASSERT(found == 1, ("%s: probe not found", __func__));
+
+		error = dtrace_probeid_disable(pb->probe);
+		if (error) {
+			device_printf(dev, "%s: error %d disabling"
+			    " probe %d\n", __func__, error, pb->probe);
+		}
+		break;
+	}
 	case VIRTIO_DTRACE_EOF:
 		retval = 1;
 		break;
@@ -675,181 +718,7 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 }
 
 /*
- * Here we take care of various provider operations. This will not be supported
- * initially, however, in the future we hope to provide a way to create
- * arbitrary providers in the guest system.
- */
-static int
-vtdtr_ctrl_process_provaction(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl)
-{
-	int error;
-	/*
-	 * XXX: What is the "value" parameter in this context?
-	 */
-	switch (ctrl->event) {
-	case VIRTIO_DTRACE_REGISTER:
-		error = vtdtr_ctrl_process_prov_register(sc, ctrl);
-		break;
-	case VIRTIO_DTRACE_UNREGISTER:
-		error = vtdtr_ctrl_process_prov_unregister(sc, ctrl);
-		break;
-	}
-
-	return (error);
-}
-
-static void
-vtdtr_ctrl_process_selfdestroy(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl)
-{
-	int error;
-	error = 0;
-	/*
-	 * NOT SUPPORTED YET
-	 */
-	KASSERT(error == 0, ("%s: error %d self-destroying",
-	    __func__, error));
-}
-
-/*
- * Here we take care of identifying which probe action to process
- */
-static int
-vtdtr_ctrl_process_probeaction(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl)
-{
-	int error;
-	/*
-	 * TODO: Implement the functionality
-	 */
-	switch (ctrl->event) {
-	case VIRTIO_DTRACE_PROBE_CREATE:
-		/*
-		 * The info here relates to the probe specification
-		 */
-		error = vtdtr_ctrl_process_probe_create(sc, ctrl);
-		break;
-	case VIRTIO_DTRACE_PROBE_INSTALL:
-		/*
-		 * The ctrl->info here related to the DIF that might want
-		 * to be uploaded in the future.
-		 */
-		error = vtdtr_ctrl_process_probe_install(sc, ctrl);
-		break;
-	case VIRTIO_DTRACE_PROBE_UNINSTALL:
-		error = vtdtr_ctrl_process_probe_uninstall(sc, ctrl);
-		break;
-	}
-
-	return (error);
-}
-
-/*
- * TODO
- */
-static int
-vtdtr_ctrl_process_prov_register(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl)
-{
-	/*
-	dtrace_provider_id_t id;
-	char *provname;
-	*/
-	int error;
-
-	/* provname = ctrl->info; */
-	error = 0;
-	/*
-	error = dtrace_register(provname, &virtio_dtrace_attr, virtio_dtrace_priv,
-	    virtio_dtrace_cr, virtio_dtrace_pops, NULL, &id);
-	*/
-	return (error);
-}
-
-/*
- * TODO
- */
-static int
-vtdtr_ctrl_process_prov_unregister(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl)
-{
-	return (0);
-}
-
-/*
- * TODO
- */
-static int
-vtdtr_ctrl_process_probe_create(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl)
-{
-	return (0);
-}
-
-/*
- * Here we take care of installing a probe in DTrace. Currently it's a
- * placeholder for a more complex function. We keep track of all of the
- * installed probes in case of a driver detach, which gives us the ability to
- * clean up, as well as have context of which probes this driver has installed.
- */ 
-static int
-vtdtr_ctrl_process_probe_install(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl /* UNUSED */)
-{
-	struct vtdtr_probelist *list;
-	struct vtdtr_probe *probe;
-
-	list = sc->vtdtr_probelist;
-	probe = malloc(sizeof(struct vtdtr_probe), M_VTDTR, M_NOWAIT | M_ZERO);
-	if (probe == NULL)
-		return (ENOMEM);
-
-	probe->vtdprobe_id = ctrl->uctrl.probe_ev.probe;
-	mtx_lock(&list->mtx);
-	LIST_INSERT_HEAD(&list->head, probe, vtdprobe_next);
-	num_dtprobes++;
-	mtx_unlock(&list->mtx);
-	dtrace_probeid_enable(probe->vtdprobe_id); 
-	return (0);
-}
-
-/*
- * Here we take care of uninstall a probe in DTrace. Currently it's a
- * placeholder for a more complex function. We also remove the given probe from
- * our probelist.
- */
-static int
-vtdtr_ctrl_process_probe_uninstall(struct vtdtr_softc *sc,
-    struct virtio_dtrace_control *ctrl)
-{
-	struct vtdtr_probelist *list;
-	struct vtdtr_probe *probe;
-	struct vtdtr_probe *ptmp;
-	uint32_t probeid;
-
-	/*dtrace_probeid_enable(ctrl->value); */
-
-	probeid = ctrl->uctrl.probe_ev.probe;
-	list = sc->vtdtr_probelist;
-
-	mtx_lock(&list->mtx);
-	LIST_FOREACH_SAFE(probe, &list->head, vtdprobe_next, ptmp) {
-		if (probe->vtdprobe_id == probeid) {
-			LIST_REMOVE(probe, vtdprobe_next);
-			free(probe, M_VTDTR);
-			num_dtprobes--;
-		}
-	}
-	mtx_unlock(&list->mtx);
-
-	dtrace_probeid_disable(probe->vtdprobe_id);
-
-	return (0);
-}
-
-/*
- * A wrapper function used to free the list of enabled probes.
+ * A wrapper function used to free the list of enabled probes
  */
 static void
 vtdtr_destroy_probelist(struct vtdtr_softc *sc)
@@ -1054,7 +923,6 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 	dev = sc->vtdtr_dev;
 	retval = 0;
 
-	VTDTR_LOCK(sc);
 	VTDTR_QUEUE_LOCK(rxq);
 
 	while ((ctrl = virtqueue_dequeue(rxq->vtdq_vq, &len)) != NULL) {
@@ -1073,6 +941,7 @@ vtdtr_rxq_tq_intr(void *xrxq, int pending)
 
 	VTDTR_QUEUE_UNLOCK(rxq);
 
+	VTDTR_LOCK(sc);
 	vtdtr_notify(rxq);
 	if (vtdtr_vq_enable_intr(rxq) != 0)
 		taskqueue_enqueue(rxq->vtdq_tq, &rxq->vtdq_intrtask);
@@ -1385,9 +1254,7 @@ vtdtr_run(void *xsc)
 				vtdtr_send_eof(txq);
 			}
 
-			VTDTR_LOCK(sc);
 			sc->vtdtr_host_ready = ready_flag;
-			VTDTR_UNLOCK(sc);
 			vtdtr_poll(txq);
 		}
 
