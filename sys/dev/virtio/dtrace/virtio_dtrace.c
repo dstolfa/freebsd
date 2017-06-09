@@ -655,25 +655,21 @@ vtdtr_ctrl_process_event(struct vtdtr_softc *sc,
 		break;
 	case VIRTIO_DTRACE_PROBE_INSTALL: {
 		sc->vtdtr_ready = 0;
-
-		list = sc->vtdtr_probelist;
-		probe = malloc(sizeof(struct vtdtr_probe),
-		    M_VTDTR, M_WAITOK | M_ZERO);
-
 		pb = &ctrl->uctrl.probe_ev;
-
-		probe->vtdprobe_id = pb->probe;
-		mtx_lock(&list->mtx);
-		LIST_INSERT_HEAD(&list->head, probe, vtdprobe_next);
-		num_dtprobes++;
-		mtx_unlock(&list->mtx);
 
 		error = dtrace_probeid_enable(pb->probe);
 		if (error) {
 			device_printf(dev, "%s: error %d enabling"
 			    " probe %d\n", __func__, error, pb->probe);
 		} else {
-
+			list = sc->vtdtr_probelist;
+			probe = malloc(sizeof(struct vtdtr_probe),
+			    M_VTDTR, M_WAITOK | M_ZERO);
+			probe->vtdprobe_id = pb->probe;
+			mtx_lock(&list->mtx);
+			LIST_INSERT_HEAD(&list->head, probe, vtdprobe_next);
+			num_dtprobes++;
+			mtx_unlock(&list->mtx);
 		}
 		break;
 	}

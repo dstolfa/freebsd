@@ -12361,6 +12361,7 @@ dtrace_ecb_action_add(dtrace_ecb_t *ecb, dtrace_actdesc_t *desc)
 		case DTRACEACT_STOP:
 		case DTRACEACT_BREAKPOINT:
 		case DTRACEACT_PANIC:
+		case DTRACEVT_HYPERCALL:
 		case DTRACEACT_VIRT:
 			break;
 
@@ -16365,7 +16366,7 @@ dtrace_probeid_enable(dtrace_id_t id)
 	ASSERT(state != NULL);
 	ecb = dtrace_ecb_add(state, probe);
 	ASSERT(ecb != NULL);
-	adesc = dtrace_actdesc_create(DTRACEACT_VIRT, 0, 0, 0);
+	adesc = dtrace_actdesc_create(DTRACEVT_HYPERCALL, 0, 0, 0);
 	ASSERT(adesc != NULL);
 	
 	error = dtrace_ecb_action_add(ecb, adesc);
@@ -16373,10 +16374,13 @@ dtrace_probeid_enable(dtrace_id_t id)
 		kmem_free(state, sizeof (dtrace_state_t));
 		kmem_free(ecb, sizeof (dtrace_ecb_t));
 		kmem_free(adesc, sizeof (dtrace_actdesc_t));
+		mutex_exit(&dtrace_lock);
+		mutex_exit(&cpu_lock);
 		return (error);
 	}
 
 	dtrace_ecb_enable(ecb);
+	ASSERT(probe->dtpr_ecb != NULL);
 	mutex_exit(&dtrace_lock);
 	mutex_exit(&cpu_lock);
 
@@ -16404,24 +16408,27 @@ dtrace_probeid_disable(dtrace_id_t id)
 	ASSERT(probe != NULL);
 
 	ecb = probe->dtpr_ecb;
+	ASSERT(ecb != NULL);
 
 	/*
 	 * Find the necessary ECB to destroy
 	 */
-	while (ecb != probe->dtpr_ecb_last) {
+	while (ecb->dte_next) {
 		act = ecb->dte_action;
-		if (DTRACEACT_ISVIRT(act->dta_kind))
+		if (DTRACEACT_ISVIRT(act->dta_kind)) {
 			break;
+		}
 		ecb = ecb->dte_next;
 	}
 
-	if (!DTRACEACT_ISVIRT(ecb->dte_action->dta_kind))
+	if (!DTRACEACT_ISVIRT(ecb->dte_action[0].dta_kind)) {
 		return (ESRCH);
+	}
 
 	state = ecb->dte_state;
 	dtrace_state_destroy(state);
-	dtrace_ecb_action_remove(ecb);
-	dtrace_ecb_destroy(ecb);
+	if (ecb->dte_next == NULL)
+		dtrace_ecb_destroy(ecb);
 	mutex_exit(&dtrace_lock);
 	mutex_exit(&cpu_lock);
 
