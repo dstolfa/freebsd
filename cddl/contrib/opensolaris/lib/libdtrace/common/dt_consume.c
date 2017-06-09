@@ -477,7 +477,7 @@ dt_flowindent(dtrace_hdl_t *dtp, dtrace_probedata_t *data, dtrace_epid_t last,
 				offs += sizeof (id);
 		} while (next == DTRACE_EPIDNONE);
 
-		if ((rval = dt_epid_lookup(dtp, next, &nepd, &npd)) != 0)
+		if ((rval = dt_distributed_epid_lookup(dtp, is, next, &nepd, &npd)) != 0)
 			return (rval);
 
 		if (next != id && npd->dtpd_id == pd->dtpd_id)
@@ -2102,7 +2102,7 @@ dt_setopt(dtrace_hdl_t *dtp, const dtrace_probedata_t *data,
 }
 
 static int
-dt_consume_cpu(dtrace_hdl_t *dtp, FILE *fp, int cpu,
+dt_dist_consume_cpu(dtrace_hdl_t *dtp, const char *is, FILE *fp, int cpu,
     dtrace_bufdesc_t *buf, boolean_t just_one,
     dtrace_consume_probe_f *efunc, dtrace_consume_rec_f *rfunc, void *arg)
 {
@@ -2139,7 +2139,7 @@ dt_consume_cpu(dtrace_hdl_t *dtp, FILE *fp, int cpu,
 			continue;
 		}
 
-		if ((rval = dt_epid_lookup(dtp, id, &data.dtpda_edesc,
+		if ((rval = dt_distributed_epid_lookup(dtp, is, id, &data.dtpda_edesc,
 		    &data.dtpda_pdesc)) != 0)
 			return (rval);
 
@@ -2565,6 +2565,15 @@ nextepid:
 	return (dt_handle_cpudrop(dtp, cpu, DTRACEDROP_PRINCIPAL, drops));
 }
 
+static int
+dt_consume_cpu(dtrace_hdl_t *dtp, FILE *fp, int cpu,
+    dtrace_bufdesc_t *buf, boolean_t just_one,
+    dtrace_consume_probe_f *efunc, dtrace_consume_rec_f *rfunc, void *arg)
+{
+	return (dt_dist_consume_cpu(dtp, "host", fp, cpu, buf, just_one,
+	    efunc, rfunc, arg));
+}
+
 /*
  * Reduce memory usage by shrinking the buffer if it's no more than half full.
  * Note, we need to preserve the alignment of the data at dtbd_oldest, which is
@@ -2753,7 +2762,7 @@ dt_consume_begin_error(const dtrace_errdata_t *data, void *arg)
 }
 
 static int
-dt_consume_begin(dtrace_hdl_t *dtp, FILE *fp,
+dt_dist_consume_begin(dtrace_hdl_t *dtp, const char *is, FILE *fp,
     dtrace_consume_probe_f *pf, dtrace_consume_rec_f *rf, void *arg)
 {
 	/*
@@ -2797,7 +2806,7 @@ dt_consume_begin(dtrace_hdl_t *dtp, FILE *fp,
 		 * we are, we actually processed any END probes on another
 		 * CPU.  We can simply consume this buffer and return.
 		 */
-		rval = dt_consume_cpu(dtp, fp, cpu, buf, B_FALSE,
+		rval = dt_dist_consume_cpu(dtp, is, fp, cpu, buf, B_FALSE,
 		    pf, rf, arg);
 		dt_put_buf(dtp, buf);
 		return (rval);
@@ -2817,7 +2826,7 @@ dt_consume_begin(dtrace_hdl_t *dtp, FILE *fp,
 	dtp->dt_errhdlr = dt_consume_begin_error;
 	dtp->dt_errarg = &begin;
 
-	rval = dt_consume_cpu(dtp, fp, cpu, buf, B_FALSE,
+	rval = dt_dist_consume_cpu(dtp, is, fp, cpu, buf, B_FALSE,
 	    dt_consume_begin_probe, dt_consume_begin_record, &begin);
 
 	dtp->dt_errhdlr = begin.dtbgn_errhdlr;
@@ -2843,7 +2852,7 @@ dt_consume_begin(dtrace_hdl_t *dtp, FILE *fp,
 		if (nbuf == NULL)
 			continue;
 
-		rval = dt_consume_cpu(dtp, fp, i, nbuf, B_FALSE,
+		rval = dt_dist_consume_cpu(dtp, is, fp, i, nbuf, B_FALSE,
 		    pf, rf, arg);
 		dt_put_buf(dtp, nbuf);
 		if (rval != 0) {
@@ -2866,13 +2875,20 @@ dt_consume_begin(dtrace_hdl_t *dtp, FILE *fp,
 	dtp->dt_errhdlr = dt_consume_begin_error;
 	dtp->dt_errarg = &begin;
 
-	rval = dt_consume_cpu(dtp, fp, cpu, buf, B_FALSE,
+	rval = dt_dist_consume_cpu(dtp, is, fp, cpu, buf, B_FALSE,
 	    dt_consume_begin_probe, dt_consume_begin_record, &begin);
 
 	dtp->dt_errhdlr = begin.dtbgn_errhdlr;
 	dtp->dt_errarg = begin.dtbgn_errarg;
 
 	return (rval);
+}
+
+static int
+dt_consume_begin(dtrace_hdl_t *dtp, FILE *fp,
+    dtrace_consume_probe_f *pf, dtrace_consume_rec_f *rf, void *arg)
+{
+	return (dt_dist_consume_begin(dtp, "host", fp, pf, rf, arg));
 }
 
 /* ARGSUSED */
@@ -2898,7 +2914,7 @@ dt_buf_oldest(void *elem, void *arg)
 }
 
 int
-dtrace_consume(dtrace_hdl_t *dtp, FILE *fp,
+dtrace_distributed_consume(dtrace_hdl_t *dtp, const char *is, FILE *fp,
     dtrace_consume_probe_f *pf, dtrace_consume_rec_f *rf, void *arg)
 {
 	dtrace_optval_t size;
@@ -2962,7 +2978,7 @@ dtrace_consume(dtrace_hdl_t *dtp, FILE *fp,
 			dtp->dt_flow = 0;
 			dtp->dt_indent = 0;
 			dtp->dt_prefix = NULL;
-			rval = dt_consume_cpu(dtp, fp, i,
+			rval = dt_dist_consume_cpu(dtp, is, fp, i,
 			    buf, B_FALSE, pf, rf, arg);
 			dt_put_buf(dtp, buf);
 			if (rval != 0)
@@ -2976,7 +2992,7 @@ dtrace_consume(dtrace_hdl_t *dtp, FILE *fp,
 			if (buf == NULL)
 				return (0);
 
-			rval = dt_consume_cpu(dtp, fp, dtp->dt_endedon,
+			rval = dt_dist_consume_cpu(dtp, is, fp, dtp->dt_endedon,
 			    buf, B_FALSE, pf, rf, arg);
 			dt_put_buf(dtp, buf);
 			return (rval);
@@ -3057,7 +3073,7 @@ dtrace_consume(dtrace_hdl_t *dtp, FILE *fp,
 				continue;
 			}
 
-			if ((rval = dt_consume_cpu(dtp, fp,
+			if ((rval = dt_dist_consume_cpu(dtp, is, fp,
 			    buf->dtbd_cpu, buf, B_TRUE, pf, rf, arg)) != 0)
 				return (rval);
 			dt_pq_insert(dtp->dt_bufq, buf);
@@ -3082,4 +3098,11 @@ dtrace_consume(dtrace_hdl_t *dtp, FILE *fp,
 	}
 
 	return (0);
+}
+
+int
+dtrace_consume(dtrace_hdl_t *dtp, FILE *fp,
+    dtrace_consume_probe_f *pf, dtrace_consume_rec_f *rf, void *arg)
+{
+	return (dtrace_distributed_consume(dtp, "host", fp, pf, rf, arg));
 }

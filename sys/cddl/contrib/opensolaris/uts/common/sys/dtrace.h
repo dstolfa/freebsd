@@ -999,12 +999,13 @@ typedef struct dtrace_recdesc {
 } dtrace_recdesc_t;
 
 typedef struct dtrace_eprobedesc {
-	dtrace_epid_t dtepd_epid;		/* enabled probe ID */
-	dtrace_id_t dtepd_probeid;		/* probe ID */
-	uint64_t dtepd_uarg;			/* library argument */
-	uint32_t dtepd_size;			/* total size */
-	int dtepd_nrecs;			/* number of records */
-	dtrace_recdesc_t dtepd_rec[1];		/* records themselves */
+	char dtepd_instance[DTRACE_INSTANCENAMELEN];	/* DTrace instance */
+	dtrace_epid_t dtepd_epid;			/* enabled probe ID */
+	dtrace_id_t dtepd_probeid;			/* probe ID */
+	uint64_t dtepd_uarg;				/* library argument */
+	uint32_t dtepd_size;				/* total size */
+	int dtepd_nrecs;				/* number of records */
+	dtrace_recdesc_t dtepd_rec[1];			/* records themselves */
 } dtrace_eprobedesc_t;
 
 typedef struct dtrace_aggdesc {
@@ -1012,7 +1013,7 @@ typedef struct dtrace_aggdesc {
 	dtrace_aggvarid_t dtagd_varid;		/* not filled in by kernel */
 	int dtagd_flags;			/* not filled in by kernel */
 	dtrace_aggid_t dtagd_id;		/* aggregation ID */
-	dtrace_epid_t dtagd_epid;		/* enabled probe ID */
+	dtrace_epid_t *dtagd_epid;		/* enabled probe ID */
 	uint32_t dtagd_size;			/* size in bytes */
 	int dtagd_nrecs;			/* number of records */
 	uint32_t dtagd_pad;			/* explicit padding */

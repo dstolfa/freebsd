@@ -266,9 +266,8 @@ dtrace_stop(dtrace_hdl_t *dtp)
 	return (0);
 }
 
-
 dtrace_workstatus_t
-dtrace_work(dtrace_hdl_t *dtp, FILE *fp,
+dtrace_distributed_work(dtrace_hdl_t *dtp, const char *is, FILE *fp,
     dtrace_consume_probe_f *pfunc, dtrace_consume_rec_f *rfunc, void *arg)
 {
 	int status = dtrace_status(dtp);
@@ -310,11 +309,18 @@ dtrace_work(dtrace_hdl_t *dtp, FILE *fp,
 		return (rval);
 	}
 
-	if (dtrace_aggregate_snap(dtp) == -1)
+	if (dtrace_distributed_aggregate_snap(dtp, is) == -1)
 		return (DTRACE_WORKSTATUS_ERROR);
 
-	if (dtrace_consume(dtp, fp, pfunc, rfunc, arg) == -1)
+	if (dtrace_distributed_consume(dtp, is, fp, pfunc, rfunc, arg) == -1)
 		return (DTRACE_WORKSTATUS_ERROR);
 
 	return (rval);
+}
+
+dtrace_workstatus_t
+dtrace_work(dtrace_hdl_t *dtp, FILE *fp,
+    dtrace_consume_probe_f *pfunc, dtrace_consume_rec_f *rfunc, void *arg)
+{
+	return (dtrace_distributed_work(dtp, "host", fp, pfunc, rfunc, arg));
 }
