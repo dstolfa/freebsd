@@ -7364,6 +7364,7 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 	dtrace_action_t *act;
 	intptr_t offs;
 	size_t size;
+	uint32_t idx, dtrace_nprobes;
 	int vtime, onintr, error;
 	volatile uint16_t *flags;
 	hrtime_t now;
@@ -7382,13 +7383,17 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 #endif
 
 	cookie = dtrace_interrupt_disable();
-	dtrace_probes = dtrace_instance_lookup_probes(instance);
+	idx = dtrace_instance_lookup_id(instance);
+	dtrace_probes = dtrace_istc_probes[idx];
 	ASSERT(dtrace_probes != NULL);
+	dtrace_nprobes = dtrace_istc_probecount[idx];
+	ASSERT(dtrace_nprobes > id - 1);
 
 	probe = dtrace_probes[id - 1];
 	ASSERT(probe != NULL);
 	cpuid = curcpu;
 	onintr = CPU_ON_INTR(CPU);
+
 
 	if (!onintr && probe->dtpr_predcache != DTRACE_CACHEIDNONE &&
 	    probe->dtpr_predcache == curthread->t_predcache) {
@@ -7470,6 +7475,24 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 				continue;
 		}
 
+#ifndef illumos
+		/*
+		 * We check if the action is used in a virtualization context.
+		 * Currently, it is only possible to have one action in this
+		 * list, so we assert it's correctness (TODO).
+		 * FIXME: This doesn't fire a probe for some reason.
+		 */
+		if (ecb->dte_action &&
+		    DTRACEACT_ISVIRT(ecb->dte_action->dta_kind)) {
+			if (vm_guest == VM_GUEST_BHYVE &&
+			    bhyve_hypercalls_enabled())
+				if (ecb->dte_action->dta_kind == DTRACEVT_HYPERCALL)
+					error = hypercall_dtrace_probe(id, arg0, arg1,
+					    arg2, arg3, arg4);
+			continue;
+		}
+#endif
+
 		if (state->dts_activity != DTRACE_ACTIVITY_ACTIVE) {
 			/*
 			 * We're not currently active.  If our provider isn't
@@ -7492,22 +7515,6 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 				continue;
 			}
 		}
-
-#ifndef illumos
-		/*
-		 * We check if the action is used in a virtualization context.
-		 * Currently, it is only possible to have one action in this
-		 * list, so we assert it's correctness (TODO).
-		 */
-		if (DTRACEACT_ISVIRT(ecb->dte_action->dta_kind)) {
-			if (vm_guest == VM_GUEST_BHYVE &&
-			    bhyve_hypercalls_enabled())
-				if (ecb->dte_action->dta_kind == DTRACEVT_HYPERCALL)
-					error = hypercall_dtrace_probe(id, arg0, arg1,
-					    arg2, arg3, arg4);
-			continue;
-		}
-#endif
 
 		if (ecb->dte_cond) {
 			/*
@@ -7758,6 +7765,7 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 
 			if (*flags & CPU_DTRACE_ERROR)
 				continue;
+
 
 			switch (act->dta_kind) {
 			case DTRACEACT_SPECULATE: {

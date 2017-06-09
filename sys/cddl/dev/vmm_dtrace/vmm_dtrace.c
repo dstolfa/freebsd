@@ -323,7 +323,7 @@ vmmdt_fire_probe(const char *vm, int probeid,
     uintptr_t arg0, uintptr_t arg1, uintptr_t arg2,
     uintptr_t arg3, uintptr_t arg4)
 {
-	if (vmmdt_enabled(vm, probeid))
+/*	if (vmmdt_enabled(vm, probeid))*/
 		dtvirt_hook_commit(vm, probeid, arg0, arg1,
 		    arg2, arg3, arg4);
 }
@@ -382,6 +382,27 @@ vmmdt_hash_lookup(const char *vm)
 
 	return (vmmdt_vms.vm_list[idx]);
 }
+
+/*
+static int
+sysctl_test_vmm_hash(SYSCTL_HANDLER_ARGS)
+{
+	int error;
+	char buf[VMM_MAX_NAMELEN];
+	struct vmdtree *tree;
+
+	error = sysctl_handle_string(oidp, buf, sizeof(buf), req);
+	if (error != 0 || req->newptr == NULL)
+		return (error);
+
+	
+	vtree = vmmdt_hash_lookup(buf);
+
+	return (0);
+}
+SYSCTL_PROC(_hw_vmm, OID_AUTO, test_hash, CTLTYPE_STRING | CTLFLAG_RW,
+    NULL, 0, sysctl_test_vmm_hash, "A", NULL);
+*/
 
 static int
 vmmdt_probe_cmp(struct vmmdt_probe *p1, struct vmmdt_probe *p2)
