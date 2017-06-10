@@ -500,6 +500,8 @@ dtrace_ioctl(struct cdev *dev, u_long cmd, caddr_t addr,
 		epdesc.dtepd_probeid = ecb->dte_probe->dtpr_id;
 		epdesc.dtepd_uarg = ecb->dte_uarg;
 		epdesc.dtepd_size = ecb->dte_size;
+		strlcpy(epdesc.dtepd_instance,
+		    ecb->dte_probe->dtpr_instance, DTRACE_INSTANCENAMELEN);
 
 		nrecs = epdesc.dtepd_nrecs;
 		epdesc.dtepd_nrecs = 0;

@@ -1126,7 +1126,7 @@ chew(const dtrace_probedata_t *data, void *arg)
 		if (!g_flowindent) {
 			if (!g_quiet) {
 				oprintf("%3s %6s %32s\n",
-				    "CPU", "ID", "FUNCTION:NAME");
+				    "CPU", "ID", "INSTANCE:FUNCTION:NAME");
 			}
 		} else {
 			oprintf("%3s %-41s\n", "CPU", "FUNCTION");
@@ -1138,8 +1138,8 @@ chew(const dtrace_probedata_t *data, void *arg)
 		if (!g_quiet) {
 			char name[DTRACE_FUNCNAMELEN + DTRACE_NAMELEN + 2];
 
-			(void) snprintf(name, sizeof (name), "%s:%s",
-			    pd->dtpd_func, pd->dtpd_name);
+			(void) snprintf(name, sizeof (name), "%s:%s:%s",
+			    pd->dtpd_instance, pd->dtpd_func, pd->dtpd_name);
 
 			oprintf("%3d %6d %32s ", cpu, pd->dtpd_id, name);
 		}
@@ -1151,14 +1151,14 @@ chew(const dtrace_probedata_t *data, void *arg)
 		if (data->dtpda_flow == DTRACEFLOW_NONE) {
 			len = indent + DTRACE_FUNCNAMELEN + DTRACE_NAMELEN + 5;
 			name = alloca(len);
-			(void) snprintf(name, len, "%*s%s%s:%s", indent, "",
-			    data->dtpda_prefix, pd->dtpd_func,
+			(void) snprintf(name, len, "%*s%s%s:%s:%s", indent, "",
+			    data->dtpda_prefix, pd->dtpd_instance, pd->dtpd_func,
 			    pd->dtpd_name);
 		} else {
 			len = indent + DTRACE_FUNCNAMELEN + 5;
 			name = alloca(len);
-			(void) snprintf(name, len, "%*s%s%s", indent, "",
-			    data->dtpda_prefix, pd->dtpd_func);
+			(void) snprintf(name, len, "%*s%s%s:%s", indent, "",
+			    data->dtpda_prefix, pd->dtpd_instance, pd->dtpd_func);
 		}
 
 		oprintf("%3d %-41s ", cpu, name);

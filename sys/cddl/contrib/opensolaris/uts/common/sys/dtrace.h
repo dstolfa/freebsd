@@ -999,6 +999,7 @@ typedef struct dtrace_recdesc {
 } dtrace_recdesc_t;
 
 typedef struct dtrace_eprobedesc {
+	char dtepd_instance[DTRACE_INSTANCENAMELEN]; /* instance name */
 	dtrace_epid_t dtepd_epid;		/* enabled probe ID */
 	dtrace_id_t dtepd_probeid;		/* probe ID */
 	uint64_t dtepd_uarg;			/* library argument */
