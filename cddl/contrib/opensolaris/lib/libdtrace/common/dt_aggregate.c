@@ -435,7 +435,7 @@ dt_aggregate_aggvarid(dt_ahashent_t *ent)
 
 
 static int
-dt_aggregate_snap_cpu(dtrace_hdl_t *dtp, uint32_t idx, processorid_t cpu)
+dt_aggregate_snap_cpu(dtrace_hdl_t *dtp, processorid_t cpu)
 {
 	dtrace_epid_t id;
 	uint64_t hashval;
@@ -707,15 +707,12 @@ bufnext:
 }
 
 int
-dtrace_distributed_aggregate_snap(dtrace_hdl_t *dtp, const char *is)
+dtrace_aggregate_snap(dtrace_hdl_t *dtp)
 {
 	int i, rval;
-	uint32_t idx;
 	dt_aggregate_t *agp = &dtp->dt_aggregate;
 	hrtime_t now = gethrtime();
 	dtrace_optval_t interval = dtp->dt_options[DTRACEOPT_AGGRATE];
-
-	idx = dtrace_dist_lookup(is);
 
 	if (dtp->dt_lastagg != 0) {
 		if (now - dtp->dt_lastagg < interval)
@@ -733,18 +730,11 @@ dtrace_distributed_aggregate_snap(dtrace_hdl_t *dtp, const char *is)
 		return (0);
 
 	for (i = 0; i < agp->dtat_ncpus; i++) {
-		if ((rval = dt_aggregate_snap_cpu(dtp, idx, agp->dtat_cpus[i])))
+		if ((rval = dt_aggregate_snap_cpu(dtp, agp->dtat_cpus[i])))
 			return (rval);
 	}
 
 	return (0);
-}
-
-int
-dtrace_aggregate_snap(dtrace_hdl_t *dtp)
-{
-
-	return (dtrace_distributed_aggregate_snap( dtp, "host"));
 }
 
 static int

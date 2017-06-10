@@ -1126,7 +1126,7 @@ chew(const dtrace_probedata_t *data, void *arg)
 		if (!g_flowindent) {
 			if (!g_quiet) {
 				oprintf("%3s %6s %32s\n",
-				    "CPU", "ID", "INSTANCE:FUNCTION:NAME");
+				    "CPU", "ID", "FUNCTION:NAME");
 			}
 		} else {
 			oprintf("%3s %-41s\n", "CPU", "FUNCTION");
@@ -1136,11 +1136,10 @@ chew(const dtrace_probedata_t *data, void *arg)
 
 	if (!g_flowindent) {
 		if (!g_quiet) {
-			char name[DTRACE_INSTANCENAMELEN +
-			    DTRACE_FUNCNAMELEN + DTRACE_NAMELEN + 2];
+			char name[DTRACE_FUNCNAMELEN + DTRACE_NAMELEN + 2];
 
-			(void) snprintf(name, sizeof (name), "%s:%s:%s",
-			    pd->dtpd_instance, pd->dtpd_func, pd->dtpd_name);
+			(void) snprintf(name, sizeof (name), "%s:%s",
+			    pd->dtpd_func, pd->dtpd_name);
 
 			oprintf("%3d %6d %32s ", cpu, pd->dtpd_id, name);
 		}
@@ -1150,17 +1149,16 @@ chew(const dtrace_probedata_t *data, void *arg)
 		size_t len;
 
 		if (data->dtpda_flow == DTRACEFLOW_NONE) {
-			len = indent + DTRACE_INSTANCENAMELEN +
-			    DTRACE_FUNCNAMELEN + DTRACE_NAMELEN + 5;
-			name = alloca(len);
-			(void) snprintf(name, len, "%*s%s%s:%s:%s", indent, "",
-			    data->dtpda_prefix, pd->dtpd_instance,
-			    pd->dtpd_func, pd->dtpd_name);
-		} else {
-			len = indent + DTRACE_INSTANCENAMELEN + DTRACE_FUNCNAMELEN + 5;
+			len = indent + DTRACE_FUNCNAMELEN + DTRACE_NAMELEN + 5;
 			name = alloca(len);
 			(void) snprintf(name, len, "%*s%s%s:%s", indent, "",
-			    data->dtpda_prefix, pd->dtpd_instance, pd->dtpd_func);
+			    data->dtpda_prefix, pd->dtpd_func,
+			    pd->dtpd_name);
+		} else {
+			len = indent + DTRACE_FUNCNAMELEN + 5;
+			name = alloca(len);
+			(void) snprintf(name, len, "%*s%s%s", indent, "",
+			    data->dtpda_prefix, pd->dtpd_func);
 		}
 
 		oprintf("%3d %-41s ", cpu, name);
@@ -1321,7 +1319,6 @@ main(int argc, char *argv[])
 	dtrace_status_t status[2];
 	dtrace_optval_t opt;
 	dtrace_cmd_t *dcp;
-	char is[DTRACE_INSTANCENAMELEN];
 
 	g_ofp = stdout;
 	int done = 0, mode = 0;
@@ -1610,33 +1607,13 @@ main(int argc, char *argv[])
 				dcp->dc_arg = optarg;
 				break;
 
-			case 'n': {
-				char *c;
-				int cnt;
-				char str[DTRACE_INSTANCENAMELEN];
-				char *s;
-
-				cnt = 0;
+			case 'n':
 				dcp = &g_cmdv[g_cmdc++];
 				dcp->dc_func = compile_str;
 				dcp->dc_spec = DTRACE_PROBESPEC_NAME;
 				dcp->dc_arg = optarg;
-
-				c = dcp->dc_arg;
-				s = str;
-				while (*c++ != '\0') {
-					if (*c == ':')
-						cnt++;
-					else if (cnt < 1)
-						*s++ = *c;
-				}
-				*s = '\0';
-
-				if (cnt >= 4) {
-					strlcpy(is, str, DTRACE_INSTANCENAMELEN);
-				}
 				break;
-			}
+
 			case 'P':
 				dcp = &g_cmdv[g_cmdc++];
 				dcp->dc_func = compile_str;
@@ -1649,7 +1626,6 @@ main(int argc, char *argv[])
 				dcp->dc_func = compile_str;
 				dcp->dc_spec = DTRACE_PROBESPEC_INSTANCE;
 				dcp->dc_arg = optarg;
-				strlcpy(is, dcp->dc_arg, DTRACE_INSTANCENAMELEN);
 				break;
 
 			case 'q':
@@ -2026,7 +2002,7 @@ main(int argc, char *argv[])
 				dfatal("couldn't stop tracing");
 		}
 
-		switch (dtrace_distributed_work(g_dtp, is, g_ofp, chew, chewrec, NULL)) {
+		switch (dtrace_work(g_dtp, g_ofp, chew, chewrec, NULL)) {
 		case DTRACE_WORKSTATUS_DONE:
 			done = 1;
 			break;

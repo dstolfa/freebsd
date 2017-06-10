@@ -275,8 +275,8 @@ struct dtrace_hdl {
 	ctf_id_t dt_type_symaddr; /* cached CTF identifier for _symaddr type */
 	ctf_id_t dt_type_usymaddr; /* cached CTF ident. for _usymaddr type */
 	size_t dt_maxprobe;	/* max enabled probe ID */
-	dtrace_eprobedesc_t ***dt_edesc; /* enabled probe descriptions */
-	dtrace_probedesc_t ***dt_pdesc; /* probe descriptions for enabled prbs */
+	dtrace_eprobedesc_t **dt_edesc; /* enabled probe descriptions */
+	dtrace_probedesc_t **dt_pdesc; /* probe descriptions for enabled prbs */
 	size_t dt_maxagg;	/* max aggregation ID */
 	dtrace_aggdesc_t **dt_aggdesc; /* aggregation descriptions */
 	int dt_maxformat;	/* max format ID */

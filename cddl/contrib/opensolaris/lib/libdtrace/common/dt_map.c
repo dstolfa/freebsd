@@ -109,19 +109,14 @@ dt_strdata_add(dtrace_hdl_t *dtp, dtrace_recdesc_t *rec, void ***data, int *max)
 }
 
 static int
-dt_epid_add(dtrace_hdl_t *dtp, uint32_t idx, dtrace_epid_t id)
+dt_epid_add(dtrace_hdl_t *dtp, dtrace_epid_t id)
 {
 	dtrace_id_t max;
 	int rval, i;
-	dtrace_eprobedesc_t **edescs;
 	dtrace_eprobedesc_t *enabled, *nenabled;
-	dtrace_probedesc_t **pdescs;
 	dtrace_probedesc_t *probe;
 
-	edescs = dtp->dt_edesc[idx];
-	pdescs = dtp->dt_pdesc[idx];
-
-	while (id >= (max = dtp->dt_maxprobe) || pdescs == NULL) {
+	while (id >= (max = dtp->dt_maxprobe) || dtp->dt_pdesc == NULL) {
 		dtrace_id_t new_max = max ? (max << 1) : 1;
 		size_t nsize = new_max * sizeof (void *);
 		dtrace_probedesc_t **new_pdesc;
@@ -136,22 +131,22 @@ dt_epid_add(dtrace_hdl_t *dtp, uint32_t idx, dtrace_epid_t id)
 		bzero(new_pdesc, nsize);
 		bzero(new_edesc, nsize);
 
-		if (pdescs != NULL) {
+		if (dtp->dt_pdesc != NULL) {
 			size_t osize = max * sizeof (void *);
 
-			bcopy(pdescs, new_pdesc, osize);
-			free(pdescs);
+			bcopy(dtp->dt_pdesc, new_pdesc, osize);
+			free(dtp->dt_pdesc);
 
-			bcopy(edescs, new_edesc, osize);
-			free(edescs);
+			bcopy(dtp->dt_edesc, new_edesc, osize);
+			free(dtp->dt_edesc);
 		}
 
-		pdescs = new_pdesc;
-		edescs = new_edesc;
+		dtp->dt_pdesc = new_pdesc;
+		dtp->dt_edesc = new_edesc;
 		dtp->dt_maxprobe = new_max;
 	}
 
-	if (pdescs[id] != NULL)
+	if (dtp->dt_pdesc[id] != NULL)
 		return (0);
 
 	if ((enabled = malloc(sizeof (dtrace_eprobedesc_t))) == NULL)
@@ -230,11 +225,8 @@ dt_epid_add(dtrace_hdl_t *dtp, uint32_t idx, dtrace_epid_t id)
 
 	}
 
-	pdescs[id] = probe;
-	edescs[id] = enabled;
-
-	dtp->dt_pdesc[idx] = pdescs;
-	dtp->dt_edesc[idx] = edescs;
+	dtp->dt_pdesc[id] = probe;
+	dtp->dt_edesc[id] = enabled;
 
 	return (0);
 
@@ -251,89 +243,54 @@ err:
 }
 
 int
-dt_distributed_epid_lookup(dtrace_hdl_t *dtp, const char *is, dtrace_epid_t epid,
-    dtrace_eprobedesc_t **epdp, dtrace_probedesc_t **pdp)
-{
-	int rval;
-	uint32_t idx;
-	dtrace_eprobedesc_t **edescs;
-	dtrace_probedesc_t **pdescs;
-
-	idx = dtrace_dist_lookup(is);
-	pdescs = dtp->dt_pdesc[idx];
-
-	if (epid >= dtp->dt_maxprobe || pdescs[epid] == NULL) {
-		if ((rval = dt_epid_add(dtp, idx, epid)) != 0)
-			return (rval);
-	}
-
-	edescs = dtp->dt_edesc[idx];
-	pdescs = dtp->dt_pdesc[idx];
-
-	assert(epid < dtp->dt_maxprobe);
-	assert(edescs[epid] != NULL);
-	assert(pdescs[epid] != NULL);
-	*epdp = edescs[epid];
-	*pdp = pdescs[epid];
-
-	return (0);
-}
-
-
-int
 dt_epid_lookup(dtrace_hdl_t *dtp, dtrace_epid_t epid,
     dtrace_eprobedesc_t **epdp, dtrace_probedesc_t **pdp)
 {
+	int rval;
 
-	return (dt_distributed_epid_lookup(dtp, "host", epid, epdp, pdp));
-}
-
-void
-dt_distributed_epid_destroy(dtrace_hdl_t *dtp, cosnt char *is)
-{
-	size_t i;
-	uint32_t idx;
-	dtrace_eprobedesc_t **edescs;
-	dtrace_probedesc_t **pdescs;
-
-	idx = dtrace_dist_lookup(is);
-	edescs = dtp->dt_edesc[idx];
-	pdescs = dtp->dt_pdesc[idx];
-
-	assert((pdescs != NULL && edescs != NULL &&
-	    dtp->dt_maxprobe > 0) || (pdescs == NULL &&
-	    edescs == NULL && dtp->dt_maxprobe == 0));
-
-	if (pdescs == NULL)
-		return;
-
-	for (i = 0; i < dtp->dt_maxprobe; i++) {
-		if (edescs[i] == NULL) {
-			assert(pdescs[i] == NULL);
-			continue;
-		}
-
-		assert(pdescs[i] != NULL);
-		free(edescs[i]);
-		free(pdescs[i]);
+	if (epid >= dtp->dt_maxprobe || dtp->dt_pdesc[epid] == NULL) {
+		if ((rval = dt_epid_add(dtp, epid)) != 0)
+			return (rval);
 	}
 
-	free(pdescs);
-	dtp->dt_pdesc[idx] = NULL;
+	assert(epid < dtp->dt_maxprobe);
+	assert(dtp->dt_edesc[epid] != NULL);
+	assert(dtp->dt_pdesc[epid] != NULL);
+	*epdp = dtp->dt_edesc[epid];
+	*pdp = dtp->dt_pdesc[epid];
 
-	free(edescs);
-	dtp->dt_edesc[idx] = NULL;
-	dtp->dt_maxprobe = 0;
+	return (0);
 }
 
 void
 dt_epid_destroy(dtrace_hdl_t *dtp)
 {
+	size_t i;
 
-	/*
-	 * FIXME: This has to destroy absolutely everything
-	 */
-	return (dt_distributed_epid_destroy(dtp, "host"));
+	assert((dtp->dt_pdesc != NULL && dtp->dt_edesc != NULL &&
+	    dtp->dt_maxprobe > 0) || (dtp->dt_pdesc == NULL &&
+	    dtp->dt_edesc == NULL && dtp->dt_maxprobe == 0));
+
+	if (dtp->dt_pdesc == NULL)
+		return;
+
+	for (i = 0; i < dtp->dt_maxprobe; i++) {
+		if (dtp->dt_edesc[i] == NULL) {
+			assert(dtp->dt_pdesc[i] == NULL);
+			continue;
+		}
+
+		assert(dtp->dt_pdesc[i] != NULL);
+		free(dtp->dt_edesc[i]);
+		free(dtp->dt_pdesc[i]);
+	}
+
+	free(dtp->dt_pdesc);
+	dtp->dt_pdesc = NULL;
+
+	free(dtp->dt_edesc);
+	dtp->dt_edesc = NULL;
+	dtp->dt_maxprobe = 0;
 }
 
 void *
@@ -363,7 +320,7 @@ dt_format_destroy(dtrace_hdl_t *dtp)
 }
 
 static int
-dt_aggid_add(dtrace_hdl_t *dtp, uint32_t idx, dtrace_aggid_t id)
+dt_aggid_add(dtrace_hdl_t *dtp, dtrace_aggid_t id)
 {
 	dtrace_id_t max;
 	dtrace_epid_t epid;
@@ -457,9 +414,9 @@ dt_aggid_add(dtrace_hdl_t *dtp, uint32_t idx, dtrace_aggid_t id)
 			agg->dtagd_varid = DTRACE_AGGVARIDNONE;
 		}
 
-		if ((epid = agg->dtagd_epid[idx]) >= dtp->dt_maxprobe ||
+		if ((epid = agg->dtagd_epid) >= dtp->dt_maxprobe ||
 		    dtp->dt_pdesc[epid] == NULL) {
-			if ((rval = dt_epid_add(dtp, idx, epid)) != 0) {
+			if ((rval = dt_epid_add(dtp, epid)) != 0) {
 				free(agg);
 				return (rval);
 			}
