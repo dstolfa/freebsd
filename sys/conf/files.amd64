@@ -584,6 +584,7 @@ kern/link_elf_obj.c		standard
 libkern/x86/crc32_sse42.c	standard
 libkern/memmove.c		standard
 libkern/memset.c		standard
+libkern/amd64/memcmp.S		standard
 #
 # IA32 binary support
 #

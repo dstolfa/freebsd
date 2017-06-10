@@ -548,28 +548,6 @@ parse_uuid(const char *str, struct uuid *uuid)
 int
 uuidcmp(const struct uuid *uuid1, const struct uuid *uuid2)
 {
-	const uint64_t *u1_hi, *u1_lo, *u2_hi, *u2_lo;
 
-	KASSERT(uuid1 != NULL,
-	    ("%s: uuid1 is NULL\n", __func__));
-	KASSERT(uuid2 != NULL,
-	    ("%s: uuid2 is NULL\n", __func__));
-
-	u1_hi = (const uint64_t *) uuid1;
-	u1_lo = (const uint64_t *) (u1_hi + 1);
-
-	u2_hi = (const uint64_t *) uuid2;
-	u2_lo = (const uint64_t *) (u2_hi + 1);
-
-	if (*u1_hi > *u2_hi)
-		return (1);
-	else if (*u1_hi < *u2_hi)
-		return (-1);
-
-	if (*u1_lo > *u2_lo)
-		return (1);
-	else if (*u1_lo < *u2_lo)
-		return (-1);
-
-	return (0);
+	return (memcmp(uuid1, uuid2, sizeof(struct uuid)));
 }
