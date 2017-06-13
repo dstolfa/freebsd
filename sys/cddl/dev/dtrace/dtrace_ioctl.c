@@ -851,11 +851,16 @@ exit:
 				break;
 		}
 
-		if (is != NULL)
-			for (pvp = is->dtis_provhead; pvp != NULL; pvp = pvp->dtpv_next) {
-				if (strcmp(pvp->dtpv_name, pvd->dtvd_name) == 0)
-					break;
-			}
+		if (is == NULL) {
+			mutex_exit(&dtrace_provider_lock);
+			mutex_exit(&dtrace_instance_lock);
+			return (ESRCH);
+		}
+
+		for (pvp = is->dtis_provhead; pvp != NULL; pvp = pvp->dtpv_next) {
+			if (strcmp(pvp->dtpv_name, pvd->dtvd_name) == 0)
+				break;
+		}
 
 		mutex_exit(&dtrace_provider_lock);
 		mutex_exit(&dtrace_instance_lock);
