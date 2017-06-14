@@ -188,28 +188,8 @@ dthyve_cleanup(void)
 static int
 uuidcmp(const struct uuid *uuid1, const struct uuid *uuid2)
 {
-	const uint64_t *u1_hi, *u1_lo, *u2_hi, *u2_lo;
 
-	assert(uuid1 != NULL);
-	assert(uuid2 != NULL);
-
-	u1_hi = (const uint64_t *) uuid1;
-	u1_lo = (const uint64_t *) (u1_hi + 1);
-
-	u2_hi = (const uint64_t *) uuid2;
-	u2_lo = (const uint64_t *) (u2_hi + 1);
-
-	if (*u1_hi > *u2_hi)
-		return (1);
-	else if (*u1_hi < *u2_hi)
-		return (-1);
-
-	if (*u1_lo > *u2_lo)
-		return (1);
-	else if (*u1_lo < *u2_lo)
-		return (-1);
-
-	return (0);
+	return (memcmp(uuid1, uuid2, sizeof(struct uuid)));
 }
 
 static int
