@@ -296,6 +296,7 @@ dtvirt_enable(void *arg, dtrace_id_t id, void *parg)
 
 	virt_probe = (dtrace_virt_probe_t *) parg;
 	virt_probe->dtv_enabled = 1;
+	vmmdt_hook_add(virt_probe->dtv_vm, id);
 }
 
 static void
@@ -307,29 +308,14 @@ dtvirt_disable(void *arg, dtrace_id_t id, void *parg)
 
 	virt_probe = (dtrace_virt_probe_t *) parg;
 	virt_probe->dtv_enabled = 0;
+	vmmdt_hook_rm(virt_probe->dtv_vm, id);
 }
 
 static void
 dtvirt_getargdesc(void *arg, dtrace_id_t id,
     void *parg, dtrace_argdesc_t *adesc)
 {
-	/*
-	dtrace_virt_probe_t *virt_probe;
-	int ndx;
 
-	KASSERT(parg != NULL, ("%s: parg is NULL", __func__));
-
-	virt_probe = (dtrace_virt_probe_t *) parg;
-	ndx = adesc->dtargd_ndx;
-
-	if (ndx >= virt_probe->dtv_nargs) {
-		adesc->dtargd_ndx = DTRACE_ARGNONE;
-		return;
-	}
-
-	strlcpy(adesc->dtargd_native, virt_probe->dtv_argtypes[ndx],
-	    sizeof(adesc->dtargd_native));
-	*/
 	adesc->dtargd_ndx = DTRACE_ARGNONE;
 }
 
@@ -337,27 +323,7 @@ static uint64_t
 dtvirt_getargval(void *arg, dtrace_id_t id,
     void *parg, uint64_t ndx, int aframes)
 {
-	/*
-	dtrace_virt_probe_t *virt_probe;
-	uint64_t val;
-	char *vm;
 
-	KASSERT(aframes == 0, ("%s: aframes are wrong", __func__));
-
-	virt_probe = (dtrace_virt_probe_t *) parg;
-
-	if (ndx >= virt_probe->dtv_nargs)
-		return (0);
-
-	vm = virt_probe->dtv_vm;
-
-	if (vmmdt_hook_valueof != NULL)
-		val = vmmdt_hook_valueof(vm, id, ndx);
-	else
-		val = 0;
-
-	return (val);
-	*/
 	return (0);
 }
 
@@ -369,13 +335,7 @@ dtvirt_destroy(void *arg, dtrace_id_t id, void *parg)
 	KASSERT(parg != NULL, ("%s: parg is NULL", __func__));
 
 	virt_probe = (dtrace_virt_probe_t *) parg;
-
-	/*
-	free(virt_probe->dtv_argtypes, M_DTVIRT);
-	free(virt_probe->dtv_argsizes, M_DTVIRT);
-	*/
 	free(virt_probe, M_DTVIRT);
-
 }
 
 static int
