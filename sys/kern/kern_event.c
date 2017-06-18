@@ -74,7 +74,7 @@ __FBSDID("$FreeBSD$");
 
 #include <vm/uma.h>
 
-static MALLOC_DEFINE(M_KQUEUE, "kqueue", "memory for kqueue system");
+MALLOC_DEFINE(M_KQUEUE, "kqueue", "memory for kqueue system");
 
 /*
  * This lock is used if multiple kq locks are required.  This possibly
@@ -354,6 +354,7 @@ static struct {
 	{ &user_filtops, 1 },			/* EVFILT_USER */
 	{ &null_filtops },			/* EVFILT_SENDFILE */
 	{ &file_filtops, 1 },                   /* EVFILT_EMPTY */
+	{ &dtrace_filtops, 1 },			/* EVFILT_DTRACE */
 };
 
 /*
@@ -934,7 +935,6 @@ struct g_kevent_args {
 int
 sys_kevent(struct thread *td, struct kevent_args *uap)
 {
-	struct timespec ts, *tsp;
 	struct kevent_copyops k_ops = {
 		.arg = uap,
 		.k_copyout = kevent_copyout,

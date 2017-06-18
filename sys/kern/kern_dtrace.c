@@ -63,7 +63,6 @@ systrace_probe_func_t		systrace_probe_func;
 static int filt_dtraceattach(struct knote *);
 static void filt_dtracedetach(struct knote *);
 static int filt_dtrace(struct knote *, long);
-static void filt_dtracetouch(struct knote *, struct kevent *, u_long);
 
 struct knlist dtrace_knlist;
 struct mtx dtrace_knlist_mtx;
