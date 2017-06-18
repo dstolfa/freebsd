@@ -63,6 +63,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/vmm_instruction_emul.h>
 
 #include "vmm_ioport.h"
+#include "vmm_dtrace.h"
 #include "vmm_ktr.h"
 #include "vmm_host.h"
 #include "vmm_mem.h"
@@ -198,6 +199,26 @@ static struct vmm_ops *ops;
 
 #define	fpu_start_emulating()	load_cr0(rcr0() | CR0_TS)
 #define	fpu_stop_emulating()	clts()
+
+/*
+ * FIXME: This should be separated into different functions. Let's call the
+ * probe name what it is, and instead, for "function" entry have things like
+ * "fault", "vmexit", "vmentry", ..., and then for the module entry, we have
+ * "generic", "svm", "vmx".
+ */
+VMM_PROBE_DEFINE2(, suspend, "struct vm *", "enum vm_suspend_how");
+VMM_PROBE_DEFINE3(, set_register, "struct vm *", "int", "uint64_t");
+VMM_PROBE_DEFINE4(, set_state, "struct vm *", "int", "enum vcpu_state", "enum vcpu_state");
+VMM_PROBE_DEFINE2(, halted, "struct vm *", "int");
+VMM_PROBE_DEFINE4(, page_access, "struct vm *", "int", "int", "uint64_t");
+VMM_PROBE_DEFINE5(, handle_paging, "struct vm *", "int", "int", "uint64_t", "int");
+VMM_PROBE_DEFINE3(, fault_inst_emul, "struct vm *", "int", "uint64_t");
+VMM_PROBE_DEFINE3(, error_decode, "struct vm *", "int", "uint64_t");
+VMM_PROBE_DEFINE3(, update_rip, "struct vm *", "int", "uint64_t");
+VMM_PROBE_DEFINE4(, vmexit, "struct vm *", "int", "int", "int");
+VMM_PROBE_DEFINE5(, inst_restart, "struct vm *", "int", "int", "uint64_t", "uint64_t");
+VMM_PROBE_DEFINE3(, vmexit_intinfo, "struct vm *", "int", "uint64_t");
+VMM_PROBE_DEFINE4(, fault_triple, "struct vm *", "int", "uint64_t", "uint64_t");
 
 static MALLOC_DEFINE(M_VM, "vm", "vm");
 
@@ -981,6 +1002,7 @@ vm_set_register(struct vm *vm, int vcpuid, int reg, uint64_t val)
 
 	/* Set 'nextrip' to match the value of %rip */
 	VCPU_CTR1(vm, vcpuid, "Setting nextrip to %#lx", val);
+	VMM_PROBE3(, set_register, vm, vcpuid, val);
 	vcpu = &vm->vcpu[vcpuid];
 	vcpu->nextrip = val;
 	return (0);
@@ -1149,6 +1171,7 @@ vcpu_set_state_locked(struct vm *vm, int vcpuid, enum vcpu_state newstate,
 
 	VCPU_CTR2(vm, vcpuid, "vcpu state changed from %s to %s",
 	    vcpu_state2str(vcpu->state), vcpu_state2str(newstate));
+	VMM_PROBE4(, set_state, vm, vcpuid, vcpu->state, newstate);
 
 	vcpu->state = newstate;
 	if (newstate == VCPU_RUNNING)
@@ -1288,6 +1311,7 @@ vm_handle_hlt(struct vm *vm, int vcpuid, bool intr_disabled, bool *retu)
 		if (intr_disabled) {
 			wmesg = "vmhalt";
 			VCPU_CTR0(vm, vcpuid, "Halted");
+			VMM_PROBE2(, halted, vm, vcpuid);
 			if (!vcpu_halted && halt_detection_enabled) {
 				vcpu_halted = 1;
 				CPU_SET_ATOMIC(vcpuid, &vm->halted_cpus);
@@ -1348,6 +1372,8 @@ vm_handle_paging(struct vm *vm, int vcpuid, bool *retu)
 			VCPU_CTR2(vm, vcpuid, "%s bit emulation for gpa %#lx",
 			    ftype == VM_PROT_READ ? "accessed" : "dirty",
 			    vme->u.paging.gpa);
+			VMM_PROBE4(, page_access, vm, vcpuid,
+			    ftype != VM_PROT_READ, vme->u.paging.gpa);
 			goto done;
 		}
 	}
@@ -1357,6 +1383,8 @@ vm_handle_paging(struct vm *vm, int vcpuid, bool *retu)
 
 	VCPU_CTR3(vm, vcpuid, "vm_handle_paging rv = %d, gpa = %#lx, "
 	    "ftype = %d", rv, vme->u.paging.gpa, ftype);
+	VMM_PROBE5(, handle_paging, vm, vcpuid,
+	    rv, vme->u.paging.gpa, ftype);
 
 	if (rv != KERN_SUCCESS)
 		return (EFAULT);
@@ -1392,6 +1420,7 @@ vm_handle_inst_emul(struct vm *vm, int vcpuid, bool *retu)
 	cpu_mode = paging->cpu_mode;
 
 	VCPU_CTR1(vm, vcpuid, "inst_emul fault accessing gpa %#lx", gpa);
+	VMM_PROBE3(, fault_inst_emul, vm, vcpuid, gpa);
 
 	/* Fetch, decode and emulate the faulting instruction */
 	if (vie->num_valid == 0) {
@@ -1409,6 +1438,7 @@ vm_handle_inst_emul(struct vm *vm, int vcpuid, bool *retu)
 	if (vmm_decode_instruction(vm, vcpuid, gla, cpu_mode, cs_d, vie) != 0) {
 		VCPU_CTR1(vm, vcpuid, "Error decoding instruction at %#lx",
 		    vme->rip + cs_base);
+		VMM_PROBE3(, error_decode, vm, vcpuid, vme->rip + cs_base);
 		*retu = true;	    /* dump instruction bytes in userspace */
 		return (0);
 	}
@@ -1420,6 +1450,7 @@ vm_handle_inst_emul(struct vm *vm, int vcpuid, bool *retu)
 	vcpu->nextrip += vie->num_processed;
 	VCPU_CTR1(vm, vcpuid, "nextrip updated to %#lx after instruction "
 	    "decoding", vcpu->nextrip);
+	VMM_PROBE3(, update_rip, vm, vcpuid, vcpu->nextrip);
  
 	/* return to userland unless this is an in-kernel emulated device */
 	if (gpa >= DEFAULT_APIC_BASE && gpa < DEFAULT_APIC_BASE + PAGE_SIZE) {
@@ -1518,10 +1549,12 @@ vm_suspend(struct vm *vm, enum vm_suspend_how how)
 	if (atomic_cmpset_int(&vm->suspend, 0, how) == 0) {
 		VM_CTR2(vm, "virtual machine already suspended %d/%d",
 		    vm->suspend, how);
+		VMM_PROBE2(, suspend, vm, how);
 		return (EALREADY);
 	}
 
 	VM_CTR1(vm, "virtual machine successfully suspended %d", how);
+	VMM_PROBE2(, suspend, vm, how);
 
 	/*
 	 * Notify all active vcpus that they are now suspended.
@@ -1685,6 +1718,7 @@ restart:
 		goto restart;
 
 	VCPU_CTR2(vm, vcpuid, "retu %d/%d", error, vme->exitcode);
+	VMM_PROBE4(, vmexit, vm, vcpuid, error, vme->exitcode);
 
 	/* copy the exit information */
 	bcopy(vme, &vmrun->vm_exit, sizeof(struct vm_exit));
@@ -1716,6 +1750,8 @@ vm_restart_instruction(void *arg, int vcpuid)
 		vcpu->exitinfo.inst_length = 0;
 		VCPU_CTR1(vm, vcpuid, "restarting instruction at %#lx by "
 		    "setting inst_length to zero", vcpu->exitinfo.rip);
+		VMM_PROBE5(, inst_restart, vm, vcpuid,
+		    0, vcpu->exitinfo.rip, 0);
 	} else if (state == VCPU_FROZEN) {
 		/*
 		 * When a vcpu is "frozen" it is outside the critical section
@@ -1727,6 +1763,7 @@ vm_restart_instruction(void *arg, int vcpuid)
 		KASSERT(!error, ("%s: error %d getting rip", __func__, error));
 		VCPU_CTR2(vm, vcpuid, "restarting instruction by updating "
 		    "nextrip from %#lx to %#lx", vcpu->nextrip, rip);
+		VMM_PROBE5(, inst_restart, vm, vcpuid, 1, vcpu->nextrip, rip);
 		vcpu->nextrip = rip;
 	} else {
 		panic("%s: invalid state %d", __func__, state);
@@ -1758,6 +1795,7 @@ vm_exit_intinfo(struct vm *vm, int vcpuid, uint64_t info)
 		info = 0;
 	}
 	VCPU_CTR2(vm, vcpuid, "%s: info1(%#lx)", __func__, info);
+	VMM_PROBE3(, vmexit_intinfo, vm, vcpuid, info);
 	vcpu->exitintinfo = info;
 	return (0);
 }
@@ -1835,6 +1873,7 @@ nested_fault(struct vm *vm, int vcpuid, uint64_t info1, uint64_t info2,
 	if (type1 == VM_INTINFO_HWEXCEPTION && vector1 == IDT_DF) {
 		VCPU_CTR2(vm, vcpuid, "triple fault: info1(%#lx), info2(%#lx)",
 		    info1, info2);
+		VMM_PROBE4(, fault_triple, vm, vcpuid, info1, info2);
 		vm_suspend(vm, VM_SUSPEND_TRIPLEFAULT);
 		*retinfo = 0;
 		return (0);
