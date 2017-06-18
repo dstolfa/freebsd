@@ -86,6 +86,12 @@ SRCS+=	vmm_instruction_emul.c
 
 LIBADD=	vmmapi md pthread z
 
+.if ${MK_OPENSSL} == "no"
+CFLAGS+=-DNO_OPENSSL
+.else
+LIBADD+=	crypto
+.endif
+
 CFLAGS+= -I${BHYVE_SYSDIR}/sys/dev/e1000
 CFLAGS+= -I${BHYVE_SYSDIR}/sys/dev/mii
 CFLAGS+= -I${BHYVE_SYSDIR}/sys/dev/usb/controller
