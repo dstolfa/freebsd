@@ -7480,7 +7480,6 @@ dtrace_distributed_probe(const char *instance, dtrace_id_t id,
 		 * We check if the action is used in a virtualization context.
 		 * Currently, it is only possible to have one action in this
 		 * list, so we assert it's correctness (TODO).
-		 * FIXME: This doesn't fire a probe for some reason.
 		 */
 		if (ecb->dte_action &&
 		    DTRACEACT_ISVIRT(ecb->dte_action->dta_kind)) {
@@ -9395,6 +9394,7 @@ dtrace_priv_unregister(dtrace_provider_id_t id, uint8_t recursing)
 		return (EBUSY);
 	}
 
+	ASSERT(old->dtpv_instance != NULL);
 	idx = dtrace_instance_lookup_id(old->dtpv_instance);
 	dtrace_nprobes = dtrace_istc_probecount[idx];
 	dtrace_probes = dtrace_istc_probes[idx];

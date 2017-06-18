@@ -1106,7 +1106,6 @@ end:
 
 		DTRACE_IOCTL_PRINTF("%s(%d): DTRACEIOC_PROVDESTROY\n",__func__,__LINE__);
 
-
 		if (!dtvirt_loaded())
 			return (EINVAL);
 

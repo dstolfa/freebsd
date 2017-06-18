@@ -198,6 +198,7 @@ vmmdt_cleanup(void)
 		vm_tree = vmmdt_vms.vm_list[i];
 		if (vm_tree == NULL)
 			continue;
+		mtx_lock(&vm_tree->vmdtree_mtx);
 		rbhead = &vm_tree->vmdtree_head;
 		RB_FOREACH_SAFE(probe, vmmdt_probetree, rbhead, tmp) {
 			if (probe != NULL) {
@@ -205,6 +206,7 @@ vmmdt_cleanup(void)
 			}
 		}
 
+		mtx_unlock(&vm_tree->vmdtree_mtx);
 		mtx_destroy(&vm_tree->vmdtree_mtx);
 		free(vm_tree, M_VMMDT);
 		vmmdt_vms.vm_list[i] = NULL;
@@ -340,9 +342,9 @@ vmmdt_fire_probe(const char *vm, int probeid,
     uintptr_t arg0, uintptr_t arg1, uintptr_t arg2,
     uintptr_t arg3, uintptr_t arg4)
 {
-	if (vmmdt_enabled(vm, probeid))
-		dtvirt_hook_commit(vm, probeid, arg0, arg1,
-		    arg2, arg3, arg4);
+	/*if (vmmdt_enabled(vm, probeid))*/
+	dtvirt_hook_commit(vm, probeid, arg0, arg1,
+	    arg2, arg3, arg4);
 }
 
 static struct vmdtree *
