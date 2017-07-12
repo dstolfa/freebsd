@@ -114,7 +114,7 @@ static void p_str(struct parse *p);
 static int p_branch_eat_delim(struct parse *p, struct branchc *bc);
 static void p_branch_ins_offset(struct parse *p, struct branchc *bc);
 static void p_branch_fix_tail(struct parse *p, struct branchc *bc);
-static void p_branch_empty(struct parse *p, struct branchc *bc);
+static bool p_branch_empty(struct parse *p, struct branchc *bc);
 static bool p_branch_do(struct parse *p, struct branchc *bc);
 static void p_bre_pre_parse(struct parse *p, struct branchc *bc);
 static void p_bre_post_parse(struct parse *p, struct branchc *bc);
@@ -578,13 +578,15 @@ p_branch_fix_tail(struct parse *p, struct branchc *bc)
 /*
  * Signal to the parser that an empty branch has been encountered; this will,
  * in the future, be used to allow for more permissive behavior with empty
- * branches.
+ * branches. The return value should indicate whether parsing may continue
+ * or not.
  */
-static void
+static bool
 p_branch_empty(struct parse *p, struct branchc *bc)
 {
 
 	SETERROR(REG_EMPTY);
+	return (false);
 }
 
 /*
@@ -600,7 +602,13 @@ p_branch_do(struct parse *p, struct branchc *bc)
 	ate = p_branch_eat_delim(p, bc);
 	if (ate == 0)
 		return (false);
-	(void)REQUIRE(ate == 1 && (!bc->outer || MORE()), REG_EMPTY);
+	else if ((ate > 1 || (bc->outer && !MORE())) && !p_branch_empty(p, bc))
+		/*
+		 * Halt parsing only if we have an empty branch and p_branch_empty
+		 * indicates that we must not continue. In the future, this will not
+		 * necessarily be an error.
+		 */
+		return (false);
 	p_branch_ins_offset(p, bc);
 
 	return (true);
@@ -664,7 +672,7 @@ p_re(struct parse *p,
 		bc.terminate = false;
 		if (p->pre_parse != NULL)
 			p->pre_parse(p, &bc);
-		while (MORE() && !SEESPEC('|') && !SEEEND()) {
+		while (MORE() && (!p->allowbranch || !SEESPEC('|')) && !SEEEND()) {
 			bc.terminate = p->parse_expr(p, &bc);
 			++bc.nchain;
 		}
