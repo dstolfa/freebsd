@@ -355,6 +355,7 @@ contrib/dev/acpica/components/dispatcher/dsmethod.c	optional acpi
 contrib/dev/acpica/components/dispatcher/dsmthdat.c	optional acpi
 contrib/dev/acpica/components/dispatcher/dsobject.c	optional acpi
 contrib/dev/acpica/components/dispatcher/dsopcode.c	optional acpi
+contrib/dev/acpica/components/dispatcher/dspkginit.c	optional acpi
 contrib/dev/acpica/components/dispatcher/dsutils.c	optional acpi
 contrib/dev/acpica/components/dispatcher/dswexec.c	optional acpi
 contrib/dev/acpica/components/dispatcher/dswload.c	optional acpi
@@ -1351,6 +1352,18 @@ dev/cxgbe/common/t4_hw.c	optional cxgbe pci \
 	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
 dev/cxgbe/common/t4vf_hw.c	optional cxgbev pci \
 	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
+dev/cxgbe/cudbg/cudbg_common.c	optional cxgbe \
+	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
+dev/cxgbe/cudbg/cudbg_flash_utils.c	optional cxgbe \
+	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
+dev/cxgbe/cudbg/cudbg_lib.c	optional cxgbe \
+	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
+dev/cxgbe/cudbg/cudbg_wtp.c	optional cxgbe \
+	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
+dev/cxgbe/cudbg/fastlz.c	optional cxgbe \
+	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
+dev/cxgbe/cudbg/fastlz_api.c	optional cxgbe \
+	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
 t4fw_cfg.c		optional cxgbe					\
 	compile-with	"${AWK} -f $S/tools/fw_stub.awk t4fw_cfg.fw:t4fw_cfg t4fw_cfg_uwire.fw:t4fw_cfg_uwire t4fw.fw:t4fw -mt4fw_cfg -c${.TARGET}" \
 	no-implicit-rule before-depend local				\
@@ -1735,9 +1748,10 @@ dev/iicbus/iiconf.c		optional iicbus
 dev/iicbus/iicsmb.c		optional iicsmb				\
 	dependency	"iicbus_if.h"
 dev/iicbus/iicoc.c		optional iicoc
+dev/iicbus/isl12xx.c		optional isl12xx
 dev/iicbus/lm75.c		optional lm75
+dev/iicbus/nxprtc.c		optional nxprtc | pcf8563
 dev/iicbus/ofw_iicbus.c		optional fdt iicbus
-dev/iicbus/pcf8563.c		optional pcf8563
 dev/iicbus/s35390a.c		optional s35390a
 dev/iir/iir.c			optional iir
 dev/iir/iir_ctrl.c		optional iir
