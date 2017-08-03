@@ -142,7 +142,6 @@ static char *trap_msg[] = {
 	"reserved (unknown) fault",		/* 30 T_RESERVED */
 	"",					/* 31 unused (reserved) */
 	"DTrace pid return trap",		/* 32 T_DTRACE_RET */
-	"DTrace probe installation trap",	/* 32 T_DTRACE_INST */
 };
 
 static int prot_fault_translation;
@@ -371,7 +370,7 @@ trap(struct trapframe *frame)
 #ifdef DEV_ISA
 		case T_NMI:
 			nmi_handle_intr(type, frame);
-			break;
+			goto out;
 #endif /* DEV_ISA */
 
 		case T_OFLOW:		/* integer overflow fault */
@@ -409,21 +408,7 @@ trap(struct trapframe *frame)
 			if (dtrace_return_probe_ptr != NULL &&
 			    dtrace_return_probe_ptr(&regs) == 0)
 				goto out;
-			break;
-		case T_DTRACE_INST:
-			enable_intr();
-			fill_frame_regs(frame, &regs);
-			if (dtrace_install_probe_ptr != NULL &&
-			    dtrace_install_probe_ptr(&regs) == 0)
-				goto out;
-			break;
-		case T_DTRACE_UINST:
-			enable_intr();
-			fill_frame_regs(frame, &regs);
-			if (dtrace_uninstall_probe_ptr != NULL &&
-			    dtrace_uninstall_probe_ptr(&regs) == 0)
-				goto out;
-			break;
+			goto userout;
 #endif
 		}
 	} else {
@@ -950,6 +935,6 @@ amd64_syscall(struct thread *td, int traced)
 	 * not be safe.  Instead, use the full return path which
 	 * catches the problem safely.
 	 */
-	if (td->td_frame->tf_rip >= VM_MAXUSER_ADDRESS)
+	if (__predict_false(td->td_frame->tf_rip >= VM_MAXUSER_ADDRESS))
 		set_pcb_flags(td->td_pcb, PCB_FULL_IRET);
 }
