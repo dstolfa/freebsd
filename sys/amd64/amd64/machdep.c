@@ -1551,6 +1551,7 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 
 	kmdp = init_ops.parse_preload_data(modulep);
 
+	identify_cpu();
 	identify_hypervisor();
 
 	if (cpu_vendor_id == CPU_VENDOR_AMD) {
@@ -1665,7 +1666,7 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	    != NULL)
 		vty_set_preferred(VTY_VT);
 
-	identify_cpu();		/* Final stage of CPU initialization */
+	finishidentcpu();	/* Final stage of CPU initialization */
 	initializecpu();	/* Initialize CPU registers */
 	initializecpucache();
 
