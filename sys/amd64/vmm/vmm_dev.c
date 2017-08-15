@@ -283,7 +283,7 @@ static int
 vmmdev_ioctl(struct cdev *cdev, u_long cmd, caddr_t data, int fflag,
 	     struct thread *td)
 {
-	int error, vcpu, state_changed, size;
+	int error, vcpu, state_changed, size, mode;
 	cpuset_t *cpuset;
 	struct vmmdev_softc *sc;
 	struct vm_register *vmreg;
@@ -639,6 +639,17 @@ vmmdev_ioctl(struct cdev *cdev, u_long cmd, caddr_t data, int fflag,
 		break;
 	case VM_RESTART_INSTRUCTION:
 		error = vm_restart_instruction(sc->vm, vcpu);
+		break;
+	case VM_MODE:
+		error = 0;
+		mode = *(int *) data;
+		if (mode < 0 || mode >= VMM_MAX_MODES) {
+			error = EINVAL;
+			break;
+		}
+
+		vm_set_mode(sc->vm, mode);
+		vm_set_hypercall_mask(sc->vm);
 		break;
 	default:
 		error = ENOTTY;

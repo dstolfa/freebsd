@@ -163,6 +163,8 @@ struct vm {
 	struct vmspace	*vmspace;		/* (o) guest's address space */
 	char		name[VM_MAX_NAMELEN];	/* (o) virtual machine name */
 	struct vcpu	vcpu[VM_MAXCPU];	/* (i) guest vcpus */
+	int		mode;			/* (o) emulation mode */
+	uint64_t	hcmask;			/* (o) hypercall mask */
 };
 
 static int vmm_initialized;
@@ -225,11 +227,6 @@ SYSCTL_INT(_hw_vmm, OID_AUTO, trace_guest_exceptions, CTLFLAG_RDTUN,
     &trace_guest_exceptions, 0,
     "Trap into hypervisor on all guest exceptions and reflect them back");
 
-int hypercalls_enabled = 0;
-SYSCTL_INT(_hw_vmm, OID_AUTO, hypercalls_enabled, CTLFLAG_RWTUN,
-    &hypercalls_enabled, 0,
-    "Enable hypercalls on all guests");
-
 /*
  * The maximum amount of arguments currently supproted
  * through the hypercall functionality in the VMM.
@@ -242,11 +239,6 @@ typedef int	(*hc_handler_t)(uint64_t, struct vm *, int,
     struct vm_exit *, bool *);
 typedef int64_t	(*hc_dispatcher_t)(struct vm *, int,
     uint64_t *, struct vm_guest_paging *);
-
-/*
- * The default hypervisor mode used is BHYVE_MODE.
- */
-int hypervisor_mode	= BHYVE_MODE;
 
 static int	bhyve_handle_hypercall(uint64_t hcid, struct vm *vm,
     int vcpuid, struct vm_exit *vmexit, bool *retu);
@@ -262,7 +254,10 @@ hc_handler_t	hc_handler[VMM_MAX_MODES] = {
 	[BHYVE_MODE]	= bhyve_handle_hypercall
 };
 
-static int64_t hc_handle_prototype(struct vm *, int,
+static int64_t bhyve_hypercall_enab_mask(struct vm *, int,
+    uint64_t *, struct vm_guest_paging *);
+
+static int64_t kvm_hypercall_enab_mask(struct vm *, int,
     uint64_t *, struct vm_guest_paging *);
 
 /*
@@ -275,10 +270,13 @@ static int64_t hc_handle_prototype(struct vm *, int,
  * the guest without exception. Keep in sync with
  * hc_handler(see above) and ring_plevel(see below).
  */
-hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
+hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][64] = {
 	[BHYVE_MODE] = {
-		[HYPERCALL_PROTOTYPE]		= hc_handle_prototype
-	}
+		[BHYVE_HYPERCALL_ENAB_MASK]	= bhyve_hypercall_enab_mask
+	},
+	[KVM_MODE] = {
+		[KVM_HYPERCALL_ENAB_MASK]	= kvm_hypercall_enab_mask
+	},
 };
 
 /*
@@ -288,51 +286,18 @@ hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
  * for correct operation of the hypercall. This should
  * be kept in snyc with hc_dispatcher(see above).
  */
-static int8_t	ring_plevel[VMM_MAX_MODES][HYPERCALL_INDEX_MAX] = {
+static int8_t	ring_plevel[VMM_MAX_MODES][64] = {
 	[BHYVE_MODE] = {
-		[HYPERCALL_PROTOTYPE]		= 0,
-		[HYPERCALL_DTRACE_PROBE_CREATE]	= 0,
-		[HYPERCALL_DTRACE_PROBE]	= 0,
-		[HYPERCALL_DTRACE_RESERVED1]	= 0,
-		[HYPERCALL_DTRACE_RESERVED2]	= 0,
-		[HYPERCALL_DTRACE_RESERVED3]	= 0,
-		[HYPERCALL_DTRACE_RESERVED4]	= 0
-	}
+		[BHYVE_HYPERCALL_ENAB_MASK]	= 3
+	},
+	[KVM_MODE] = {
+		[KVM_HYPERCALL_ENAB_MASK]	= 0
+	},
 };
 
 static void vm_free_memmap(struct vm *vm, int ident);
 static bool sysmem_mapping(struct vm *vm, struct mem_map *mm);
 static void vcpu_notify_event_locked(struct vcpu *vcpu, bool lapic_intr);
-
-static int
-sysctl_vmm_hypervisor_mode(SYSCTL_HANDLER_ARGS)
-{
-	int error;
-	char buf[HV_MAX_NAMELEN];
-
-	if (hypervisor_mode == BHYVE_MODE) {
-		strlcpy(buf, "bhyve", sizeof(buf));
-	} else {
-		strlcpy(buf, "undefined", sizeof(buf));
-	}
-
-	error = sysctl_handle_string(oidp, buf, sizeof(buf), req);
-	if (error != 0 || req->newptr == NULL)
-		return (error);
-
-	if (strcmp(buf, "bhyve") == 0) {
-		hypervisor_mode = BHYVE_MODE;
-	} else {
-		/*
-		 * Disallow undefined data
-		 */
-		hypervisor_mode = BHYVE_MODE;
-	}
-
-	return (0);
-}
-SYSCTL_PROC(_hw_vmm, OID_AUTO, hv_mode, CTLTYPE_STRING | CTLFLAG_RDTUN,
-    NULL, 0, sysctl_vmm_hypervisor_mode, "A", NULL);
 
 #ifdef KTR
 static const char *
@@ -1621,17 +1586,17 @@ hypercall_dispatch(uint64_t hcid, struct vm *vm, int vcpuid,
 	/*
 	 * Do not allow hypercalls that aren't implemented.
 	 */
-	if (hc_dispatcher[hypervisor_mode][hcid] == NULL) {
-		return (HYPERCALL_RET_NOT_IMPL);
+	if (hc_dispatcher[vm->mode][hcid] == NULL) {
+		return (-1);
 	}
-	return (hc_dispatcher[hypervisor_mode][hcid](vm, vcpuid, args, paging));
+	return (hc_dispatcher[vm->mode][hcid](vm, vcpuid, args, paging));
 }
 
 static __inline int
 hypercall_handle(uint64_t hcid, struct vm *vm, int vcpuid,
     struct vm_exit *vmexit, bool *retu)
 {
-	return (hc_handler[hypervisor_mode](hcid, vm, vcpuid, vmexit, retu));
+	return (hc_handler[vm->mode](hcid, vm, vcpuid, vmexit, retu));
 }
 
 /*
@@ -1647,7 +1612,7 @@ hypercall_copy_arg(struct vm *vm, int vcpuid, uint64_t ds_base,
 	int error, fault;
 
 	if (arg == 0) {
-		return (HYPERCALL_RET_ERROR);
+		return (EINVAL);
 	}
 
 	gla = ds_base + arg;
@@ -1712,20 +1677,23 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	struct seg_desc cs_desc;
 	uint64_t hcid;
 	int error;
+	int max_index[] = {
+		[BHYVE_MODE]	= BHYVE_HYPERCALL_INDEX_MAX,
+		[KVM_MODE]	= KVM_HYPERCALL_INDEX_MAX,
+	};
 
 	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RAX, &hcid);
 	KASSERT(error == 0, ("%s: error %d getting RAX",
 	    __func__, error));
 
 	/*
-	 * Ensure that the hypercall called by the guest never exceed
-	 * the maximum number of hypercalls defined.
+	 * Check the bounds of the passing in hypercall ID
 	 */
-	if (hcid >= HYPERCALL_INDEX_MAX) {
-		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, HYPERCALL_RET_ERROR);
+	if (hcid > max_index[vm->mode]) {
+		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX,
+		    EINVAL);
 		KASSERT(error == 0, ("%s: error %d setting RAX",
 		    __func__, error));
-		return (0);
 	}
 
 	error = vm_get_seg_desc(vm, vcpuid, VM_REG_GUEST_CS, &cs_desc);
@@ -1736,8 +1704,8 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	 * The check ensures that each of the hypercalls that is called
 	 * from the guest is called from the correct protection ring.
 	 */
-	if (SEG_DESC_DPL(cs_desc.access) != ring_plevel[hypervisor_mode][hcid]) {
-		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, HYPERCALL_RET_ERROR);
+	if (SEG_DESC_DPL(cs_desc.access) > ring_plevel[vm->mode][hcid]) {
+		error = vm_set_register(vm, vcpuid, VM_REG_GUEST_RAX, EPERM);
 		KASSERT(error == 0, ("%s: error %d setting RAX",
 		    __func__, error));
 		return (0);
@@ -1747,10 +1715,17 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 }
 
 static __inline int64_t
-hc_handle_prototype(struct vm *vm, int vcpuid,
+bhyve_hypercall_enab_mask(struct vm *vm, int vcpuid,
     uint64_t *args, struct vm_guest_paging *paging)
 {
-	return (HYPERCALL_RET_SUCCESS);
+	return (0);
+}
+
+static __inline int64_t
+kvm_hypercall_enab_mask(struct vm *vm, int vcpuid,
+    uint64_t *args, struct vm_guest_paging *paging)
+{
+	return (0);
 }
 
 int
@@ -2178,6 +2153,41 @@ vm_get_intinfo(struct vm *vm, int vcpuid, uint64_t *info1, uint64_t *info2)
 	*info1 = vcpu->exitintinfo;
 	*info2 = vcpu_exception_intinfo(vcpu);
 	return (0);
+}
+
+__inline void
+vm_set_mode(struct vm *vm, int mode)
+{
+	vm->mode = mode;
+}
+
+
+__inline int
+vm_get_mode(struct vm *vm)
+{
+	return (vm->mode);
+}
+
+__inline void
+vm_set_hypercall_mask(struct vm *vm)
+{
+	switch (vm->mode) {
+	case BHYVE_MODE:
+		vm->hcmask = BHYVE_HYPERCALL_MASK;
+		break;
+	case KVM_MODE:
+		vm->hcmask = KVM_HYPERCALL_MASK;
+		break;
+	default:
+		/* NOTREACHED */
+		break;
+	}
+}
+
+__inline uint64_t
+vm_get_hypercall_mask(struct vm *vm)
+{
+	return (vm->hcmask);
 }
 
 int

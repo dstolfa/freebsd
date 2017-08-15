@@ -162,6 +162,8 @@ int	vm_setup_pptdev_msix(struct vmctx *ctx, int vcpu, int bus, int slot,
 
 int	vm_get_intinfo(struct vmctx *ctx, int vcpu, uint64_t *i1, uint64_t *i2);
 int	vm_set_intinfo(struct vmctx *ctx, int vcpu, uint64_t exit_intinfo);
+int	vm_set_mode(struct vmctx *ctx, int mode);
+int	vm_get_mode(const char *strmode);
 
 const cap_ioctl_t *vm_get_ioctls(size_t *len);
 

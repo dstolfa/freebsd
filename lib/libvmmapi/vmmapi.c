@@ -1358,6 +1358,32 @@ vm_set_intinfo(struct vmctx *ctx, int vcpu, uint64_t info1)
 }
 
 int
+vm_get_mode(const char *strmode)
+{
+	int mode;
+
+	mode = -1;
+
+	if (strcmp(strmode, "bhyve") == 0) {
+		mode = BHYVE_MODE;
+	} else if (strcmp(strmode, "kvm") == 0) {
+		mode = KVM_MODE;
+	}
+
+	return (mode);
+}
+
+int
+vm_set_mode(struct vmctx *ctx, int mode)
+{
+
+	int error;
+
+	error = ioctl(ctx->fd, VM_MODE, &mode);
+	return (error);
+}
+
+int
 vm_rtc_write(struct vmctx *ctx, int offset, uint8_t value)
 {
 	struct vm_rtc_data rtcdata;
@@ -1444,7 +1470,7 @@ vm_get_ioctls(size_t *len)
 	    VM_GET_HPET_CAPABILITIES, VM_GET_GPA_PMAP, VM_GLA2GPA,
 	    VM_ACTIVATE_CPU, VM_GET_CPUS, VM_SET_INTINFO, VM_GET_INTINFO,
 	    VM_RTC_WRITE, VM_RTC_READ, VM_RTC_SETTIME, VM_RTC_GETTIME,
-	    VM_RESTART_INSTRUCTION };
+	    VM_RESTART_INSTRUCTION, VM_MODE };
 
 	if (len == NULL) {
 		cmds = malloc(sizeof(vm_ioctl_cmds));

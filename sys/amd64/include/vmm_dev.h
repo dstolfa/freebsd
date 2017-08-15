@@ -286,6 +286,7 @@ enum {
 	IOCNUM_RTC_WRITE = 101,
 	IOCNUM_RTC_SETTIME = 102,
 	IOCNUM_RTC_GETTIME = 103,
+	IOCNUM_VM_MODE = 120,
 };
 
 #define	VM_RUN		\
@@ -382,4 +383,6 @@ enum {
 	_IOR('v', IOCNUM_RTC_GETTIME, struct vm_rtc_time)
 #define	VM_RESTART_INSTRUCTION \
 	_IOW('v', IOCNUM_RESTART_INSTRUCTION, int)
+#define	VM_MODE	\
+	_IOW('v', IOCNUM_VM_MODE, int)
 #endif

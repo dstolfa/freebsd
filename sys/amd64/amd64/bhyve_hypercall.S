@@ -46,18 +46,28 @@
  * opposed to here.
  */
 
-ENTRY(hypercall_prototype)
+ENTRY(bhyve_hypercall)
+	VENTER
+bhyve_hc:
+	.byte 0x0f,0x01,0xc1
+	VLEAVE
+	ret
+END(bhyve_hypercall)
+
+/*
+ENTRY(bhyve_hypercall_enab_mask)
 	VENTER
 	movq $HYPERCALL_PROTOTYPE, %rax
-hc_prototype:
+hc_enab_mask:
 	.byte 0x0f,0x01,0xc1
 	VLEAVE
 	ret
 END(hypercall_prototype)
+*/
 
-.type __set_hypercall_prototype, @object
+.type __set_bhyve_hypercall, @object
 .section set_hypercall, "a", @progbits
 .align 8
-__set_hypercall_prototype:
-	.quad hc_prototype
-	.size __set_hypercall_prototype, 3
+__set_bhyve_hypercall:
+	.quad bhyve_hc
+	.size __set_bhyve_hypercall, 3

@@ -102,6 +102,10 @@ enum x2apic_state {
 #define	VM_INTINFO_HWEXCEPTION	(3 << 8)
 #define	VM_INTINFO_SWINTR	(4 << 8)
 
+#define	BHYVE_MODE		0
+#define	KVM_MODE		1
+#define	VMM_MAX_MODES		2
+
 #ifdef _KERNEL
 
 #define	VM_MAX_NAMELEN	32
@@ -170,12 +174,6 @@ struct vmm_ops {
 
 extern struct vmm_ops vmm_ops_intel;
 extern struct vmm_ops vmm_ops_amd;
-
-#define BHYVE_MODE		0
-#define VMM_MAX_MODES		1
-
-extern	int	hypervisor_mode;
-extern	int	hypercalls_enabled;
 
 int vm_create(const char *name, struct vm **retvm);
 void vm_destroy(struct vm *vm);
@@ -369,6 +367,10 @@ int vm_exit_intinfo(struct vm *vm, int vcpuid, uint64_t intinfo);
 int vm_entry_intinfo(struct vm *vm, int vcpuid, uint64_t *info);
 
 int vm_get_intinfo(struct vm *vm, int vcpuid, uint64_t *info1, uint64_t *info2);
+void vm_set_mode(struct vm *vm, int mode);
+int vm_get_mode(struct vm *vm);
+void vm_set_hypercall_mask(struct vm *vm);
+uint64_t vm_get_hypercall_mask(struct vm *vm);
 
 enum vm_reg_name vm_segment_name(int seg_encoding);
 

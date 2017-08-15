@@ -147,6 +147,7 @@ usage(int code)
 		"       -H: vmexit from the guest on hlt\n"
 		"       -l: LPC device configuration\n"
 		"       -m: memory size in MB\n"
+		"       -M: bhyve mode <bhyve, kvm, bare>\n"
 		"       -p: pin 'vcpu' to 'hostcpu'\n"
 		"       -P: vmexit from the guest on pause\n"
 		"       -s: <slot,driver,configinfo> PCI slot config\n"
@@ -790,6 +791,7 @@ main(int argc, char *argv[])
 	int c, error, gdb_port, err, bvmcons;
 	int max_vcpus, mptgen, memflags;
 	int rtc_localtime;
+	int vm_mode;
 	struct vmctx *ctx;
 	uint64_t rip;
 	size_t memsize;
@@ -803,8 +805,9 @@ main(int argc, char *argv[])
 	mptgen = 1;
 	rtc_localtime = 1;
 	memflags = 0;
+	vm_mode = BHYVE_MODE;
 
-	optstr = "abehuwxACHIPSWYp:g:c:s:m:l:U:";
+	optstr = "abehuwxACHIM:PSWYp:g:c:s:m:l:U:";
 	while ((c = getopt(argc, argv, optstr)) != -1) {
 		switch (c) {
 		case 'a':
@@ -849,6 +852,11 @@ main(int argc, char *argv[])
 			error = vm_parse_memsize(optarg, &memsize);
 			if (error)
 				errx(EX_USAGE, "invalid memsize '%s'", optarg);
+			break;
+		case 'M':
+			vm_mode = vm_get_mode(optarg);
+			if (vm_mode == -1)
+				errx(EX_USAGE, "invalid VM mode '%s'", optarg);
 			break;
 		case 'H':
 			guest_vmexit_on_hlt = 1;
@@ -925,6 +933,12 @@ main(int argc, char *argv[])
 	error = init_msr();
 	if (error) {
 		fprintf(stderr, "init_msr error %d", error);
+		exit(1);
+	}
+
+	error = vm_set_mode(ctx, vm_mode);
+	if (error) {
+		fprintf(stderr, "could not set mode: %d\n", errno);
 		exit(1);
 	}
 

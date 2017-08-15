@@ -50,9 +50,9 @@ __FBSDID("$FreeBSD$");
 SYSCTL_DECL(_hw_vmm);
 static SYSCTL_NODE(_hw_vmm, OID_AUTO, topology, CTLFLAG_RD, 0, NULL);
 
-#define	CPUID_VM_HIGH		0x40000001
-#define	CPUID_HV_SPECIFIC_HIGH	(CPUID_VM_HIGH & 0x000000FF)
-#define	CPUID_HV_SPECIFIC_NUM	(CPUID_HV_SPECIFIC_HIGH + 1)
+#define	CPUID_VM_HIGH		0x400000FF
+
+#define	MAX_CPUIDS	0xFF
 
 /*
  * Maps the specified hypervisor specific CPUID to an
@@ -60,16 +60,7 @@ static SYSCTL_NODE(_hw_vmm, OID_AUTO, topology, CTLFLAG_RD, 0, NULL);
  * The reserved CPUIDs for a hypervisor as seen in
  * intel and AMD manuals are 0x40000000-0x400000FF.
  */
-#define	HV_CPUID_ID(id)		(id & 0x000000FF)
-
-/*
- * Advertises the appropriate hypervisor identified based
- * on the hypervisor operation mode. This should be kept
- * in sync with the possible hypervisor modes.
- */
-static const char hypervisor_id[VMM_MAX_MODES][12] =  {
-	[BHYVE_MODE]	= "bhyve bhyve "
-};
+#define	CPUID_INDEX(id)		(id & 0x000000FF)
 
 static uint64_t bhyve_xcpuids;
 SYSCTL_ULONG(_hw_vmm, OID_AUTO, bhyve_xcpuids, CTLFLAG_RW, &bhyve_xcpuids, 0,
@@ -91,25 +82,32 @@ SYSCTL_INT(_hw_vmm_topology, OID_AUTO, cpuid_leaf_b, CTLFLAG_RDTUN,
     &cpuid_leaf_b, 0, NULL);
 
 
-typedef	void (*cpuid_dispatcher_t)(unsigned int regs[4]);
+typedef	void (*cpuid_dispatcher_t)(struct vm *vm, unsigned int regs[4]);
 
-static void	cpuid_advertise_hw_vendor(unsigned int regs[4]);
-static void	cpuid_bhyve_hypercall_enabled(unsigned int regs[4]);
+static void	cpuid_advertise_hw_vendor(struct vm *vm, unsigned int regs[4]);
+
+static void	bhyve_cpuid_hypercall_mask(struct vm *vm, unsigned int regs[4]);
+
+static void	kvm_cpuid_hypercall_mask(struct vm *vm, unsigned int regs[4]);
 
 /*
  * Dispatches the appropriate CPUID handler based on
- * the computed index using the HV_CPUID_ID macro.
+ * the computed index using the CPUID_INDEX macro.
  * This should be kept in sync with allowed hypervisor
  * modes. Keep this jumptable as generic as possible
  * and in case of a specific CPUID for each hypervisor
  * mode, the naming convention for the jumptable entry
  * is cpuid_<hypervisor_mode>_functionality.
  */
-cpuid_dispatcher_t cpuid_dispatcher[VMM_MAX_MODES][CPUID_HV_SPECIFIC_NUM] = {
+cpuid_dispatcher_t cpuid_dispatcher[VMM_MAX_MODES][MAX_CPUIDS] = {
 	[BHYVE_MODE] = {
 		[0]	= cpuid_advertise_hw_vendor,
-		[1]	= cpuid_bhyve_hypercall_enabled
-	}
+		[1]	= bhyve_cpuid_hypercall_mask,
+	},
+	[KVM_MODE] = {
+		[0]	= cpuid_advertise_hw_vendor,
+		[1]	= kvm_cpuid_hypercall_mask,
+	},
 };
 
 /*
@@ -124,24 +122,70 @@ log2(u_int x)
 }
 
 static __inline void
-cpuid_dispatch(unsigned int func, unsigned int regs[4])
+cpuid_dispatch(struct vm *vm, unsigned int func, unsigned int regs[4])
 {
-	cpuid_dispatcher[hypervisor_mode][HV_CPUID_ID(func)](regs);
+	int mode;
+
+	mode = vm_get_mode(vm);
+
+	switch (mode) {
+	case BHYVE_MODE:
+		if (CPUID_INDEX(func) > 1) {
+			memset(regs, 0, sizeof(unsigned int) * 4);
+			return;
+		}	
+		break;
+	case KVM_MODE:
+		if (CPUID_INDEX(func) > 1) {
+			memset(regs, 0, sizeof(unsigned int) * 4);
+			return;
+		}
+		break;
+	default:
+		/* NOTREACHED */
+		return;
+	}
+
+	cpuid_dispatcher[mode][CPUID_INDEX(func)](vm, regs);
 }
 
 static void
-cpuid_advertise_hw_vendor(unsigned int regs[4])
+cpuid_advertise_hw_vendor(struct vm *vm, unsigned int regs[4])
 {
+	char id[12];
+	int mode;
+
+	memset(id, 0, sizeof(id));
+	mode = vm_get_mode(vm);
+
+	switch (mode) {
+	case BHYVE_MODE:
+		memcpy(id, "bhyve bhyve ", 12);
+		break;
+	case KVM_MODE:
+		memcpy(id, "KVMKVMKVM", 12);
+		break;
+	default:
+		/* NOTREACHED */
+		return;
+	}
+
 	regs[0] = CPUID_VM_HIGH;
-	bcopy(hypervisor_id[hypervisor_mode], &regs[1], 4);
-	bcopy(hypervisor_id[hypervisor_mode]+ 4, &regs[2], 4);
-	bcopy(hypervisor_id[hypervisor_mode]+ 8, &regs[3], 4);
+	bcopy(id, &regs[1], 4);
+	bcopy(id + 4, &regs[2], 4);
+	bcopy(id + 8, &regs[3], 4);
 }
 
 static void
-cpuid_bhyve_hypercall_enabled(unsigned int regs[4])
+bhyve_cpuid_hypercall_mask(struct vm *vm, unsigned int regs[4])
 {
-	regs[0] = hypercalls_enabled;
+	regs[0] = vm_get_hypercall_mask(vm);
+}
+
+static void
+kvm_cpuid_hypercall_mask(struct vm *vm, unsigned int regs[4])
+{
+	regs[0] = 0;
 }
 
 int
@@ -526,13 +570,12 @@ x86_emulate_cpuid(struct vm *vm, int vcpu_id,
 			}
 			break;
 
-		case CPUID_4000_0000:
-		case CPUID_4000_0001:
+		case CPUID_4000_0000 ... CPUID_4000_00FF:
 			/*
 			 * Each of the hypervisor specific CPUIDs should
 			 * be handled with the dispatcher. No exceptions.
 			 */
-			cpuid_dispatch(func, regs);
+			cpuid_dispatch(vm, func, regs);
 			break;
 
 		default:
