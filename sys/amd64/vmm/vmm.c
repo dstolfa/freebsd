@@ -254,10 +254,16 @@ hc_handler_t	hc_handler[VMM_MAX_MODES] = {
 	[BHYVE_MODE]	= bhyve_handle_hypercall
 };
 
-static int64_t bhyve_hypercall_enab_mask(struct vm *, int,
+static int64_t bhyve_hypercall_placeholder(struct vm *, int,
     uint64_t *, struct vm_guest_paging *);
 
-static int64_t kvm_hypercall_enab_mask(struct vm *, int,
+static int64_t kvm_hypercall_vapic_poll_irq(struct vm *, int,
+    uint64_t *, struct vm_guest_paging *);
+static int64_t kvm_hypercall_mmu_op(struct vm *, int,
+    uint64_t *, struct vm_guest_paging *);
+static int64_t kvm_hypercall_kick_cpu(struct vm *, int,
+    uint64_t *, struct vm_guest_paging *);
+static int64_t kvm_hypercall_clock_pairing(struct vm *, int,
     uint64_t *, struct vm_guest_paging *);
 
 /*
@@ -272,10 +278,13 @@ static int64_t kvm_hypercall_enab_mask(struct vm *, int,
  */
 hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][64] = {
 	[BHYVE_MODE] = {
-		[BHYVE_HYPERCALL_ENAB_MASK]	= bhyve_hypercall_enab_mask
+		[BHYVE_HC_PLACEHOLDER]	= bhyve_hypercall_placeholder
 	},
 	[KVM_MODE] = {
-		[KVM_HYPERCALL_ENAB_MASK]	= kvm_hypercall_enab_mask
+		[KVM_HC_VAPIC_POLL_IRQ_INDEX]	= NULL,
+		[KVM_HC_MMU_OP_INDEX]		= NULL,
+		[KVM_HC_KICK_CPU_INDEX]		= kvm_hypercall_kick_cpu,
+		[KVM_HC_CLOCK_PAIRING_INDEX]	= NULL
 	},
 };
 
@@ -288,10 +297,13 @@ hc_dispatcher_t	hc_dispatcher[VMM_MAX_MODES][64] = {
  */
 static int8_t	ring_plevel[VMM_MAX_MODES][64] = {
 	[BHYVE_MODE] = {
-		[BHYVE_HYPERCALL_ENAB_MASK]	= 3
+		[BHYVE_HC_PLACEHOLDER]	= 3
 	},
 	[KVM_MODE] = {
-		[KVM_HYPERCALL_ENAB_MASK]	= 0
+		[KVM_HC_VAPIC_POLL_IRQ_INDEX]	= 0,
+		[KVM_HC_MMU_OP_INDEX]		= 0,
+		[KVM_HC_KICK_CPU_INDEX]		= 0,
+		[KVM_HC_CLOCK_PAIRING_INDEX]	= 0
 	},
 };
 
@@ -1678,8 +1690,8 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 	uint64_t hcid;
 	int error;
 	int max_index[] = {
-		[BHYVE_MODE]	= BHYVE_HYPERCALL_INDEX_MAX,
-		[KVM_MODE]	= KVM_HYPERCALL_INDEX_MAX,
+		[BHYVE_MODE]	= BHYVE_HC_INDEX_MAX,
+		[KVM_MODE]	= KVM_HC_INDEX_MAX,
 	};
 
 	error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RAX, &hcid);
@@ -1715,16 +1727,27 @@ vm_handle_hypercall(struct vm *vm, int vcpuid, struct vm_exit *vmexit, bool *ret
 }
 
 static __inline int64_t
-bhyve_hypercall_enab_mask(struct vm *vm, int vcpuid,
+bhyve_hypercall_placeholder(struct vm *vm, int vcpuid,
     uint64_t *args, struct vm_guest_paging *paging)
 {
 	return (0);
 }
 
 static __inline int64_t
-kvm_hypercall_enab_mask(struct vm *vm, int vcpuid,
+kvm_hypercall_kick_cpu(struct vm *vm, int vcpuid,
     uint64_t *args, struct vm_guest_paging *paging)
 {
+	int apicid;
+	int vcpu_id;
+	struct vcpu *vcpu;
+
+	apicid = args[0];
+	vcpu_id = vm_apicid2vcpuid(vm, apicid);
+	vcpu = &vm->vcpu[vcpu_id];
+	vcpu_lock(vcpu);
+	if (vcpu->state == VCPU_SLEEPING)
+		wakeup_one(vcpu);
+	vcpu_unlock(vcpu);
 	return (0);
 }
 
@@ -2173,10 +2196,10 @@ vm_set_hypercall_mask(struct vm *vm)
 {
 	switch (vm->mode) {
 	case BHYVE_MODE:
-		vm->hcmask = BHYVE_HYPERCALL_MASK;
+		vm->hcmask = BHYVE_HC_MASK;
 		break;
 	case KVM_MODE:
-		vm->hcmask = KVM_HYPERCALL_MASK;
+		vm->hcmask = KVM_HC_MASK;
 		break;
 	default:
 		/* NOTREACHED */

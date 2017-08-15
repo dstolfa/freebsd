@@ -84,11 +84,21 @@ SYSCTL_INT(_hw_vmm_topology, OID_AUTO, cpuid_leaf_b, CTLFLAG_RDTUN,
 
 typedef	void (*cpuid_dispatcher_t)(struct vm *vm, unsigned int regs[4]);
 
-static void	cpuid_advertise_hw_vendor(struct vm *vm, unsigned int regs[4]);
-
+static void	bhyve_cpuid_advertise_hw_vendor(struct vm *vm, unsigned int regs[4]);
 static void	bhyve_cpuid_hypercall_mask(struct vm *vm, unsigned int regs[4]);
 
-static void	kvm_cpuid_hypercall_mask(struct vm *vm, unsigned int regs[4]);
+static void	kvm_cpuid_advertise_hw_vendor(struct vm *vm, unsigned int regs[4]);
+static void	kvm_cpuid_features(struct vm *vm, unsigned int regs[4]);
+
+#define	KVM_FEATURE_CLOCKSOURCE			0
+#define	KVM_FEATURE_NOP_IO_DELAY		1
+#define	KVM_FEATURE_MMU_OP			2 /* deprecated */
+#define	KVM_FEATURE_CLOCKSOURCE2		3
+#define	KVM_FEATURE_ASYNC_PF			4
+#define	KVM_FEATURE_STEAL_TIME			5
+#define	KVM_FEATURE_PV_EOI			6
+#define	KVM_FEATURE_PV_UNHALT			7
+#define	KVM_FEATURE_CLOCKSOURCE_STABLE_BIT	24
 
 /*
  * Dispatches the appropriate CPUID handler based on
@@ -97,16 +107,16 @@ static void	kvm_cpuid_hypercall_mask(struct vm *vm, unsigned int regs[4]);
  * modes. Keep this jumptable as generic as possible
  * and in case of a specific CPUID for each hypervisor
  * mode, the naming convention for the jumptable entry
- * is cpuid_<hypervisor_mode>_functionality.
+ * is mode_cpuid_<cpuid name>
  */
 cpuid_dispatcher_t cpuid_dispatcher[VMM_MAX_MODES][MAX_CPUIDS] = {
 	[BHYVE_MODE] = {
-		[0]	= cpuid_advertise_hw_vendor,
+		[0]	= bhyve_cpuid_advertise_hw_vendor,
 		[1]	= bhyve_cpuid_hypercall_mask,
 	},
 	[KVM_MODE] = {
-		[0]	= cpuid_advertise_hw_vendor,
-		[1]	= kvm_cpuid_hypercall_mask,
+		[0]	= kvm_cpuid_advertise_hw_vendor,
+		[1]	= kvm_cpuid_features,
 	},
 };
 
@@ -150,27 +160,22 @@ cpuid_dispatch(struct vm *vm, unsigned int func, unsigned int regs[4])
 }
 
 static void
-cpuid_advertise_hw_vendor(struct vm *vm, unsigned int regs[4])
+bhyve_cpuid_advertise_hw_vendor(struct vm *vm, unsigned int regs[4])
 {
-	char id[12];
-	int mode;
-
-	memset(id, 0, sizeof(id));
-	mode = vm_get_mode(vm);
-
-	switch (mode) {
-	case BHYVE_MODE:
-		memcpy(id, "bhyve bhyve ", 12);
-		break;
-	case KVM_MODE:
-		memcpy(id, "KVMKVMKVM", 12);
-		break;
-	default:
-		/* NOTREACHED */
-		return;
-	}
+	const char id[12] = "bhyve bhyve ";
 
 	regs[0] = CPUID_VM_HIGH;
+	bcopy(id, &regs[1], 4);
+	bcopy(id + 4, &regs[2], 4);
+	bcopy(id + 8, &regs[3], 4);
+}
+
+static void
+kvm_cpuid_advertise_hw_vendor(struct vm *vm, unsigned int regs[4])
+{
+	const char id[12] = "KVMKVMKVM";
+
+	regs[0] = CPUID_4000_0001;
 	bcopy(id, &regs[1], 4);
 	bcopy(id + 4, &regs[2], 4);
 	bcopy(id + 8, &regs[3], 4);
@@ -183,7 +188,7 @@ bhyve_cpuid_hypercall_mask(struct vm *vm, unsigned int regs[4])
 }
 
 static void
-kvm_cpuid_hypercall_mask(struct vm *vm, unsigned int regs[4])
+kvm_cpuid_features(struct vm *vm, unsigned int regs[4])
 {
 	regs[0] = 0;
 }
