@@ -70,6 +70,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/ktr.h>
 #include <sys/linker.h>
+#include <sys/linker_set.h>
 #include <sys/lock.h>
 #include <sys/malloc.h>
 #include <sys/memrange.h>
@@ -142,6 +143,11 @@ __FBSDID("$FreeBSD$");
 #include <isa/rtc.h>
 #include <x86/init.h>
 
+#include <machine/cputypes.h>
+#include <machine/bhyve_hypercall.h>
+
+#include <x86/x86_var.h>
+
 /* Sanity check for __curthread() */
 CTASSERT(offsetof(struct pcpu, pc_curthread) == 0);
 
@@ -175,6 +181,13 @@ struct init_ops init_ops = {
 #endif
 	.msi_init =			msi_init,
 };
+
+/*
+ * This ensure that the hypercall symbol is defined so that it can be
+ * used to patch all the hypercall instructions in the kernel
+ */
+SET_DECLARE(hypercall, uint32_t);
+
 
 /*
  * The file "conf/ldscript.amd64" defines the symbol "kernphys".  Its value is
@@ -1528,6 +1541,7 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	char *env;
 	size_t kstack0_sz;
 	int late_console;
+	uint32_t **hypercall_instr = NULL;
 
 	/*
  	 * This may be done better later if it gets more high level
@@ -1537,7 +1551,16 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 
 	kmdp = init_ops.parse_preload_data(modulep);
 
+	identify_cpu();
 	identify_hypervisor();
+
+	if (cpu_vendor_id == CPU_VENDOR_AMD) {
+		SET_FOREACH(hypercall_instr, hypercall) {
+			if (hypercall_instr == NULL)
+				break;
+			(**hypercall_instr) ^= (0x18 << 16);
+		}
+	}
 
 	/* Init basic tunables, hz etc */
 	init_param1();
@@ -1645,7 +1668,7 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	    != NULL)
 		vty_set_preferred(VTY_VT);
 
-	identify_cpu();		/* Final stage of CPU initialization */
+	finishidentcpu();	/* Final stage of CPU initialization */
 	initializecpu();	/* Initialize CPU registers */
 	initializecpucache();
 
