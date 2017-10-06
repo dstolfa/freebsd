@@ -58,7 +58,7 @@ dtrace_return_probe_ptr_t	dtrace_return_probe_ptr;
 dtrace_install_probe_ptr_t	dtrace_install_probe_ptr;
 dtrace_uninstall_probe_ptr_t	dtrace_uninstall_probe_ptr;
 
-systrace_probe_func_t		systrace_probe_func;
+systrace_probe_func_t __read_frequently	systrace_probe_func;
 
 static int filt_dtraceattach(struct knote *);
 static void filt_dtracedetach(struct knote *);
